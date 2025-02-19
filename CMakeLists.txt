@@ -73,15 +73,6 @@ FetchContent_Declare(
 )
 list(APPEND DEPS sharc)
 
-# DLSS
-FetchContent_Declare(
-    dlss
-    GIT_REPOSITORY https://github.com/NVIDIA/DLSS.git
-    GIT_TAG main
-    GIT_SHALLOW 1
-)
-list(APPEND DEPS dlss)
-
 if(DEPS)
     message("Downloading dependencies:")
     message(STATUS "${DEPS} ...")
@@ -106,8 +97,12 @@ endif()
 
 # External/NRIFramework
 set(NRIF_SHADERS_PATH "${SHADER_OUTPUT_PATH}" CACHE STRING "")
+set(NRI_SHADERS_PATH "${SHADER_OUTPUT_PATH}" CACHE STRING "")
 option(NRI_ENABLE_NONE_SUPPORT "" OFF)
 option(NRI_ENABLE_D3D11_SUPPORT "" OFF)
+option(NRI_ENABLE_NIS_SDK "" ON)
+option(NRI_ENABLE_NGX_SDK "" ON)
+option(NRI_ENABLE_FFX_SDK "" ON)
 add_subdirectory("External/NRIFramework")
 
 # External/NRD
@@ -151,6 +146,7 @@ add_executable(${PROJECT_NAME} ${NRD_SAMPLE_SOURCE})
 target_include_directories(${PROJECT_NAME} PRIVATE
     "Source"
     "External"
+    "$ENV{VULKAN_SDK}/include"
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
@@ -163,7 +159,6 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     ML_SOURCE_DIR=${ML_SOURCE_DIR}
     NRI_SOURCE_DIR=${NRI_SOURCE_DIR}/Include
     NRD_SOURCE_DIR=${NRD_SOURCE_DIR}/Shaders/Include
-    NIS_SOURCE_DIR=${dlss_SOURCE_DIR}/NVIDIAImageScaling/NIS
     SHARC_SOURCE_DIR=${sharc_SOURCE_DIR}/Include
 )
 target_compile_options(${PROJECT_NAME} PRIVATE ${COMPILE_OPTIONS})
@@ -187,41 +182,6 @@ if(WIN32 AND MSVC)
     configure_file(.args "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.args.json" COPYONLY)
 endif()
 
-# Function - copy a library to the output folder of the project
-function(copy_library PROJECT LIBRARY_NAME)
-    add_custom_command(TARGET ${PROJECT} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LIBRARY_NAME} $<TARGET_FILE_DIR:${PROJECT}>
-        COMMAND_EXPAND_LISTS)
-endfunction()
-
-# DLSS
-if(WIN32)
-    find_library(NGX_D_LIB NAMES nvsdk_ngx_s_dbg.lib PATHS "${dlss_SOURCE_DIR}/lib/Windows_x86_64/x64")
-    find_library(NGX_LIB NAMES nvsdk_ngx_s.lib PATHS "${dlss_SOURCE_DIR}/lib/Windows_x86_64/x64")
-    find_file(DLSS_SR_DLL NAMES nvngx_dlss.dll PATHS "${dlss_SOURCE_DIR}/lib/Windows_x86_64/rel")
-    find_file(DLSS_RR_DLL NAMES nvngx_dlssd.dll PATHS "${dlss_SOURCE_DIR}/lib/Windows_x86_64/rel")
-else()
-    find_library(NGX_D_LIB NAMES libnvsdk_ngx.a PATHS "${dlss_SOURCE_DIR}/lib/Linux_x86_64")
-    find_library(NGX_LIB NAMES libnvsdk_ngx.a PATHS "${dlss_SOURCE_DIR}/lib/Linux_x86_64")
-    find_file(DLSS_SR_DLL NAMES libnvidia-ngx-dlss.so.310.1.0 PATHS "${dlss_SOURCE_DIR}/lib/Linux_x86_64/rel")
-    find_file(DLSS_RR_DLL NAMES libnvidia-ngx-dlssd.so.310.1.0 PATHS "${dlss_SOURCE_DIR}/lib/Linux_x86_64/rel")
-endif()
-
-target_include_directories(${PROJECT_NAME} PRIVATE
-    "$ENV{VULKAN_SDK}/include"
-    "${dlss_SOURCE_DIR}/include"
-    "${dlss_SOURCE_DIR}/NVIDIAImageScaling/NIS"
-)
-target_link_libraries(${PROJECT_NAME} PRIVATE debug ${NGX_D_LIB})
-target_link_libraries(${PROJECT_NAME} PRIVATE optimized ${NGX_LIB})
-
-copy_library(${PROJECT_NAME} ${DLSS_SR_DLL})
-copy_library(${PROJECT_NAME} ${DLSS_RR_DLL})
-
-file(GLOB DLSS_INTEGRATION_HEADERS "Source/DLSS/*.h" "Source/DLSS/*.hpp")
-source_group("DLSS Integration" FILES ${DLSS_INTEGRATION_HEADERS})
-target_sources(${PROJECT_NAME} PRIVATE ${DLSS_INTEGRATION_HEADERS})
-
 # Shaders
 file(GLOB_RECURSE SHADERS
     "Shaders/*.hlsl"
@@ -235,14 +195,14 @@ set(SHADERMAKE_GENERAL_ARGS
     --binary
     --shaderModel 6_6
     --sourceDir "Shaders"
-    -c Shaders.cfg
+    --ignoreConfigDir
+    -c "Shaders/Shaders.cfg"
     -o "${SHADER_OUTPUT_PATH}"
     -I "Shaders"
     -I "External"
     -I "${ML_SOURCE_DIR}"
     -I "${NRD_SOURCE_DIR}/Shaders/Include"
     -I "${NRI_SOURCE_DIR}/Include"
-    -I "${dlss_SOURCE_DIR}/NVIDIAImageScaling/NIS"
     -I "${sharc_SOURCE_DIR}/Include"
     -D NRD_NORMAL_ENCODING=${NRD_NORMAL_ENCODING}
     -D NRD_ROUGHNESS_ENCODING=${NRD_ROUGHNESS_ENCODING}

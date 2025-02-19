@@ -29,7 +29,6 @@ license agreement from NVIDIA CORPORATION is strictly prohibited.
 #define USE_PSR                             1 // allow primary surface replacement
 #define USE_SHARC_DITHERING                 1 // must be in [0; 1] range
 #define USE_TRANSLUCENCY                    1 // translucent foliage
-#define USE_NIS                             1 // NIS filter (debug only)
 #define USE_SHARC_V_DEPENDENT               1 // needed to get a full match with prev frame data // TODO: improve multi-bounce low-roughness case
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
 
@@ -135,16 +134,6 @@ license agreement from NVIDIA CORPORATION is strictly prohibited.
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking
 #define BLUE_NOISE_TEMPORAL_DIM             4 // good values: 4-8 for shadows, 8-16 for occlusion, 8-32 for lighting
-
-// NVIDIA Image Scaler
-#define NIS_SCALER                          1
-#define NIS_HDR_MODE                        0
-#define NIS_BLOCK_WIDTH                     32
-#define NIS_BLOCK_HEIGHT                    32
-#define NIS_THREAD_GROUP_SIZE               128
-#define NIS_USE_HALF_PRECISION              1
-#define NIS_HLSL                            1
-#define NIS_VIEWPORT_SUPPORT                0
 
 // Other
 #define FP16_MAX                            65504.0
@@ -314,34 +303,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     uint32_t gSR;
     uint32_t gRR;
     uint32_t gIsSrgb;
-
-    // NIS
-    float gNisDetectRatio;
-    float gNisDetectThres;
-    float gNisMinContrastRatio;
-    float gNisRatioNorm;
-    float gNisContrastBoost;
-    float gNisEps;
-    float gNisSharpStartY;
-    float gNisSharpScaleY;
-    float gNisSharpStrengthMin;
-    float gNisSharpStrengthScale;
-    float gNisSharpLimitMin;
-    float gNisSharpLimitScale;
-    float gNisScaleX;
-    float gNisScaleY;
-    float gNisDstNormX;
-    float gNisDstNormY;
-    float gNisSrcNormX;
-    float gNisSrcNormY;
-    uint32_t gNisInputViewportOriginX;
-    uint32_t gNisInputViewportOriginY;
-    uint32_t gNisInputViewportWidth;
-    uint32_t gNisInputViewportHeight;
-    uint32_t gNisOutputViewportOriginX;
-    uint32_t gNisOutputViewportOriginY;
-    uint32_t gNisOutputViewportWidth;
-    uint32_t gNisOutputViewportHeight;
 };
 
 NRI_RESOURCE( cbuffer, MorphMeshUpdateVerticesConstants, b, 0, 3 )

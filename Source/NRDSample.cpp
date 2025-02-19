@@ -16,13 +16,6 @@ license agreement from NVIDIA CORPORATION is strictly prohibited.
 #include "NRD.h"
 #include "NRDIntegration.hpp"
 
-// DLSS and NRI-based integration
-#include "Extensions/NRIWrapperVK.h"
-#include "DLSS/DLSSIntegration.hpp"
-
-// NIS
-#include "NIS_Config.h"
-
 #ifdef _WIN32
     #undef APIENTRY
     #include <windows.h>
@@ -43,10 +36,12 @@ constexpr float ACCUMULATION_TIME                   = 0.5f; // seconds
 constexpr float NEAR_Z                              = 0.001f; // m
 constexpr float GLASS_THICKNESS                     = 0.002f; // m
 constexpr float CAMERA_BACKWARD_OFFSET              = 0.0f; // m, 3rd person camera offset
+constexpr float NIS_SHARPNESS                       = 0.2f;
 constexpr bool CAMERA_RELATIVE                      = true;
 constexpr bool ALLOW_BLAS_MERGING                   = true;
 constexpr bool ALLOW_HDR                            = false; // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS         = true; // saves a bit of memory and performance
+constexpr bool USE_DLSS_TNN                         = false; // switch to TNN (better) model from CNN
 constexpr bool NRD_ALLOW_DESCRIPTOR_CACHING         = true;
 constexpr bool NRD_PROMOTE_FLOAT16_TO_32            = false;
 constexpr bool NRD_DEMOTE_FLOAT32_TO_16             = false;
@@ -56,6 +51,8 @@ constexpr uint32_t TEXTURES_PER_MATERIAL            = 4;
 constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM      = 32;
 constexpr uint32_t DYNAMIC_CONSTANT_BUFFER_SIZE     = 1024 * 1024; // 1MB
 constexpr uint32_t MAX_ANIMATION_HISTORY_FRAME_NUM  = 2;
+
+#define USE_FSR 0 // replace DLSS-SR with FSR
 
 #if( SIGMA_TRANSLUCENT == 1 )
     #define SIGMA_VARIANT                           nrd::Denoiser::SIGMA_SHADOW_TRANSLUCENCY
@@ -192,8 +189,6 @@ enum class Texture : uint32_t
 #endif
 
     // Read-only
-    NisData1,
-    NisData2,
     MaterialTextures,
 };
 
@@ -209,7 +204,6 @@ enum class Pipeline : uint32_t
     Composition,
     TraceTransparent,
     Taa,
-    Nis,
     Final,
     DlssBefore,
     DlssAfter,
@@ -322,8 +316,6 @@ enum class Descriptor : uint32_t
 #endif
 
     // Read-only
-    NisData1,
-    NisData2,
     MaterialTextures,
 };
 
@@ -335,9 +327,6 @@ enum class DescriptorSet : uint32_t
     TraceTransparent1,
     Taa1a,
     Taa1b,
-    Nis1,
-    Nis1a,
-    Nis1b,
     Final1,
     DlssBefore1,
     DlssAfter1,
@@ -357,10 +346,11 @@ enum class DescriptorSet : uint32_t
 struct NRIInterface
     : public nri::CoreInterface
     , public nri::HelperInterface
-    , public nri::StreamerInterface
-    , public nri::SwapChainInterface
     , public nri::RayTracingInterface
     , public nri::ResourceAllocatorInterface
+    , public nri::StreamerInterface
+    , public nri::SwapChainInterface
+    , public nri::UpscalerInterface
 {};
 
 struct Frame
@@ -604,14 +594,14 @@ private:
     nrd::SigmaSettings m_SigmaSettings = {};
     nrd::ReferenceSettings m_ReferenceSettings = {};
 
-    // DLSS
-    DlssIntegration m_DLSS;
-
     // NRI
     NRIInterface NRI = {};
     utils::Scene m_Scene;
     nri::Device* m_Device = nullptr;
     nri::Streamer* m_Streamer = nullptr;
+    nri::Upscaler* m_NIS = nullptr;
+    nri::Upscaler* m_DLSR = nullptr;
+    nri::Upscaler* m_DLRR = nullptr;
     nri::SwapChain* m_SwapChain = nullptr;
     nri::Queue* m_GraphicsQueue = nullptr;
     nri::Fence* m_FrameFence;
@@ -678,7 +668,9 @@ Sample::~Sample()
 
     NRI.WaitForIdle(*m_GraphicsQueue);
 
-    m_DLSS.Shutdown();
+    NRI.DestroyUpscaler(*m_NIS);
+    NRI.DestroyUpscaler(*m_DLSR);
+    NRI.DestroyUpscaler(*m_DLRR);
 
     m_NRD.Destroy();
 
@@ -734,64 +726,95 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI)
     deviceCreationDesc.enableNRIValidation = m_DebugNRI;
     deviceCreationDesc.vkBindingOffsets = VK_BINDING_OFFSETS;
     deviceCreationDesc.adapterDesc = &bestAdapterDesc;
-    if (bestAdapterDesc.vendor == nri::Vendor::NVIDIA)
-        DlssIntegration::SetupDeviceExtensions(deviceCreationDesc);
-
     NRI_ABORT_ON_FAILURE( nri::nriCreateDevice(deviceCreationDesc, m_Device) );
 
     NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::CoreInterface), (nri::CoreInterface*)&NRI) );
     NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::HelperInterface), (nri::HelperInterface*)&NRI) );
-    NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::StreamerInterface), (nri::StreamerInterface*)&NRI) );
-    NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::SwapChainInterface), (nri::SwapChainInterface*)&NRI) );
     NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::RayTracingInterface), (nri::RayTracingInterface*)&NRI) );
     NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::ResourceAllocatorInterface), (nri::ResourceAllocatorInterface*)&NRI) );
+    NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::StreamerInterface), (nri::StreamerInterface*)&NRI) );
+    NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::SwapChainInterface), (nri::SwapChainInterface*)&NRI) );
+    NRI_ABORT_ON_FAILURE( nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::UpscalerInterface), (nri::UpscalerInterface*)&NRI) );
 
     NRI_ABORT_ON_FAILURE( NRI.GetQueue(*m_Device, nri::QueueType::GRAPHICS, 0, m_GraphicsQueue) );
     NRI_ABORT_ON_FAILURE( NRI.CreateFence(*m_Device, 0, m_FrameFence) );
 
-    // Create streamer
-    nri::StreamerDesc streamerDesc = {};
-    streamerDesc.constantBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
-    streamerDesc.constantBufferSize = DYNAMIC_CONSTANT_BUFFER_SIZE;
-    streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
-    streamerDesc.dynamicBufferUsageBits = nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT;
-    streamerDesc.frameInFlightNum = BUFFERED_FRAME_MAX_NUM + 1; // TODO: "+1" for just in case?
-    NRI_ABORT_ON_FAILURE( NRI.CreateStreamer(*m_Device, streamerDesc, m_Streamer) );
+    { // Create streamer
+        nri::StreamerDesc streamerDesc = {};
+        streamerDesc.constantBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
+        streamerDesc.constantBufferSize = DYNAMIC_CONSTANT_BUFFER_SIZE;
+        streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
+        streamerDesc.dynamicBufferUsageBits = nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT;
+        streamerDesc.frameInFlightNum = BUFFERED_FRAME_MAX_NUM + 1; // TODO: "+1" for just in case?
+        NRI_ABORT_ON_FAILURE( NRI.CreateStreamer(*m_Device, streamerDesc, m_Streamer) );
+    }
 
-    // Initialize DLSS
+    { // Create upscaler: NIS
+        nri::UpscalerDesc upscalerDesc = {};
+        upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
+        upscalerDesc.type = nri::UpscalerType::NIS;
+        NRI_ABORT_ON_FAILURE( NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS) );
+    }
+
+    // Create upscalers: DLSR and DLRR
     m_RenderResolution = GetOutputResolution();
 
-    if (m_DlssQuality != -1 && m_DLSS.InitializeLibrary(*m_Device, ""))
+    if (m_DlssQuality != -1)
     {
-        DlssInitDesc dlssInitDesc = {};
-        dlssInitDesc.outputResolution = {GetOutputResolution().x, GetOutputResolution().y};
-        dlssInitDesc.quality = (DlssQuality)m_DlssQuality;
-        dlssInitDesc.hasHdrContent = NRD_MODE < OCCLUSION;
-        dlssInitDesc.allowAutoExposure = NIS_HDR_MODE == 1;
+        nri::UpscalerBits upscalerFlags = nri::UpscalerBits::AUTO_EXPOSURE | nri::UpscalerBits::DEPTH_INFINITE;
+        upscalerFlags |= NRD_MODE < OCCLUSION ? nri::UpscalerBits::HDR : nri::UpscalerBits::NONE;
+        upscalerFlags |= m_ReversedZ ? nri::UpscalerBits::DEPTH_INVERTED : nri::UpscalerBits::NONE;
 
-        DlssSettings dlssSettings = {};
-        bool result = m_DLSS.GetOptimalSettings(dlssInitDesc.outputResolution, (DlssQuality)m_DlssQuality, dlssSettings);
-        if (result)
+        if (NRI.IsUpscalerSupported(*m_Device, nri::UpscalerType::DLSR))
         {
-            float sx = float(dlssSettings.dynamicResolutionMin.Width) / float(dlssSettings.optimalResolution.Width);
-            float sy = float(dlssSettings.dynamicResolutionMin.Height) / float(dlssSettings.optimalResolution.Height);
+            nri::VideoMemoryInfo videoMemoryInfo1 = {};
+            NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo1);
 
-            m_RenderResolution = {dlssSettings.optimalResolution.Width, dlssSettings.optimalResolution.Height};
+            nri::UpscalerDesc upscalerDesc = {};
+            upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
+            upscalerDesc.type = USE_FSR ? nri::UpscalerType::FSR : nri::UpscalerType::DLSR;
+            upscalerDesc.mode = (nri::UpscalerMode)((int32_t)nri::UpscalerMode::ULTRA_PERFORMANCE - m_DlssQuality);            
+            upscalerDesc.flags = upscalerFlags;
+            upscalerDesc.preset = USE_DLSS_TNN ? 10 : 0;
+            NRI_ABORT_ON_FAILURE( NRI.CreateUpscaler(*m_Device, upscalerDesc, m_DLSR) );
+
+            nri::UpscalerProps upscalerProps = {};
+            NRI.GetUpscalerProps(*m_DLSR, upscalerProps);
+
+            float sx = float(upscalerProps.renderResolutionMin.w) / float(upscalerProps.renderResolution.w);
+            float sy = float(upscalerProps.renderResolutionMin.h) / float(upscalerProps.renderResolution.h);
+
+            m_RenderResolution = {upscalerProps.renderResolution.w, upscalerProps.renderResolution.h};
             m_MinResolutionScale = sy > sx ? sy : sx;
 
+            nri::VideoMemoryInfo videoMemoryInfo2 = {};
+            NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo2);
+
             printf("Render resolution (%u, %u)\n", m_RenderResolution.x, m_RenderResolution.y);
+            printf("DLSS-SR: allocated %.2f Mb\n", (videoMemoryInfo2.usageSize - videoMemoryInfo1.usageSize) / (1024.0f * 1024.0f));
 
-            result = m_DLSS.Initialize(m_GraphicsQueue, dlssInitDesc);
+            m_Settings.SR = true;
         }
 
-        if (!result)
+        if (NRI.IsUpscalerSupported(*m_Device, nri::UpscalerType::DLRR))
         {
-            printf("DLSS: initialization failed!\n");
-            m_DLSS.Shutdown();
-        }
+            nri::VideoMemoryInfo videoMemoryInfo1 = {};
+            NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo1);
 
-        m_Settings.SR = m_DLSS.HasSR();
-        m_Settings.RR = m_DLSS.HasRR();
+            nri::UpscalerDesc upscalerDesc = {};
+            upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
+            upscalerDesc.type = nri::UpscalerType::DLRR;
+            upscalerDesc.mode = (nri::UpscalerMode)((int32_t)nri::UpscalerMode::ULTRA_PERFORMANCE - m_DlssQuality);
+            upscalerDesc.flags = upscalerFlags;
+            NRI_ABORT_ON_FAILURE( NRI.CreateUpscaler(*m_Device, upscalerDesc, m_DLRR) );
+
+            nri::VideoMemoryInfo videoMemoryInfo2 = {};
+            NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo2);
+
+            printf("DLSS-RR: allocated %.2f Mb\n", (videoMemoryInfo2.usageSize - videoMemoryInfo1.usageSize) / (1024.0f * 1024.0f));
+
+            m_Settings.RR = true;
+        }
     }
 
     // Initialize NRD: REBLUR, RELAX and SIGMA in one instance
@@ -1036,10 +1059,18 @@ void Sample::PrepareFrame(uint32_t frameIndex)
     #endif
         };
 
+        static std::array<const char*, 4> nrdModes =
+        {
+            "NORMAL",
+            "SH",
+            "OCCLUSION"
+            "DIRECTIONAL_OCCLUSION"
+        };
+
         const nrd::LibraryDesc& nrdLibraryDesc = nrd::GetLibraryDesc();
 
         char buf[256];
-        snprintf(buf, sizeof(buf) - 1, "NRD v%u.%u.%u (%u.%u) [Tab]", nrdLibraryDesc.versionMajor, nrdLibraryDesc.versionMinor, nrdLibraryDesc.versionBuild, nrdLibraryDesc.normalEncoding, nrdLibraryDesc.roughnessEncoding);
+        snprintf(buf, sizeof(buf) - 1, "NRD v%u.%u.%u (%u.%u) - %s [Tab]", nrdLibraryDesc.versionMajor, nrdLibraryDesc.versionMinor, nrdLibraryDesc.versionBuild, nrdLibraryDesc.normalEncoding, nrdLibraryDesc.roughnessEncoding, nrdModes[NRD_MODE]);
 
         ImGui::SetNextWindowPos(ImVec2(m_Settings.windowAlignment ? 5.0f : GetOutputResolution().x - m_UiWidth - 5.0f, 5.0f));
         ImGui::SetNextWindowSize(ImVec2(0.0f, 0.0f));
@@ -1115,12 +1146,12 @@ void Sample::PrepareFrame(uint32_t frameIndex)
                     ImGui::SliderFloat("FOV (deg)", &m_Settings.camFov, 1.0f, 160.0f, "%.1f");
                     ImGui::SliderFloat("Exposure", &m_Settings.exposure, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 
-                    if (m_DLSS.HasRR())
+                    if (m_DLRR)
                     {
                         ImGui::Checkbox("DLSS-RR", &m_Settings.RR);
                         ImGui::SameLine();
                     }
-                    if (m_DLSS.HasSR() && !m_Settings.RR)
+                    if (m_DLSR && !m_Settings.RR)
                     {
                         ImGui::Checkbox("DLSS-SR", &m_Settings.SR);
                         ImGui::SameLine();
@@ -1423,11 +1454,7 @@ void Sample::PrepareFrame(uint32_t frameIndex)
                             bool isSame = true;
                             if (m_ReblurSettings.antilagSettings.luminanceSigmaScale != defaults.antilagSettings.luminanceSigmaScale)
                                 isSame = false;
-                            else if (m_ReblurSettings.antilagSettings.hitDistanceSigmaScale != defaults.antilagSettings.hitDistanceSigmaScale)
-                                isSame = false;
                             else if (m_ReblurSettings.antilagSettings.luminanceSensitivity != defaults.antilagSettings.luminanceSensitivity)
-                                isSame = false;
-                            else if (m_ReblurSettings.antilagSettings.hitDistanceSensitivity != defaults.antilagSettings.hitDistanceSensitivity)
                                 isSame = false;
                             else if (m_ReblurSettings.historyFixFrameNum != defaults.historyFixFrameNum)
                                 isSame = false;
@@ -1566,9 +1593,9 @@ void Sample::PrepareFrame(uint32_t frameIndex)
 
                             if (m_ReblurSettings.maxAccumulatedFrameNum && m_ReblurSettings.maxStabilizedFrameNum)
                             {
-                                ImGui::Text("ANTI-LAG (luminance / hit distance):");
-                                ImGui::SliderFloat2("Sigma scale", &m_ReblurSettings.antilagSettings.luminanceSigmaScale, 1.0f, 5.0f, "%.1f");
-                                ImGui::SliderFloat2("Sensitivity", &m_ReblurSettings.antilagSettings.luminanceSensitivity, 1.0f, 5.0f, "%.1f");
+                                ImGui::Text("ANTI-LAG:");
+                                ImGui::SliderFloat("Sigma scale", &m_ReblurSettings.antilagSettings.luminanceSigmaScale, 1.0f, 5.0f, "%.1f");
+                                ImGui::SliderFloat("Sensitivity", &m_ReblurSettings.antilagSettings.luminanceSensitivity, 1.0f, 5.0f, "%.1f");
                             }
                         }
                         else if (m_Settings.denoiser == DENOISER_RELAX)
@@ -1815,14 +1842,14 @@ void Sample::PrepareFrame(uint32_t frameIndex)
                                     " --binary"
                                     " --shaderModel 6_6"
                                     " --sourceDir Shaders"
-                                    " -c Shaders.cfg"
+                                    " --ignoreConfigDir"
+                                    " -c Shaders/Shaders.cfg"
                                     " -o _Shaders"
                                     " -I Shaders"
                                     " -I External"
                                     " -I " STRINGIFY(ML_SOURCE_DIR)
                                     " -I " STRINGIFY(NRD_SOURCE_DIR)
                                     " -I " STRINGIFY(NRI_SOURCE_DIR)
-                                    " -I " STRINGIFY(NIS_SOURCE_DIR)
                                     " -I " STRINGIFY(SHARC_SOURCE_DIR)
                                     " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING)
                                     " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING);
@@ -1833,8 +1860,9 @@ void Sample::PrepareFrame(uint32_t frameIndex)
                                     " --binary --header"
                                     " --allResourcesBound"
                                     " --vulkanVersion 1.2"
-                                    "  --sourceDir Shaders/Source"
-                                    " -c External/NRD/Shaders.cfg"
+                                    " --sourceDir Shaders/Source"
+                                    " --ignoreConfigDir"
+                                    " -c External/NRD/Shaders/Shaders.cfg"
                                     " -o _Shaders"
                                     " -I " STRINGIFY(ML_SOURCE_DIR)
                                     " -I Shaders/Include"
@@ -2021,8 +2049,8 @@ void Sample::PrepareFrame(uint32_t frameIndex)
                                     // Reset some settings to defaults to avoid a potential confusion
                                     m_Settings.debug = 0.0f;
                                     m_Settings.denoiser = DENOISER_REBLUR;
-                                    m_Settings.RR = m_DLSS.HasRR();
-                                    m_Settings.SR = m_DLSS.HasSR();
+                                    m_Settings.RR = m_DLRR;
+                                    m_Settings.SR = m_DLSR;
                                     m_Settings.TAA = true;
                                     m_Settings.cameraJitter = true;
                                     m_Settings.onScreen = clamp(m_Settings.onScreen, 0, (int32_t)helper::GetCountOf(onScreenModes));
@@ -2371,16 +2399,16 @@ void Sample::PrepareFrame(uint32_t frameIndex)
     m_ReblurSettings.maxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_ReblurSettings.maxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
     m_ReblurSettings.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
-    m_ReblurSettings.enableMaterialTestForDiffuse = true;
-    m_ReblurSettings.enableMaterialTestForSpecular = true;
+    m_ReblurSettings.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
+    m_ReblurSettings.minMaterialForSpecular = MATERIAL_ID_METAL;
 
     m_RelaxSettings.diffuseMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
     m_RelaxSettings.specularMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.specularMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
     m_RelaxSettings.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
-    m_RelaxSettings.enableMaterialTestForDiffuse = true;
-    m_RelaxSettings.enableMaterialTestForSpecular = true;
+    m_RelaxSettings.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
+    m_RelaxSettings.minMaterialForSpecular = MATERIAL_ID_METAL;
 
     UpdateConstantBuffer(frameIndex, resetHistoryFactor);
     GatherInstanceData();
@@ -2713,13 +2741,6 @@ void Sample::CreatePipelines()
 
     { // Pipeline::Taa
         pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "TAA.cs", shaderCodeStorage);
-
-        NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, pipeline));
-        m_Pipelines.push_back(pipeline);
-    }
-
-    { // Pipeline::Nis
-        pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "NIS.cs", shaderCodeStorage);
 
         NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, pipeline));
         m_Pipelines.push_back(pipeline);
@@ -3080,8 +3101,37 @@ void Sample::CreateAccelerationStructures()
     // Record
     NRI.BeginCommandBuffer(*commandBuffer, nullptr);
     {
+        std::vector<nri::BufferBarrierDesc> bufferBarriers;
+
+        // Barriers (write)
+        for (size_t i = 0; i < parameters.size(); i++)
+        {
+            const Parameters& params = parameters[i];
+            nri::BufferBarrierDesc bufferBarrier = {};
+            bufferBarrier.buffer = NRI.GetAccelerationStructureBuffer(*params.accelerationStructure);
+            bufferBarrier.after = {nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE};
+
+            bufferBarriers.push_back(bufferBarrier);
+        }
+
+        nri::BarrierGroupDesc barrierGroupDesc = {};
+        barrierGroupDesc.bufferNum = (uint32_t)bufferBarriers.size();
+        barrierGroupDesc.buffers = bufferBarriers.data();
+
+        NRI.CmdBarrier(*commandBuffer, barrierGroupDesc);
+
+        // Build
         for (const Parameters& params : parameters)
             NRI.CmdBuildBottomLevelAccelerationStructure(*commandBuffer, params.geometryObjectsNum, &geometryObjects[params.geometryObjectBase], params.buildBits, *params.accelerationStructure, *scratchBuffer, params.scratchOffset);
+
+        // Barriers (read)
+        for (nri::BufferBarrierDesc& bufferBarrier : bufferBarriers)
+        {
+            bufferBarrier.before = bufferBarrier.after;
+            bufferBarrier.after = {nri::AccessBits::ACCELERATION_STRUCTURE_READ, nri::StageBits::ACCELERATION_STRUCTURE};
+        }
+
+        NRI.CmdBarrier(*commandBuffer, barrierGroupDesc);
     }
     NRI.EndCommandBuffer(*commandBuffer);
 
@@ -3326,11 +3376,6 @@ void Sample::CreateResources(nri::Format swapChainFormat)
         nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::SHADER_RESOURCE_STORAGE, nri::AccessBits::SHADER_RESOURCE);
 #endif
 
-    CreateTexture(descriptorDescs, "Texture::NisData1", nri::Format::RGBA16_SFLOAT, kFilterSize / 4, kPhaseCount, 1, 1,
-        nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::UNKNOWN);
-    CreateTexture(descriptorDescs, "Texture::NisData2", nri::Format::RGBA16_SFLOAT, kFilterSize / 4, kPhaseCount, 1, 1,
-        nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::UNKNOWN);
-
     for (const utils::Texture* texture : m_Scene.textures)
         CreateTexture(descriptorDescs, "", texture->GetFormat(), texture->GetWidth(), texture->GetHeight(), texture->GetMipNum(), texture->GetArraySize(), nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::UNKNOWN);
 
@@ -3406,7 +3451,7 @@ void Sample::CreateDescriptorSets()
     nri::DescriptorSet* descriptorSet = nullptr;
 
 
-    { // SET_GLOBAL
+    { // DescriptorSet::Global0
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_GLOBAL, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
@@ -3566,81 +3611,6 @@ void Sample::CreateDescriptorSets()
         const nri::Descriptor* storageResources[] =
         {
             Get(Descriptor::TaaHistoryPrev_StorageTexture),
-        };
-
-        NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
-        m_DescriptorSets.push_back(descriptorSet);
-
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] =
-        {
-            { resources, helper::GetCountOf(resources) },
-            { storageResources, helper::GetCountOf(storageResources) },
-        };
-
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-    }
-
-    { // DescriptorSet::Nis1
-        const nri::Descriptor* resources[] =
-        {
-            Get(Descriptor::DlssOutput_Texture),
-            Get(Descriptor::NisData1),
-            Get(Descriptor::NisData2),
-        };
-
-        const nri::Descriptor* storageResources[] =
-        {
-            Get(Descriptor::PreFinal_StorageTexture),
-        };
-
-        NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
-        m_DescriptorSets.push_back(descriptorSet);
-
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] =
-        {
-            { resources, helper::GetCountOf(resources) },
-            { storageResources, helper::GetCountOf(storageResources) },
-        };
-
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-    }
-
-    { // DescriptorSet::Nis1a
-        const nri::Descriptor* resources[] =
-        {
-            Get(Descriptor::TaaHistory_Texture),
-            Get(Descriptor::NisData1),
-            Get(Descriptor::NisData2),
-        };
-
-        const nri::Descriptor* storageResources[] =
-        {
-            Get(Descriptor::PreFinal_StorageTexture),
-        };
-
-        NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
-        m_DescriptorSets.push_back(descriptorSet);
-
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] =
-        {
-            { resources, helper::GetCountOf(resources) },
-            { storageResources, helper::GetCountOf(storageResources) },
-        };
-
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-    }
-
-    { // DescriptorSet::Nis1b
-        const nri::Descriptor* resources[] =
-        {
-            Get(Descriptor::TaaHistoryPrev_Texture),
-            Get(Descriptor::NisData1),
-            Get(Descriptor::NisData2),
-        };
-
-        const nri::Descriptor* storageResources[] =
-        {
-            Get(Descriptor::PreFinal_StorageTexture),
         };
 
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
@@ -3965,8 +3935,6 @@ void Sample::UploadStaticData()
 
     // Gather subresources for read-only textures
     std::vector<nri::TextureSubresourceUploadDesc> subresources;
-    subresources.push_back( {coef_scale_fp16, 1, (kFilterSize / 4) * 8, (kFilterSize / 4) * kPhaseCount * 8} );
-    subresources.push_back( {coef_usm_fp16, 1, (kFilterSize / 4) * 8, (kFilterSize / 4) * kPhaseCount * 8} );
     for (const utils::Texture* texture : m_Scene.textures)
     {
         for (uint32_t layer = 0; layer < texture->GetArraySize(); layer++)
@@ -3983,9 +3951,7 @@ void Sample::UploadStaticData()
 
     // Gather upload data for read-only textures
     std::vector<nri::TextureUploadDesc> textureUploadDescs;
-    textureUploadDescs.push_back( {&subresources[0], Get(Texture::NisData1), {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}} );
-    textureUploadDescs.push_back( {&subresources[1], Get(Texture::NisData2), {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}} );
-    size_t subresourceOffset = 2;
+    size_t subresourceOffset = 0;
 
     for (size_t i = 0; i < m_Scene.textures.size(); i++)
     {
@@ -4354,25 +4320,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
 
     m_SdrScale = displayDesc.sdrLuminance / 80.0f;
 
-    // NIS
-    NISConfig config = {};
-    {
-        float sharpness = m_Settings.sharpness + lerp( (1.0f - m_Settings.sharpness) * 0.25f, 0.0f, (m_Settings.resolutionScale - 0.5f) * 2.0f );
-
-        uint4 dimsOut = uint4(GetOutputResolution().x, GetOutputResolution().y, GetOutputResolution().x, GetOutputResolution().y);
-        uint4 dimsIn = uint4(rectW, rectH, m_RenderResolution.x, m_RenderResolution.y);
-        if (IsDlssEnabled())
-            dimsIn = dimsOut;
-
-        NVScalerUpdateConfig
-        (
-            config, sharpness,
-            0, 0, dimsIn.x, dimsIn.y, dimsIn.z, dimsIn.w,
-            0, 0, dimsOut.x, dimsOut.y, dimsOut.z, dimsOut.w,
-            (NISHDRMode)NIS_HDR_MODE
-        );
-    }
-
     GlobalConstants constants;
     {
         constants.gViewToWorld                                  = m_Camera.state.mViewToWorld;
@@ -4441,32 +4388,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gSR                                           = (m_Settings.SR && !m_Settings.RR) ? 1 : 0;
         constants.gRR                                           = m_Settings.RR ? 1 : 0;
         constants.gIsSrgb                                       = (m_IsSrgb && (onScreen == SHOW_FINAL || onScreen == SHOW_BASE_COLOR)) ? 1 : 0;
-        constants.gNisDetectRatio                               = config.kDetectRatio;
-        constants.gNisDetectThres                               = config.kDetectThres;
-        constants.gNisMinContrastRatio                          = config.kMinContrastRatio;
-        constants.gNisRatioNorm                                 = config.kRatioNorm;
-        constants.gNisContrastBoost                             = config.kContrastBoost;
-        constants.gNisEps                                       = config.kEps;
-        constants.gNisSharpStartY                               = config.kSharpStartY;
-        constants.gNisSharpScaleY                               = config.kSharpScaleY;
-        constants.gNisSharpStrengthMin                          = config.kSharpStrengthMin;
-        constants.gNisSharpStrengthScale                        = config.kSharpStrengthScale;
-        constants.gNisSharpLimitMin                             = config.kSharpLimitMin;
-        constants.gNisSharpLimitScale                           = config.kSharpLimitScale;
-        constants.gNisScaleX                                    = config.kScaleX;
-        constants.gNisScaleY                                    = config.kScaleY;
-        constants.gNisDstNormX                                  = config.kDstNormX;
-        constants.gNisDstNormY                                  = config.kDstNormY;
-        constants.gNisSrcNormX                                  = config.kSrcNormX;
-        constants.gNisSrcNormY                                  = config.kSrcNormY;
-        constants.gNisInputViewportOriginX                      = config.kInputViewportOriginX;
-        constants.gNisInputViewportOriginY                      = config.kInputViewportOriginY;
-        constants.gNisInputViewportWidth                        = config.kInputViewportWidth;
-        constants.gNisInputViewportHeight                       = config.kInputViewportHeight;
-        constants.gNisOutputViewportOriginX                     = config.kOutputViewportOriginX;
-        constants.gNisOutputViewportOriginY                     = config.kOutputViewportOriginY;
-        constants.gNisOutputViewportWidth                       = config.kOutputViewportWidth;
-        constants.gNisOutputViewportHeight                      = config.kOutputViewportHeight;
     }
 
     m_GlobalConstantBufferOffset = NRI.UpdateStreamerConstantBuffer(*m_Streamer, &constants, sizeof(constants));
@@ -5155,28 +5076,47 @@ void Sample::RenderFrame(uint32_t frameIndex)
                 nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
                 NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-                DlssDispatchDesc dlssDesc = {};
-                dlssDesc.texOutput = {Get(Texture::DlssOutput), Get(Descriptor::DlssOutput_StorageTexture)};
-                dlssDesc.texInput = {Get(Texture::Composed), Get(Descriptor::Composed_Texture)};
-                dlssDesc.texMv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
-                dlssDesc.texDepth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
-                dlssDesc.viewportDims = {rectW, rectH};
-                dlssDesc.mvScale[0] = 1.0f;
-                dlssDesc.mvScale[1] = 1.0f;
-                dlssDesc.jitter[0] = -m_Camera.state.viewportJitter.x;
-                dlssDesc.jitter[1] = -m_Camera.state.viewportJitter.y;
-                dlssDesc.reset = m_ForceHistoryReset || m_Settings.SR != m_SettingsPrev.SR || m_Settings.RR != m_SettingsPrev.RR;
+                bool resetHistory = m_ForceHistoryReset || m_Settings.SR != m_SettingsPrev.SR || m_Settings.RR != m_SettingsPrev.RR;
 
-                // RR specific
-                dlssDesc.texDiffAlbedo = {Get(Texture::RRGuide_DiffAlbedo), Get(Descriptor::RRGuide_DiffAlbedo_Texture)};
-                dlssDesc.texSpecAlbedo = {Get(Texture::RRGuide_SpecAlbedo), Get(Descriptor::RRGuide_SpecAlbedo_Texture)};
-                dlssDesc.texNormalRoughness = {Get(Texture::RRGuide_Normal_Roughness), Get(Descriptor::RRGuide_Normal_Roughness_Texture)};
-                dlssDesc.texSpecHitDistance = {Get(Texture::RRGuide_SpecHitDistance), Get(Descriptor::RRGuide_SpecHitDistance_Texture)};
-                memcpy(&dlssDesc.mWorldToView, &m_Camera.state.mWorldToView, sizeof(m_Camera.state.mWorldToView));
-                memcpy(&dlssDesc.mViewToClip, &m_Camera.state.mViewToClip, sizeof(m_Camera.state.mViewToClip));
-                dlssDesc.useRR = m_Settings.RR;
+                nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
+                dispatchUpscaleDesc.output = {Get(Texture::DlssOutput), Get(Descriptor::DlssOutput_StorageTexture)};
+                dispatchUpscaleDesc.input = {Get(Texture::Composed), Get(Descriptor::Composed_Texture)};
+                dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
+                dispatchUpscaleDesc.cameraJitter = {-m_Camera.state.viewportJitter.x, -m_Camera.state.viewportJitter.y};
+                dispatchUpscaleDesc.mvScale = {1.0f, 1.0f};
+                dispatchUpscaleDesc.flags = resetHistory ? nri::DispatchUpscaleBits::RESET_HISTORY : nri::DispatchUpscaleBits::NONE;
 
-                m_DLSS.Evaluate(&commandBuffer, dlssDesc);
+                if (m_Settings.RR)
+                {
+                    dispatchUpscaleDesc.guides.dlrr.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
+                    dispatchUpscaleDesc.guides.dlrr.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
+                    dispatchUpscaleDesc.guides.dlrr.diffuseAlbedo = {Get(Texture::RRGuide_DiffAlbedo), Get(Descriptor::RRGuide_DiffAlbedo_Texture)};
+                    dispatchUpscaleDesc.guides.dlrr.specularAlbedo = {Get(Texture::RRGuide_SpecAlbedo), Get(Descriptor::RRGuide_SpecAlbedo_Texture)};
+                    dispatchUpscaleDesc.guides.dlrr.normalRoughness = {Get(Texture::RRGuide_Normal_Roughness), Get(Descriptor::RRGuide_Normal_Roughness_Texture)};
+                    dispatchUpscaleDesc.guides.dlrr.specularMvOrHitT = {Get(Texture::RRGuide_SpecHitDistance), Get(Descriptor::RRGuide_SpecHitDistance_Texture)};
+
+                    memcpy(&dispatchUpscaleDesc.settings.dlrr.worldToViewMatrix, &m_Camera.state.mWorldToView, sizeof(m_Camera.state.mWorldToView));
+                    memcpy(&dispatchUpscaleDesc.settings.dlrr.viewToClipMatrix, &m_Camera.state.mViewToClip, sizeof(m_Camera.state.mViewToClip));
+
+                    NRI.CmdDispatchUpscale(commandBuffer, *m_DLRR, dispatchUpscaleDesc);
+                }
+                else
+                {
+                    #if USE_FSR
+                        dispatchUpscaleDesc.guides.fsr.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
+                        dispatchUpscaleDesc.guides.fsr.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
+                        dispatchUpscaleDesc.settings.fsr.zNear = 0.1f;
+                        dispatchUpscaleDesc.settings.fsr.verticalFov = radians(m_Settings.camFov);
+                        dispatchUpscaleDesc.settings.fsr.frameTime = m_Timer.GetSmoothedFrameTime();
+                        dispatchUpscaleDesc.settings.fsr.viewSpaceToMetersFactor = 1.0f;
+                        dispatchUpscaleDesc.settings.fsr.sharpness = 0.0f;
+                    #else
+                        dispatchUpscaleDesc.guides.dlsr.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
+                        dispatchUpscaleDesc.guides.dlsr.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
+                    #endif
+
+                    NRI.CmdDispatchUpscale(commandBuffer, *m_DLSR, dispatchUpscaleDesc);
+                }
             }
 
             RestoreBindings(commandBuffer, isEven);
@@ -5233,16 +5173,24 @@ void Sample::RenderFrame(uint32_t frameIndex)
             nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Nis));
+            nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
+            dispatchUpscaleDesc.settings.nis.sharpness = NIS_SHARPNESS;
+            dispatchUpscaleDesc.output = {Get(Texture::PreFinal), Get(Descriptor::PreFinal_StorageTexture)};
+
             if (IsDlssEnabled())
-                NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::Nis1), &dummyDynamicConstantOffset);
+            {
+                dispatchUpscaleDesc.input = {Get(Texture::DlssOutput), Get(Descriptor::DlssOutput_Texture)};
+                dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
+            }
             else
-                NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(isEven ? DescriptorSet::Nis1a : DescriptorSet::Nis1b), &dummyDynamicConstantOffset);
+            {
+                dispatchUpscaleDesc.input = {Get(taaDst), isEven ? Get(Descriptor::TaaHistory_Texture) : Get(Descriptor::TaaHistoryPrev_Texture)};
+                dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
+            }
 
-            uint32_t w = (GetOutputResolution().x + NIS_BLOCK_WIDTH - 1) / NIS_BLOCK_WIDTH;
-            uint32_t h = (GetOutputResolution().y + NIS_BLOCK_HEIGHT - 1) / NIS_BLOCK_HEIGHT;
+            NRI.CmdDispatchUpscale(commandBuffer, *m_NIS, dispatchUpscaleDesc);
 
-            NRI.CmdDispatch(commandBuffer, {w, h, 1});
+            RestoreBindings(commandBuffer, isEven);
         }
 
         //======================================================================================================================================

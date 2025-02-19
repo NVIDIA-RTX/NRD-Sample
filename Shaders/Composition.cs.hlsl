@@ -114,7 +114,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
             roughness = NRD_SG_ExtractRoughnessAA( specSg );
 
             // Regain macro-details
-            diff.xyz = NRD_SG_ResolveDiffuse( diffSg, N ) ; // or NRD_SH_ResolveDiffuse( sg, N )
+            diff.xyz = NRD_SG_ResolveDiffuse( diffSg, N ); // or NRD_SH_ResolveDiffuse( diffSg, N )
             spec.xyz = NRD_SG_ResolveSpecular( specSg, N, V, roughness );
 
             // Regain micro-details & jittering // TODO: preload N and Z into SMEM
