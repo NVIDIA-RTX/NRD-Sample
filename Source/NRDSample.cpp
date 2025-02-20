@@ -41,7 +41,8 @@ constexpr bool CAMERA_RELATIVE                      = true;
 constexpr bool ALLOW_BLAS_MERGING                   = true;
 constexpr bool ALLOW_HDR                            = false; // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS         = true; // saves a bit of memory and performance
-constexpr bool USE_DLSS_TNN                         = false; // switch to TNN (better) model from CNN
+constexpr bool USE_DLSS_TNN                         = false; // replace CNN (legacy) with TNN (better)
+constexpr bool USE_FSR                              = false; // replace DLSS-SR with FSR
 constexpr bool NRD_ALLOW_DESCRIPTOR_CACHING         = true;
 constexpr bool NRD_PROMOTE_FLOAT16_TO_32            = false;
 constexpr bool NRD_DEMOTE_FLOAT32_TO_16             = false;
@@ -51,8 +52,6 @@ constexpr uint32_t TEXTURES_PER_MATERIAL            = 4;
 constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM      = 32;
 constexpr uint32_t DYNAMIC_CONSTANT_BUFFER_SIZE     = 1024 * 1024; // 1MB
 constexpr uint32_t MAX_ANIMATION_HISTORY_FRAME_NUM  = 2;
-
-#define USE_FSR 0 // replace DLSS-SR with FSR
 
 #if( SIGMA_TRANSLUCENT == 1 )
     #define SIGMA_VARIANT                           nrd::Denoiser::SIGMA_SHADOW_TRANSLUCENCY
@@ -1860,13 +1859,13 @@ void Sample::PrepareFrame(uint32_t frameIndex)
                                     " --binary --header"
                                     " --allResourcesBound"
                                     " --vulkanVersion 1.2"
-                                    " --sourceDir Shaders/Source"
+                                    " --sourceDir External/NRD/Shaders/Source"
                                     " --ignoreConfigDir"
                                     " -c External/NRD/Shaders/Shaders.cfg"
                                     " -o _Shaders"
                                     " -I " STRINGIFY(ML_SOURCE_DIR)
-                                    " -I Shaders/Include"
-                                    " -I Shaders/Resources"
+                                    " -I External/NRD/Shaders/Include"
+                                    " -I External/NRD/Shaders/Resources"
                                     " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING)
                                     " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING)
                                     " -D NRD_INTERNAL";
@@ -5102,7 +5101,8 @@ void Sample::RenderFrame(uint32_t frameIndex)
                 }
                 else
                 {
-                    #if USE_FSR
+                    if (USE_FSR)
+                    {
                         dispatchUpscaleDesc.guides.fsr.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
                         dispatchUpscaleDesc.guides.fsr.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
                         dispatchUpscaleDesc.settings.fsr.zNear = 0.1f;
@@ -5110,10 +5110,12 @@ void Sample::RenderFrame(uint32_t frameIndex)
                         dispatchUpscaleDesc.settings.fsr.frameTime = m_Timer.GetSmoothedFrameTime();
                         dispatchUpscaleDesc.settings.fsr.viewSpaceToMetersFactor = 1.0f;
                         dispatchUpscaleDesc.settings.fsr.sharpness = 0.0f;
-                    #else
+                    }
+                    else
+                    {
                         dispatchUpscaleDesc.guides.dlsr.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
                         dispatchUpscaleDesc.guides.dlsr.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
-                    #endif
+                    }
 
                     NRI.CmdDispatchUpscale(commandBuffer, *m_DLSR, dispatchUpscaleDesc);
                 }
