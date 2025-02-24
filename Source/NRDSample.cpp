@@ -1487,8 +1487,6 @@ void Sample::PrepareFrame(uint32_t frameIndex)
                                 isSame = false;
                             else if ((int32_t)m_ReblurSettings.maxStabilizedFrameNum < m_Settings.maxAccumulatedFrameNum)
                                 isSame = false;
-                            else if ((int32_t)m_ReblurSettings.maxStabilizedFrameNumForHitDistance < m_Settings.maxAccumulatedFrameNum)
-                                isSame = false;
 
                             bool hasSpatial = m_ReblurSettings.minBlurRadius + m_ReblurSettings.maxBlurRadius != 0.0f
                                 || m_ReblurSettings.diffusePrepassBlurRadius != 0.0f
@@ -1528,7 +1526,6 @@ void Sample::PrepareFrame(uint32_t frameIndex)
                             {
                                 m_ReblurSettings = defaults;
                                 m_ReblurSettings.maxStabilizedFrameNum = m_Settings.maxAccumulatedFrameNum;
-                                m_ReblurSettings.maxStabilizedFrameNumForHitDistance = m_ReblurSettings.maxStabilizedFrameNum;
                             }
                             ImGui::PopStyleColor();
 
@@ -2384,7 +2381,6 @@ void Sample::PrepareFrame(uint32_t frameIndex)
         m_Settings.maxFastAccumulatedFrameNum = isFastHistoryEnabled ? m_Settings.maxAccumulatedFrameNum / 5 : MAX_HISTORY_FRAME_NUM;
 
         m_ReblurSettings.maxStabilizedFrameNum = m_Settings.maxAccumulatedFrameNum;
-        m_ReblurSettings.maxStabilizedFrameNumForHitDistance = m_ReblurSettings.maxStabilizedFrameNum;
 
         // SIGMA
         uint32_t maxSigmaStabilizedFrames = nrd::GetMaxAccumulatedFrameNum(nrd::SIGMA_DEFAULT_ACCUMULATION_TIME, fps);
