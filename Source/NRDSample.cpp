@@ -1,12 +1,4 @@
-/*
-Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
-
-NVIDIA CORPORATION and its licensors retain all intellectual property
-and proprietary rights in and to this software, related documentation
-and any modifications thereto. Any use, reproduction, disclosure or
-distribution of this software and related documentation without an express
-license agreement from NVIDIA CORPORATION is strictly prohibited.
-*/
+// © 2022 NVIDIA Corporation
 
 #include "NRIFramework.h"
 #include "Extensions/NRIRayTracing.h"
@@ -772,7 +764,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI)
             nri::UpscalerDesc upscalerDesc = {};
             upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
             upscalerDesc.type = USE_FSR ? nri::UpscalerType::FSR : nri::UpscalerType::DLSR;
-            upscalerDesc.mode = (nri::UpscalerMode)((int32_t)nri::UpscalerMode::ULTRA_PERFORMANCE - m_DlssQuality);            
+            upscalerDesc.mode = (nri::UpscalerMode)((int32_t)nri::UpscalerMode::ULTRA_PERFORMANCE - m_DlssQuality);
             upscalerDesc.flags = upscalerFlags;
             upscalerDesc.preset = USE_DLSS_TNN ? 10 : 0;
             NRI_ABORT_ON_FAILURE( NRI.CreateUpscaler(*m_Device, upscalerDesc, m_DLSR) );
