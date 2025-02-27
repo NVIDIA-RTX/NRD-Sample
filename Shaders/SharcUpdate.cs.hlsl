@@ -51,15 +51,16 @@ void Trace( GeometryProps geometryProps )
 
     MaterialProps materialProps = GetMaterialProps( geometryProps, USE_SHARC_V_DEPENDENT == 0 );
 
-    // Update SHARC cache
+    // Update SHARC cache ( this ia always a hit )
     {
-        float3 L = GetShadowedLighting( geometryProps, materialProps );
-
         SharcHitData sharcHitData;
         sharcHitData.positionWorld = GetGlobalPos( geometryProps.X ) + ( Rng::Hash::GetFloat4( ).xyz - 0.5 ) * SHARC_POS_DITHER;
         sharcHitData.normalWorld = normalize( geometryProps.N + ( Rng::Hash::GetFloat4( ).xyz - 0.5 ) * SHARC_NORMAL_DITHER );
+        sharcHitData.emissive = materialProps.Lemi;
 
         SharcSetThroughput( sharcState, 1.0 );
+
+        float3 L = GetShadowedLighting( geometryProps, materialProps, SKIP_EMISSIVE );
         if( !SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, 1.0 ) )
             return;
     }
@@ -210,19 +211,22 @@ void Trace( GeometryProps geometryProps )
             materialProps = GetMaterialProps( geometryProps, USE_SHARC_V_DEPENDENT == 0 );
         }
 
-        // Compute lighting at hit point
-        float3 L = GetShadowedLighting( geometryProps, materialProps );
-
         { // Update SHARC cache
-            SharcHitData sharcHitData;
-            sharcHitData.positionWorld = GetGlobalPos( geometryProps.X ) + ( Rng::Hash::GetFloat4( ).xyz - 0.5 ) * SHARC_POS_DITHER;
-            sharcHitData.normalWorld = normalize( geometryProps.N + ( Rng::Hash::GetFloat4( ).xyz - 0.5 ) * SHARC_NORMAL_DITHER );
-
             SharcSetThroughput( sharcState, throughput );
+
             if( geometryProps.IsSky( ) )
-                SharcUpdateMiss( sharcParams, sharcState, L );
-            else if( !SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, Rng::Hash::GetFloat( ) ) )
-                break;
+                SharcUpdateMiss( sharcParams, sharcState, materialProps.Lemi );
+            else
+            {
+                SharcHitData sharcHitData;
+                sharcHitData.positionWorld = GetGlobalPos( geometryProps.X ) + ( Rng::Hash::GetFloat4( ).xyz - 0.5 ) * SHARC_POS_DITHER;
+                sharcHitData.normalWorld = normalize( geometryProps.N + ( Rng::Hash::GetFloat4( ).xyz - 0.5 ) * SHARC_NORMAL_DITHER );
+                sharcHitData.emissive = materialProps.Lemi;
+
+                float3 L = GetShadowedLighting( geometryProps, materialProps, SKIP_EMISSIVE );
+                if( !SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, Rng::Hash::GetFloat( ) ) )
+                    break;
+            }
         }
     }
 }

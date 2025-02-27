@@ -78,15 +78,10 @@ float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps 
     return NRD_MODE < OCCLUSION ? float4( prevLsum * saturate( prevFrameWeight / 0.001 ), prevFrameWeight ) : 0.0;
 }
 
-uint GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
+float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
 {
     bool isHair = geometryProps.Has( FLAG_HAIR );
     bool isMetal = materialProps.metalness > 0.5;
-
-    // TODO: it's a hack improving behavior on border between non-metallic and metallic surfaces
-    // It can add bias, because diffuse processing can touch metal pixels with 0 diffuse.
-    // It's good for contact shadowing, but undesired in some other cases.
-    isMetal = isMetal && materialProps.roughness < 0.3;
 
     return isHair ? MATERIAL_ID_HAIR : ( isMetal ? MATERIAL_ID_METAL : MATERIAL_ID_DEFAULT );
 }
@@ -227,7 +222,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         {
             // Update materials, direct lighting and emission
             float3 psrNormal = float3( 0, 0, 1 );
-            uint materialID = GetMaterialID( geometryProps, materialProps );
+            float materialID = GetMaterialID( geometryProps, materialProps );
 
             if( !geometryProps.IsSky( ) )
             {
@@ -257,6 +252,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 SharcHitData sharcHitData;
                 sharcHitData.positionWorld = Xglobal;
                 sharcHitData.normalWorld = geometryProps.N;
+                sharcHitData.emissive = materialProps.Lemi;
 
                 HashMapData hashMapData;
                 hashMapData.capacity = SHARC_CAPACITY;
@@ -590,7 +586,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 // Lighting
                 //=============================================================================================================================================================
 
-                float4 Lcached = 0;
+                float4 Lcached = float4( materialProps.Lemi, 0.0 );
                 if( !geometryProps.IsSky( ) )
                 {
                     // L1 cache - reproject previous frame, carefully treating specular
@@ -615,6 +611,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                     SharcHitData sharcHitData;
                     sharcHitData.positionWorld = Xglobal;
                     sharcHitData.normalWorld = geometryProps.N;
+                    sharcHitData.emissive = materialProps.Lemi;
 
                     HashMapData hashMapData;
                     hashMapData.capacity = SHARC_CAPACITY;
@@ -643,7 +640,6 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                         Lcached.xyz = bounce < desc.bounceNum ? L : max( Lcached.xyz, L );
                     }
                 }
-                Lcached.xyz = max( Lcached.xyz, materialProps.Lemi );
 
                 //=============================================================================================================================================================
                 // Other
@@ -862,7 +858,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     }
 
     // G-buffer
-    uint materialID = GetMaterialID( geometryProps0, materialProps0 );
+    float materialID = GetMaterialID( geometryProps0, materialProps0 );
     #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
         materialID = frac( geometryProps0.X ).x < 0.05 ? MATERIAL_ID_HAIR : materialID;
     #endif

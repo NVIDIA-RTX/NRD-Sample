@@ -114,7 +114,7 @@
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
 #define PT_GLASS_MIN_F                      0.05 // adds a bit of stability and bias
 
-// Spatial HAsh-ased Radiance Cache
+// Spatial HAsh-ased Radiance Cache ( SHARC )
 #define SHARC_CAPACITY                      ( 1 << 22 )
 #define SHARC_SCENE_SCALE                   50.0
 #define SHARC_DOWNSCALE                     5
@@ -122,6 +122,7 @@
 #define SHARC_POS_DITHER                    0.001
 #define SHARC_ANTI_FIREFLY                  true
 #define SHARC_STALE_FRAME_NUM_MIN           32 // new version uses 8 by default, old value offers more stability in voxels with low number of samples ( critical for glass )
+#define SHARC_SEPARATE_EMISSIVE             1
 
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking

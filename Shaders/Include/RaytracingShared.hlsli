@@ -545,7 +545,10 @@ bool IsPsrAllowed( MaterialProps materialProps )
     return gPSR && materialProps.roughness < 0.044 && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 ); // TODO: tweaked for some content?
 }
 
-float3 GetShadowedLighting( GeometryProps geometryProps, MaterialProps materialProps, bool softShadows = true )
+#define SKIP_SOFT_SHADOWS 0x1
+#define SKIP_EMISSIVE 0x2
+
+float3 GetShadowedLighting( GeometryProps geometryProps, MaterialProps materialProps, uint flags = 0 )
 {
     const uint instanceInclusionMask = FLAG_NON_TRANSPARENT; // Default shadow rays must ignore transparency // TODO: what about translucency?
     const uint rayFlags = 0;
@@ -557,7 +560,7 @@ float3 GetShadowedLighting( GeometryProps geometryProps, MaterialProps materialP
         float2 rnd = Rng::Hash::GetFloat2( );
         rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
         rnd *= gTanSunAngularRadius;
-        rnd *= float( softShadows );
+        rnd *= float( ( flags & SKIP_SOFT_SHADOWS ) == 0 );
 
         float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
 
@@ -566,7 +569,8 @@ float3 GetShadowedLighting( GeometryProps geometryProps, MaterialProps materialP
         L *= CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask, rayFlags );
     }
 
-    L += materialProps.Lemi;
+    if( ( flags & SKIP_EMISSIVE ) == 0 )
+        L += materialProps.Lemi;
 
     return NRD_MODE < OCCLUSION ? L : 0.0;
 }

@@ -269,6 +269,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
             SharcHitData sharcHitData;
             sharcHitData.positionWorld = Xglobal;
             sharcHitData.normalWorld = N;
+            sharcHitData.emissive = Lemi;
 
             HashMapData hashMapData;
             hashMapData.capacity = SHARC_CAPACITY;

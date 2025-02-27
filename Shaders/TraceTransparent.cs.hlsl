@@ -108,7 +108,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
             MaterialProps materialProps = GetMaterialProps( geometryProps );
 
             // Lighting
-            float4 Lcached = 0;
+            float4 Lcached = float4( materialProps.Lemi, 0.0 );
             if( !geometryProps.IsSky( ) )
             {
                 // L1 cache - reproject previous frame, carefully treating specular
@@ -135,6 +135,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
                 SharcHitData sharcHitData;
                 sharcHitData.positionWorld = Xglobal;
                 sharcHitData.normalWorld = geometryProps.N;
+                sharcHitData.emissive = materialProps.Lemi;
 
                 HashMapData hashMapData;
                 hashMapData.capacity = SHARC_CAPACITY;
@@ -162,7 +163,6 @@ float3 TraceTransparent( TraceTransparentDesc desc )
                     Lcached.xyz = max( Lcached.xyz, L );
                 }
             }
-            Lcached.xyz = max( Lcached.xyz, materialProps.Lemi );
 
             // Output
             return Lcached.xyz * pathThroughput;
