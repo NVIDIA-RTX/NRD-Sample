@@ -3278,7 +3278,7 @@ void Sample::CreateResources(nri::Format swapChainFormat)
     CreateBuffer(descriptorDescs, "Buffer::MorphMeshIndices", nri::Format::UNKNOWN, m_Scene.morphMeshTotalIndicesNum, sizeof(utils::Index),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
     CreateBuffer(descriptorDescs, "Buffer::MorphMeshVertices", nri::Format::UNKNOWN, m_Scene.morphVertices.size(), sizeof(utils::MorphVertex),
-        nri::BufferUsageBits::SHADER_RESOURCE);
+        nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
 
     // Buffers (DEVICE)
     CreateBuffer(descriptorDescs, "Buffer::MorphedPositions", nri::Format::UNKNOWN, m_Scene.morphedVerticesNum * MAX_ANIMATION_HISTORY_FRAME_NUM, sizeof(float16_t4),
