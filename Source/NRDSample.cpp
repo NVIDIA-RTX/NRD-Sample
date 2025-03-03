@@ -34,7 +34,7 @@ constexpr bool ALLOW_BLAS_MERGING                   = true;
 constexpr bool ALLOW_HDR                            = false; // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS         = true; // saves a bit of memory and performance
 constexpr bool USE_DLSS_TNN                         = false; // replace CNN (legacy) with TNN (better)
-constexpr bool USE_FSR                              = false; // replace DLSS-SR with FSR
+constexpr nri::UpscalerType upscalerType            = nri::UpscalerType::DLSR;
 constexpr bool NRD_ALLOW_DESCRIPTOR_CACHING         = true;
 constexpr bool NRD_PROMOTE_FLOAT16_TO_32            = false;
 constexpr bool NRD_DEMOTE_FLOAT32_TO_16             = false;
@@ -752,9 +752,19 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI)
 
     if (m_DlssQuality != -1)
     {
-        nri::UpscalerBits upscalerFlags = nri::UpscalerBits::AUTO_EXPOSURE | nri::UpscalerBits::DEPTH_INFINITE;
+        nri::UpscalerBits upscalerFlags = nri::UpscalerBits::DEPTH_INFINITE;
         upscalerFlags |= NRD_MODE < OCCLUSION ? nri::UpscalerBits::HDR : nri::UpscalerBits::NONE;
         upscalerFlags |= m_ReversedZ ? nri::UpscalerBits::DEPTH_INVERTED : nri::UpscalerBits::NONE;
+
+        nri::UpscalerMode mode = nri::UpscalerMode::NATIVE;
+        if (m_DlssQuality == 0)
+            mode = nri::UpscalerMode::ULTRA_PERFORMANCE;
+        else if (m_DlssQuality == 1)
+            mode = nri::UpscalerMode::PERFORMANCE;
+        else if (m_DlssQuality == 2)
+            mode = nri::UpscalerMode::BALANCED;
+        else if (m_DlssQuality == 3)
+            mode = nri::UpscalerMode::QUALITY;
 
         if (NRI.IsUpscalerSupported(*m_Device, nri::UpscalerType::DLSR))
         {
@@ -763,8 +773,8 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI)
 
             nri::UpscalerDesc upscalerDesc = {};
             upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
-            upscalerDesc.type = USE_FSR ? nri::UpscalerType::FSR : nri::UpscalerType::DLSR;
-            upscalerDesc.mode = (nri::UpscalerMode)((int32_t)nri::UpscalerMode::ULTRA_PERFORMANCE - m_DlssQuality);
+            upscalerDesc.type = upscalerType;
+            upscalerDesc.mode = mode;
             upscalerDesc.flags = upscalerFlags;
             upscalerDesc.preset = USE_DLSS_TNN ? 10 : 0;
             NRI_ABORT_ON_FAILURE( NRI.CreateUpscaler(*m_Device, upscalerDesc, m_DLSR) );
@@ -795,7 +805,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI)
             nri::UpscalerDesc upscalerDesc = {};
             upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
             upscalerDesc.type = nri::UpscalerType::DLRR;
-            upscalerDesc.mode = (nri::UpscalerMode)((int32_t)nri::UpscalerMode::ULTRA_PERFORMANCE - m_DlssQuality);
+            upscalerDesc.mode = mode;
             upscalerDesc.flags = upscalerFlags;
             NRI_ABORT_ON_FAILURE( NRI.CreateUpscaler(*m_Device, upscalerDesc, m_DLRR) );
 
@@ -2524,6 +2534,7 @@ nri::Format Sample::CreateSwapChain()
     const nri::TextureDesc& swapChainTextureDesc = NRI.GetTextureDesc(*swapChainTextures[0]);
     nri::Format swapChainFormat = swapChainTextureDesc.format;
 
+    m_SwapChainBuffers.clear();
     for (uint32_t i = 0; i < swapChainTextureNum; i++)
     {
         m_SwapChainBuffers.emplace_back();
@@ -5075,12 +5086,12 @@ void Sample::RenderFrame(uint32_t frameIndex)
 
                 if (m_Settings.RR)
                 {
-                    dispatchUpscaleDesc.guides.dlrr.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
-                    dispatchUpscaleDesc.guides.dlrr.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
-                    dispatchUpscaleDesc.guides.dlrr.diffuseAlbedo = {Get(Texture::RRGuide_DiffAlbedo), Get(Descriptor::RRGuide_DiffAlbedo_Texture)};
-                    dispatchUpscaleDesc.guides.dlrr.specularAlbedo = {Get(Texture::RRGuide_SpecAlbedo), Get(Descriptor::RRGuide_SpecAlbedo_Texture)};
-                    dispatchUpscaleDesc.guides.dlrr.normalRoughness = {Get(Texture::RRGuide_Normal_Roughness), Get(Descriptor::RRGuide_Normal_Roughness_Texture)};
-                    dispatchUpscaleDesc.guides.dlrr.specularMvOrHitT = {Get(Texture::RRGuide_SpecHitDistance), Get(Descriptor::RRGuide_SpecHitDistance_Texture)};
+                    dispatchUpscaleDesc.guides.denoiser.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
+                    dispatchUpscaleDesc.guides.denoiser.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
+                    dispatchUpscaleDesc.guides.denoiser.diffuseAlbedo = {Get(Texture::RRGuide_DiffAlbedo), Get(Descriptor::RRGuide_DiffAlbedo_Texture)};
+                    dispatchUpscaleDesc.guides.denoiser.specularAlbedo = {Get(Texture::RRGuide_SpecAlbedo), Get(Descriptor::RRGuide_SpecAlbedo_Texture)};
+                    dispatchUpscaleDesc.guides.denoiser.normalRoughness = {Get(Texture::RRGuide_Normal_Roughness), Get(Descriptor::RRGuide_Normal_Roughness_Texture)};
+                    dispatchUpscaleDesc.guides.denoiser.specularMvOrHitT = {Get(Texture::RRGuide_SpecHitDistance), Get(Descriptor::RRGuide_SpecHitDistance_Texture)};
 
                     memcpy(&dispatchUpscaleDesc.settings.dlrr.worldToViewMatrix, &m_Camera.state.mWorldToView, sizeof(m_Camera.state.mWorldToView));
                     memcpy(&dispatchUpscaleDesc.settings.dlrr.viewToClipMatrix, &m_Camera.state.mViewToClip, sizeof(m_Camera.state.mViewToClip));
@@ -5089,20 +5100,16 @@ void Sample::RenderFrame(uint32_t frameIndex)
                 }
                 else
                 {
-                    if (USE_FSR)
+                    dispatchUpscaleDesc.guides.upscaler.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
+                    dispatchUpscaleDesc.guides.upscaler.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
+
+                    if (m_DLSR && upscalerType == nri::UpscalerType::FSR) // workaround for "conditional expression is constant"
                     {
-                        dispatchUpscaleDesc.guides.fsr.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
-                        dispatchUpscaleDesc.guides.fsr.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
                         dispatchUpscaleDesc.settings.fsr.zNear = 0.1f;
                         dispatchUpscaleDesc.settings.fsr.verticalFov = radians(m_Settings.camFov);
                         dispatchUpscaleDesc.settings.fsr.frameTime = m_Timer.GetSmoothedFrameTime();
                         dispatchUpscaleDesc.settings.fsr.viewSpaceToMetersFactor = 1.0f;
                         dispatchUpscaleDesc.settings.fsr.sharpness = 0.0f;
-                    }
-                    else
-                    {
-                        dispatchUpscaleDesc.guides.dlsr.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
-                        dispatchUpscaleDesc.guides.dlsr.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
                     }
 
                     NRI.CmdDispatchUpscale(commandBuffer, *m_DLSR, dispatchUpscaleDesc);
@@ -5208,7 +5215,9 @@ void Sample::RenderFrame(uint32_t frameIndex)
             NRI.CmdDispatch(commandBuffer, {windowGridW, windowGridH, 1});
         }
 
-        const uint32_t backBufferIndex = NRI.AcquireNextSwapChainTexture(*m_SwapChain);
+        uint32_t backBufferIndex = NRI.AcquireNextSwapChainTexture(*m_SwapChain);
+        assert(backBufferIndex != nri::OUT_OF_DATE && "Oops, unhandled swap chain is out of date!");
+
         const BackBuffer* backBuffer = &m_SwapChainBuffers[backBufferIndex];
 
         { // Copy to back-buffer

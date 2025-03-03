@@ -99,6 +99,7 @@ option(NRI_ENABLE_D3D11_SUPPORT "" OFF)
 option(NRI_ENABLE_NIS_SDK "" ON)
 option(NRI_ENABLE_NGX_SDK "" ON)
 option(NRI_ENABLE_FFX_SDK "" ON)
+option(NRI_ENABLE_XESS_SDK "" ON)
 add_subdirectory("External/NRIFramework")
 
 # External/NRD
