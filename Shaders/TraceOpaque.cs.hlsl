@@ -51,7 +51,7 @@ float2 GetBlueNoise( uint2 pixelPos, bool isCheckerboard, uint seed = 0 )
 
     // Don't use blue noise in these cases
     [flatten]
-    if( gDenoiserType == DENOISER_REFERENCE || gRR )
+    if( gDenoiserType == DENOISER_REFERENCE || gRR || gTracingMode == RESOLUTION_FULL_PROBABILISTIC )
         blue.xy = Rng::Hash::GetFloat2( );
 
     return saturate( blue.xy );

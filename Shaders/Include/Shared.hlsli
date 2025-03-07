@@ -48,7 +48,7 @@
 #define NORMAL                              0
 #define SH                                  1 // NORMAL + SH (SG) resolve
 #define OCCLUSION                           2
-#define DIRECTIONAL_OCCLUSION               3 // OCCLUSION + SH (SG) resolve
+#define DIRECTIONAL_OCCLUSION               3 // diffuse OCCLUSION + SH (SG) resolve
 
 // Denoiser
 #define DENOISER_REBLUR                     0
