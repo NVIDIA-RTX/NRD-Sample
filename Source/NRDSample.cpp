@@ -77,6 +77,17 @@ const std::vector<uint32_t> RELAX_interior_improveMeTests =
     114, 144, 148, 156, 159
 }};
 
+const std::vector<uint32_t> DLRR_interior_improveMeTests =
+{{    
+    1, 6, 159, // snappy specular tracking
+    4, 181, // boily reaction to importance sampling
+    62, 98, 112, // diffuse missing details and ghosting
+    185, 186, // missing material details (low confidence reprojection)
+    220, // patterns
+    221, // ortho
+    222, // diffuse darkening
+}};
+
 // TODO: add tests for SIGMA, active when "Shadow" visualization is on
 
 //=================================================================================
@@ -2327,7 +2338,7 @@ void Sample::PrepareFrame(uint32_t frameIndex)
         );
     }
 
-    if (m_SettingsPrev.denoiser != m_Settings.denoiser || frameIndex == 0)
+    if (m_SettingsPrev.denoiser != m_Settings.denoiser || m_SettingsPrev.RR != m_Settings.RR || frameIndex == 0)
     {
         m_checkMeTests = nullptr;
         m_improveMeTests = nullptr;
@@ -2335,10 +2346,14 @@ void Sample::PrepareFrame(uint32_t frameIndex)
         if (m_SceneFile.find("BistroInterior") != std::string::npos)
         {
             m_checkMeTests = &interior_checkMeTests;
+
             if (m_Settings.denoiser == DENOISER_REBLUR)
                 m_improveMeTests = &REBLUR_interior_improveMeTests;
             else if (m_Settings.denoiser == DENOISER_RELAX)
                 m_improveMeTests = &RELAX_interior_improveMeTests;
+
+            if (m_Settings.RR)
+                m_improveMeTests = &DLRR_interior_improveMeTests;
         }
     }
 
