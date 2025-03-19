@@ -2845,7 +2845,7 @@ void Sample::CreateAccelerationStructures()
         nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
         allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::TOP_LEVEL;
         allocateAccelerationStructureDesc.desc.flags = TLAS_BUILD_BITS;
-        allocateAccelerationStructureDesc.desc.instanceOrGeometryNum = helper::GetCountOf(m_Scene.instances);
+        allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = helper::GetCountOf(m_Scene.instances);
         allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
@@ -2862,7 +2862,7 @@ void Sample::CreateAccelerationStructures()
         nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
         allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::TOP_LEVEL;
         allocateAccelerationStructureDesc.desc.flags = TLAS_BUILD_BITS;
-        allocateAccelerationStructureDesc.desc.instanceOrGeometryNum = helper::GetCountOf(m_Scene.instances);
+        allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = helper::GetCountOf(m_Scene.instances);
         allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
@@ -2990,7 +2990,7 @@ void Sample::CreateAccelerationStructures()
             nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
             allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
             allocateAccelerationStructureDesc.desc.flags = BLAS_RIGID_MESH_BUILD_BITS;
-            allocateAccelerationStructureDesc.desc.instanceOrGeometryNum = geometryObjectsNum;
+            allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = geometryObjectsNum;
             allocateAccelerationStructureDesc.desc.geometries = &geometries[geometryObjectBase];
             allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
 
@@ -3002,7 +3002,7 @@ void Sample::CreateAccelerationStructures()
             nri::BuildBottomLevelAccelerationStructureDesc& buildBottomLevelAccelerationStructureDesc = buildBottomLevelAccelerationStructureDescs.emplace_back();
             buildBottomLevelAccelerationStructureDesc = {};
             buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
-            buildBottomLevelAccelerationStructureDesc.geometryObjectNum = geometryObjectsNum;
+            buildBottomLevelAccelerationStructureDesc.geometryNum = geometryObjectsNum;
             buildBottomLevelAccelerationStructureDesc.geometries = &geometries[geometryObjectBase];
             buildBottomLevelAccelerationStructureDesc.scratchBuffer = nullptr;
             buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchSize;
@@ -3065,7 +3065,7 @@ void Sample::CreateAccelerationStructures()
         nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
         allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
         allocateAccelerationStructureDesc.desc.flags = mesh.HasMorphTargets() ? BLAS_DEFORMABLE_MESH_BUILD_BITS : BLAS_RIGID_MESH_BUILD_BITS;
-        allocateAccelerationStructureDesc.desc.instanceOrGeometryNum = 1;
+        allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = 1;
         allocateAccelerationStructureDesc.desc.geometries = &bottomLevelGeometry;
         allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
 
@@ -3077,7 +3077,7 @@ void Sample::CreateAccelerationStructures()
         nri::BuildBottomLevelAccelerationStructureDesc& buildBottomLevelAccelerationStructureDesc = buildBottomLevelAccelerationStructureDescs.emplace_back();
         buildBottomLevelAccelerationStructureDesc = {};
         buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
-        buildBottomLevelAccelerationStructureDesc.geometryObjectNum = 1;
+        buildBottomLevelAccelerationStructureDesc.geometryNum = 1;
         buildBottomLevelAccelerationStructureDesc.geometries = &geometries[geometries.size() - 1];
         buildBottomLevelAccelerationStructureDesc.scratchBuffer = nullptr;
         buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchSize;
@@ -4734,7 +4734,7 @@ void Sample::RenderFrame(uint32_t frameIndex)
 
                     nri::BuildBottomLevelAccelerationStructureDesc buildBottomLevelAccelerationStructureDesc = {};
                     buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
-                    buildBottomLevelAccelerationStructureDesc.geometryObjectNum = 1;
+                    buildBottomLevelAccelerationStructureDesc.geometryNum = 1;
                     buildBottomLevelAccelerationStructureDesc.geometries = &bottomLevelGeometry;
                     buildBottomLevelAccelerationStructureDesc.scratchBuffer = Get(Buffer::MorphMeshScratch);
                     buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchOffset;
