@@ -21,9 +21,9 @@
 #include "../Shaders/Include/Shared.hlsli"
 
 constexpr uint32_t MAX_ANIMATED_INSTANCE_NUM        = 512;
-constexpr auto BLAS_RIGID_MESH_BUILD_BITS           = nri::AccelerationStructureBuildBits::PREFER_FAST_TRACE;
-constexpr auto BLAS_DEFORMABLE_MESH_BUILD_BITS      = nri::AccelerationStructureBuildBits::PREFER_FAST_BUILD | nri::AccelerationStructureBuildBits::ALLOW_UPDATE;
-constexpr auto TLAS_BUILD_BITS                      = nri::AccelerationStructureBuildBits::PREFER_FAST_TRACE;
+constexpr auto BLAS_RIGID_MESH_BUILD_BITS           = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
+constexpr auto BLAS_DEFORMABLE_MESH_BUILD_BITS      = nri::AccelerationStructureBits::PREFER_FAST_BUILD | nri::AccelerationStructureBits::ALLOW_UPDATE;
+constexpr auto TLAS_BUILD_BITS                      = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
 constexpr float ACCUMULATION_TIME                   = 0.5f; // seconds
 constexpr float NEAR_Z                              = 0.001f; // m
 constexpr float GLASS_THICKNESS                     = 0.002f; // m
@@ -621,8 +621,8 @@ private:
 
     // Data
     std::vector<InstanceData> m_InstanceData;
-    std::vector<nri::GeometryObjectInstance> m_WorldTlasData;
-    std::vector<nri::GeometryObjectInstance> m_LightTlasData;
+    std::vector<nri::TopLevelInstance> m_WorldTlasData;
+    std::vector<nri::TopLevelInstance> m_LightTlasData;
     std::vector<AnimatedInstance> m_AnimatedInstances;
     std::array<float, 256> m_FrameTimes = {};
     Settings m_Settings = {};
@@ -2155,22 +2155,22 @@ void Sample::PrepareFrame(uint32_t frameIndex)
         float amplitude = 40.0f * m_Camera.state.motionScale;
         float period = 0.0003f * time * (m_Settings.emulateMotionSpeed < 0.0f ? 1.0f / (1.0f + abs(m_Settings.emulateMotionSpeed)) : (1.0f + m_Settings.emulateMotionSpeed));
 
-        float3 localPos = m_Camera.state.mWorldToView.GetRow0().xyz;
+        float3 localPos = m_Camera.state.mWorldToView.Row(0).xyz;
         if (m_Settings.motionMode == 1)
-            localPos = m_Camera.state.mWorldToView.GetRow1().xyz;
+            localPos = m_Camera.state.mWorldToView.Row(1).xyz;
         else if (m_Settings.motionMode == 2)
-            localPos = m_Camera.state.mWorldToView.GetRow2().xyz;
+            localPos = m_Camera.state.mWorldToView.Row(2).xyz;
         else if (m_Settings.motionMode == 3)
         {
-            float3 rows[3] = { m_Camera.state.mWorldToView.GetRow0().xyz, m_Camera.state.mWorldToView.GetRow1().xyz, m_Camera.state.mWorldToView.GetRow2().xyz };
+            float3 rows[3] = { m_Camera.state.mWorldToView.Row(0).xyz, m_Camera.state.mWorldToView.Row(1).xyz, m_Camera.state.mWorldToView.Row(2).xyz };
             float f = sin( Pi(period * 3.0f) );
             localPos = normalize( f < 0.0f ? lerp( rows[1], rows[0], float3( abs(f) ) ) : lerp( rows[1], rows[2], float3(f) ) );
         }
 
         if (m_Settings.motionMode == 4)
         {
-            float3 axisX = m_Camera.state.mWorldToView.GetRow0().xyz;
-            float3 axisY = m_Camera.state.mWorldToView.GetRow1().xyz;
+            float3 axisX = m_Camera.state.mWorldToView.Row(0).xyz;
+            float3 axisY = m_Camera.state.mWorldToView.Row(1).xyz;
             float2 v = Rotate(float2(1.0f, 0.0f), fmod(Pi(period * 2.0f), Pi(2.0f)));
             localPos = (axisX * v.x + axisY * v.y) * amplitude / Pi(1.0f);
         }
@@ -2785,20 +2785,11 @@ void Sample::CreateAccelerationStructures()
 {
     double stamp1 = m_Timer.GetTimeStamp();
 
-    struct Parameters
-    {
-        nri::AccelerationStructure* accelerationStructure;
-        uint64_t scratchOffset;
-        uint32_t geometryObjectBase;
-        uint32_t geometryObjectsNum;
-        nri::AccelerationStructureBuildBits buildBits;
-    };
-
     uint64_t primitivesNum = 0;
-    std::vector<Parameters> parameters;
-    std::vector<nri::GeometryObject> geometryObjects;
+    std::vector<nri::BuildBottomLevelAccelerationStructureDesc> buildBottomLevelAccelerationStructureDescs;
+    std::vector<nri::BottomLevelGeometry> geometries;
 
-    geometryObjects.reserve(m_Scene.instances.size()); // reallocation is NOT allowed!
+    geometries.reserve(m_Scene.instances.size()); // reallocation is NOT allowed!
 
     // Calculate temp memory size
     std::vector<uint32_t> dynamicMeshInstances;
@@ -2854,7 +2845,7 @@ void Sample::CreateAccelerationStructures()
         nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
         allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::TOP_LEVEL;
         allocateAccelerationStructureDesc.desc.flags = TLAS_BUILD_BITS;
-        allocateAccelerationStructureDesc.desc.instanceOrGeometryObjectNum = helper::GetCountOf(m_Scene.instances);
+        allocateAccelerationStructureDesc.desc.instanceOrGeometryNum = helper::GetCountOf(m_Scene.instances);
         allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
@@ -2871,7 +2862,7 @@ void Sample::CreateAccelerationStructures()
         nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
         allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::TOP_LEVEL;
         allocateAccelerationStructureDesc.desc.flags = TLAS_BUILD_BITS;
-        allocateAccelerationStructureDesc.desc.instanceOrGeometryObjectNum = helper::GetCountOf(m_Scene.instances);
+        allocateAccelerationStructureDesc.desc.instanceOrGeometryNum = helper::GetCountOf(m_Scene.instances);
         allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
@@ -2892,7 +2883,7 @@ void Sample::CreateAccelerationStructures()
 
     for (uint32_t mode = (uint32_t)AccelerationStructure::BLAS_StaticOpaque; mode <= (uint32_t)AccelerationStructure::BLAS_StaticEmissive; mode++)
     {
-        size_t geometryObjectBase = geometryObjects.size();
+        size_t geometryObjectBase = geometries.size();
 
         for (size_t i = m_ProxyInstancesNum; i < m_Scene.instances.size(); i++)
         {
@@ -2966,50 +2957,57 @@ void Sample::CreateAccelerationStructures()
 
             mObjectToWorld.Transpose3x4();
 
-            uint64_t transformOffset = geometryObjects.size() * sizeof(float[12]);
+            uint64_t transformOffset = geometries.size() * sizeof(float[12]);
             if (uploadData)
                 memcpy(uploadData + transformOffset, mObjectToWorld.a, sizeof(float[12]));
 
             // Add geometry object
-            nri::GeometryObject& geometryObject = geometryObjects.emplace_back();
-            geometryObject = {};
-            geometryObject.type = nri::GeometryType::TRIANGLES;
-            geometryObject.flags = material.IsAlphaOpaque() ? nri::BottomLevelGeometryBits::NONE : nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
-            geometryObject.geometry.triangles.vertexBuffer = uploadBuffer;
-            geometryObject.geometry.triangles.vertexOffset = geometryOffset;
-            geometryObject.geometry.triangles.vertexNum = mesh.vertexNum;
-            geometryObject.geometry.triangles.vertexStride = sizeof(float[3]);
-            geometryObject.geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
-            geometryObject.geometry.triangles.indexBuffer = uploadBuffer;
-            geometryObject.geometry.triangles.indexOffset = geometryOffset + vertexDataSize;
-            geometryObject.geometry.triangles.indexNum = mesh.indexNum;
-            geometryObject.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
-            geometryObject.geometry.triangles.transformBuffer = uploadBuffer;
-            geometryObject.geometry.triangles.transformOffset = transformOffset;
+            nri::BottomLevelGeometry& bottomLevelGeometry = geometries.emplace_back();
+            bottomLevelGeometry = {};
+            bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
+            bottomLevelGeometry.flags = material.IsAlphaOpaque() ? nri::BottomLevelGeometryBits::NONE : nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
+            bottomLevelGeometry.geometry.triangles.vertexBuffer = uploadBuffer;
+            bottomLevelGeometry.geometry.triangles.vertexOffset = geometryOffset;
+            bottomLevelGeometry.geometry.triangles.vertexNum = mesh.vertexNum;
+            bottomLevelGeometry.geometry.triangles.vertexStride = sizeof(float[3]);
+            bottomLevelGeometry.geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
+            bottomLevelGeometry.geometry.triangles.indexBuffer = uploadBuffer;
+            bottomLevelGeometry.geometry.triangles.indexOffset = geometryOffset + vertexDataSize;
+            bottomLevelGeometry.geometry.triangles.indexNum = mesh.indexNum;
+            bottomLevelGeometry.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
+            bottomLevelGeometry.geometry.triangles.transformBuffer = uploadBuffer;
+            bottomLevelGeometry.geometry.triangles.transformOffset = transformOffset;
 
             // Update geometry offset
             geometryOffset += vertexDataSize + helper::Align(indexDataSize, 4);
             primitivesNum += mesh.indexNum / 3;
         }
 
-        uint32_t geometryObjectsNum = (uint32_t)(geometryObjects.size() - geometryObjectBase);
+        uint32_t geometryObjectsNum = (uint32_t)(geometries.size() - geometryObjectBase);
         if (geometryObjectsNum)
         {
             // Create BLAS
             nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
             allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
             allocateAccelerationStructureDesc.desc.flags = BLAS_RIGID_MESH_BUILD_BITS;
-            allocateAccelerationStructureDesc.desc.instanceOrGeometryObjectNum = geometryObjectsNum;
-            allocateAccelerationStructureDesc.desc.geometryObjects = &geometryObjects[geometryObjectBase];
+            allocateAccelerationStructureDesc.desc.instanceOrGeometryNum = geometryObjectsNum;
+            allocateAccelerationStructureDesc.desc.geometries = &geometries[geometryObjectBase];
             allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
 
             nri::AccelerationStructure* accelerationStructure = nullptr;
             NRI_ABORT_ON_FAILURE(NRI.AllocateAccelerationStructure(*m_Device, allocateAccelerationStructureDesc, accelerationStructure));
             m_AccelerationStructures.push_back(accelerationStructure);
 
-            // Update parameters
-            parameters.push_back( {accelerationStructure, scratchSize, (uint32_t)geometryObjectBase, geometryObjectsNum, allocateAccelerationStructureDesc.desc.flags} );
+            // Save build parameters
+            nri::BuildBottomLevelAccelerationStructureDesc& buildBottomLevelAccelerationStructureDesc = buildBottomLevelAccelerationStructureDescs.emplace_back();
+            buildBottomLevelAccelerationStructureDesc = {};
+            buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
+            buildBottomLevelAccelerationStructureDesc.geometryObjectNum = geometryObjectsNum;
+            buildBottomLevelAccelerationStructureDesc.geometries = &geometries[geometryObjectBase];
+            buildBottomLevelAccelerationStructureDesc.scratchBuffer = nullptr;
+            buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchSize;
 
+            // Update scratch
             uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
             scratchSize += helper::Align(size, deviceDesc.scratchBufferOffsetAlignment);
         }
@@ -3029,7 +3027,7 @@ void Sample::CreateAccelerationStructures()
         meshInstance.blasIndex = (uint32_t)m_AccelerationStructures.size();
 
         // Copy geometry to temp buffer
-        uint64_t vertexStride = mesh.HasMorphTargets() ? sizeof(float16_t4) : sizeof(float[3]);
+        uint16_t vertexStride = mesh.HasMorphTargets() ? sizeof(float16_t4) : sizeof(float[3]);
         uint64_t vertexDataSize = mesh.vertexNum * vertexStride;
         uint64_t indexDataSize = mesh.indexNum * sizeof(utils::Index);
 
@@ -3049,35 +3047,42 @@ void Sample::CreateAccelerationStructures()
         }
 
         // Add geometry object
-        nri::GeometryObject& geometryObject = geometryObjects.emplace_back();
-        geometryObject = {};
-        geometryObject.type = nri::GeometryType::TRIANGLES;
-        geometryObject.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
-        geometryObject.geometry.triangles.vertexBuffer = uploadBuffer;
-        geometryObject.geometry.triangles.vertexOffset = geometryOffset;
-        geometryObject.geometry.triangles.vertexNum = mesh.vertexNum;
-        geometryObject.geometry.triangles.vertexStride = vertexStride;
-        geometryObject.geometry.triangles.vertexFormat = mesh.HasMorphTargets() ? nri::Format::RGBA16_SFLOAT : nri::Format::RGB32_SFLOAT;
-        geometryObject.geometry.triangles.indexBuffer = uploadBuffer;
-        geometryObject.geometry.triangles.indexOffset = geometryOffset + vertexDataSize;
-        geometryObject.geometry.triangles.indexNum = mesh.indexNum;
-        geometryObject.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
+        nri::BottomLevelGeometry& bottomLevelGeometry = geometries.emplace_back();
+        bottomLevelGeometry = {};
+        bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
+        bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
+        bottomLevelGeometry.geometry.triangles.vertexBuffer = uploadBuffer;
+        bottomLevelGeometry.geometry.triangles.vertexOffset = geometryOffset;
+        bottomLevelGeometry.geometry.triangles.vertexNum = mesh.vertexNum;
+        bottomLevelGeometry.geometry.triangles.vertexStride = vertexStride;
+        bottomLevelGeometry.geometry.triangles.vertexFormat = mesh.HasMorphTargets() ? nri::Format::RGBA16_SFLOAT : nri::Format::RGB32_SFLOAT;
+        bottomLevelGeometry.geometry.triangles.indexBuffer = uploadBuffer;
+        bottomLevelGeometry.geometry.triangles.indexOffset = geometryOffset + vertexDataSize;
+        bottomLevelGeometry.geometry.triangles.indexNum = mesh.indexNum;
+        bottomLevelGeometry.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
 
         // Create BLAS
         nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
         allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
         allocateAccelerationStructureDesc.desc.flags = mesh.HasMorphTargets() ? BLAS_DEFORMABLE_MESH_BUILD_BITS : BLAS_RIGID_MESH_BUILD_BITS;
-        allocateAccelerationStructureDesc.desc.instanceOrGeometryObjectNum = 1;
-        allocateAccelerationStructureDesc.desc.geometryObjects = &geometryObject;
+        allocateAccelerationStructureDesc.desc.instanceOrGeometryNum = 1;
+        allocateAccelerationStructureDesc.desc.geometries = &bottomLevelGeometry;
         allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
         NRI_ABORT_ON_FAILURE(NRI.AllocateAccelerationStructure(*m_Device, allocateAccelerationStructureDesc, accelerationStructure));
         m_AccelerationStructures.push_back(accelerationStructure);
 
-        // Update parameters
-        parameters.push_back( {accelerationStructure, scratchSize, (uint32_t)(geometryObjects.size() - 1), 1, allocateAccelerationStructureDesc.desc.flags } );
+        // Save build parameters
+        nri::BuildBottomLevelAccelerationStructureDesc& buildBottomLevelAccelerationStructureDesc = buildBottomLevelAccelerationStructureDescs.emplace_back();
+        buildBottomLevelAccelerationStructureDesc = {};
+        buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
+        buildBottomLevelAccelerationStructureDesc.geometryObjectNum = 1;
+        buildBottomLevelAccelerationStructureDesc.geometries = &geometries[geometries.size() - 1];
+        buildBottomLevelAccelerationStructureDesc.scratchBuffer = nullptr;
+        buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchSize;
 
+        // Update scratch
         uint64_t buildSize = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
         scratchSize += helper::Align(buildSize, deviceDesc.scratchBufferOffsetAlignment);
 
@@ -3116,12 +3121,14 @@ void Sample::CreateAccelerationStructures()
     {
         std::vector<nri::BufferBarrierDesc> bufferBarriers;
 
-        // Barriers (write)
-        for (size_t i = 0; i < parameters.size(); i++)
+        // Barriers (write) and patch scratch buffer
+        for (size_t i = 0; i < buildBottomLevelAccelerationStructureDescs.size(); i++)
         {
-            const Parameters& params = parameters[i];
+            auto& desc = buildBottomLevelAccelerationStructureDescs[i];
+            desc.scratchBuffer = scratchBuffer;
+
             nri::BufferBarrierDesc bufferBarrier = {};
-            bufferBarrier.buffer = NRI.GetAccelerationStructureBuffer(*params.accelerationStructure);
+            bufferBarrier.buffer = NRI.GetAccelerationStructureBuffer(*desc.dst);
             bufferBarrier.after = {nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE};
 
             bufferBarriers.push_back(bufferBarrier);
@@ -3133,9 +3140,8 @@ void Sample::CreateAccelerationStructures()
 
         NRI.CmdBarrier(*commandBuffer, barrierGroupDesc);
 
-        // Build
-        for (const Parameters& params : parameters)
-            NRI.CmdBuildBottomLevelAccelerationStructure(*commandBuffer, params.geometryObjectsNum, &geometryObjects[params.geometryObjectBase], params.buildBits, *params.accelerationStructure, *scratchBuffer, params.scratchOffset);
+        // Build everything in one go
+        NRI.CmdBuildBottomLevelAccelerationStructures(*commandBuffer, buildBottomLevelAccelerationStructureDescs.data(), (uint32_t)buildBottomLevelAccelerationStructureDescs.size());
 
         // Barriers (read)
         for (nri::BufferBarrierDesc& bufferBarrier : bufferBarriers)
@@ -3192,7 +3198,7 @@ void Sample::CreateAccelerationStructures()
         , buildTime
         , scratchSize / (1024.0 * 1024.0)
         , m_AccelerationStructures.size() - (size_t)AccelerationStructure::BLAS_StaticOpaque
-        , geometryObjects.size()
+        , geometries.size()
         , primitivesNum
    );
 }
@@ -4033,13 +4039,14 @@ void Sample::GatherInstanceData()
     // Add static opaque (includes emissives)
     if (m_OpaqueObjectsNum)
     {
-        nri::GeometryObjectInstance& tlasInstance = m_WorldTlasData.emplace_back();
-        memcpy(tlasInstance.transform, mCameraTranslation.a, sizeof(tlasInstance.transform));
-        tlasInstance.instanceId = instanceIndex;
-        tlasInstance.mask = FLAG_NON_TRANSPARENT;
-        tlasInstance.shaderBindingTableLocalOffset = 0;
-        tlasInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
-        tlasInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_StaticOpaque));
+        nri::TopLevelInstance& topLevelInstance = m_WorldTlasData.emplace_back();
+        topLevelInstance = {};
+        memcpy(topLevelInstance.transform, mCameraTranslation.a, sizeof(topLevelInstance.transform));
+        topLevelInstance.instanceId = instanceIndex;
+        topLevelInstance.mask = FLAG_NON_TRANSPARENT;
+        topLevelInstance.shaderBindingTableLocalOffset = 0;
+        topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+        topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_StaticOpaque));
 
         instanceIndex += m_OpaqueObjectsNum;
     }
@@ -4047,13 +4054,14 @@ void Sample::GatherInstanceData()
     // Add static transparent
     if (m_TransparentObjectsNum)
     {
-        nri::GeometryObjectInstance& tlasInstance = m_WorldTlasData.emplace_back();
-        memcpy(tlasInstance.transform, mCameraTranslation.a, sizeof(tlasInstance.transform));
-        tlasInstance.instanceId = instanceIndex;
-        tlasInstance.mask = FLAG_TRANSPARENT;
-        tlasInstance.shaderBindingTableLocalOffset = 0;
-        tlasInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
-        tlasInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_StaticTransparent));
+        nri::TopLevelInstance& topLevelInstance = m_WorldTlasData.emplace_back();
+        topLevelInstance = {};
+        memcpy(topLevelInstance.transform, mCameraTranslation.a, sizeof(topLevelInstance.transform));
+        topLevelInstance.instanceId = instanceIndex;
+        topLevelInstance.mask = FLAG_TRANSPARENT;
+        topLevelInstance.shaderBindingTableLocalOffset = 0;
+        topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+        topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_StaticTransparent));
 
         instanceIndex += m_TransparentObjectsNum;
     }
@@ -4061,13 +4069,14 @@ void Sample::GatherInstanceData()
     // Add static emissives (only emissives in a separate TLAS)
     if (m_EmissiveObjectsNum)
     {
-        nri::GeometryObjectInstance& tlasInstance = m_LightTlasData.emplace_back();
-        memcpy(tlasInstance.transform, mCameraTranslation.a, sizeof(tlasInstance.transform));
-        tlasInstance.instanceId = instanceIndex;
-        tlasInstance.mask = FLAG_NON_TRANSPARENT;
-        tlasInstance.shaderBindingTableLocalOffset = 0;
-        tlasInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
-        tlasInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_StaticEmissive));
+        nri::TopLevelInstance& topLevelInstance = m_LightTlasData.emplace_back();
+        topLevelInstance = {};
+        memcpy(topLevelInstance.transform, mCameraTranslation.a, sizeof(topLevelInstance.transform));
+        topLevelInstance.instanceId = instanceIndex;
+        topLevelInstance.mask = FLAG_NON_TRANSPARENT;
+        topLevelInstance.shaderBindingTableLocalOffset = 0;
+        topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+        topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_StaticEmissive));
 
         instanceIndex += m_EmissiveObjectsNum;
     }
@@ -4197,9 +4206,10 @@ void Sample::GatherInstanceData()
                 flags |= FLAG_NON_TRANSPARENT;
 
             InstanceData& instanceData = m_InstanceData.emplace_back();
-            instanceData.mOverloadedMatrix0 = mOverloadedMatrix.col0;
-            instanceData.mOverloadedMatrix1 = mOverloadedMatrix.col1;
-            instanceData.mOverloadedMatrix2 = mOverloadedMatrix.col2;
+            instanceData = {};
+            instanceData.mOverloadedMatrix0 = mOverloadedMatrix.Col(0);
+            instanceData.mOverloadedMatrix1 = mOverloadedMatrix.Col(1);
+            instanceData.mOverloadedMatrix2 = mOverloadedMatrix.Col(2);
             instanceData.baseColorAndMetalnessScale = material.baseColorAndMetalnessScale;
             instanceData.emissionAndRoughnessScale = material.emissiveAndRoughnessScale;
             instanceData.textureOffsetAndFlags = baseTextureIndex | ( flags << FLAG_FIRST_BIT );
@@ -4210,18 +4220,18 @@ void Sample::GatherInstanceData()
             // Add dynamic geometry
             if (instance.allowUpdate)
             {
-                nri::GeometryObjectInstance tlasInstance = {};
-                memcpy(tlasInstance.transform, mObjectToWorld.a, sizeof(tlasInstance.transform));
-                tlasInstance.instanceId = instanceIndex++;
-                tlasInstance.mask = flags;
-                tlasInstance.shaderBindingTableLocalOffset = 0;
-                tlasInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE | (material.IsAlphaOpaque() ? nri::TopLevelInstanceBits::NONE : nri::TopLevelInstanceBits::FORCE_OPAQUE);
-                tlasInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*m_AccelerationStructures[meshInstance.blasIndex]);
+                nri::TopLevelInstance topLevelInstance = {};
+                memcpy(topLevelInstance.transform, mObjectToWorld.a, sizeof(topLevelInstance.transform));
+                topLevelInstance.instanceId = instanceIndex++;
+                topLevelInstance.mask = flags;
+                topLevelInstance.shaderBindingTableLocalOffset = 0;
+                topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE | (material.IsAlphaOpaque() ? nri::TopLevelInstanceBits::NONE : nri::TopLevelInstanceBits::FORCE_OPAQUE);
+                topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*m_AccelerationStructures[meshInstance.blasIndex]);
 
-                m_WorldTlasData.push_back(tlasInstance);
+                m_WorldTlasData.push_back(topLevelInstance);
 
                 if (flags == FLAG_FORCED_EMISSION || material.IsEmissive())
-                    m_LightTlasData.push_back(tlasInstance);
+                    m_LightTlasData.push_back(topLevelInstance);
             }
         }
     }
@@ -4238,7 +4248,7 @@ void Sample::GatherInstanceData()
     {
         nri::BufferUpdateRequestDesc bufferUpdateRequestDesc = {};
         bufferUpdateRequestDesc.data = m_WorldTlasData.data();
-        bufferUpdateRequestDesc.dataSize = m_WorldTlasData.size() * sizeof(nri::GeometryObjectInstance);
+        bufferUpdateRequestDesc.dataSize = m_WorldTlasData.size() * sizeof(nri::TopLevelInstance);
 
         m_WorldTlasDataOffsetInDynamicBuffer = NRI.AddStreamerBufferUpdateRequest(*m_Streamer, bufferUpdateRequestDesc);
     }
@@ -4246,7 +4256,7 @@ void Sample::GatherInstanceData()
     {
         nri::BufferUpdateRequestDesc bufferUpdateRequestDesc = {};
         bufferUpdateRequestDesc.data = m_LightTlasData.data();
-        bufferUpdateRequestDesc.dataSize = m_LightTlasData.size() * sizeof(nri::GeometryObjectInstance);
+        bufferUpdateRequestDesc.dataSize = m_LightTlasData.size() * sizeof(nri::TopLevelInstance);
 
         m_LightTlasDataOffsetInDynamicBuffer = NRI.AddStreamerBufferUpdateRequest(*m_Streamer, bufferUpdateRequestDesc);
     }
@@ -4707,34 +4717,40 @@ void Sample::RenderFrame(uint32_t frameIndex)
                     const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
                     const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
 
-                    nri::GeometryObject geometryObject = {};
-                    geometryObject.type = nri::GeometryType::TRIANGLES;
-                    geometryObject.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
-                    geometryObject.geometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
-                    geometryObject.geometry.triangles.vertexStride = sizeof(float16_t4);
-                    geometryObject.geometry.triangles.vertexOffset = geometryObject.geometry.triangles.vertexStride * (m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset);
-                    geometryObject.geometry.triangles.vertexNum = mesh.vertexNum;
-                    geometryObject.geometry.triangles.vertexFormat = nri::Format::RGBA16_SFLOAT;
-                    geometryObject.geometry.triangles.indexBuffer = Get(Buffer::MorphMeshIndices);
-                    geometryObject.geometry.triangles.indexOffset = mesh.morphMeshIndexOffset * sizeof(utils::Index);
-                    geometryObject.geometry.triangles.indexNum = mesh.indexNum;
-                    geometryObject.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
+                    nri::AccelerationStructure* accelerationStructure = m_AccelerationStructures[meshInstance.blasIndex];
 
-                    nri::AccelerationStructure& accelerationStructure = *m_AccelerationStructures[meshInstance.blasIndex];
-                    if (doBuild)
-                    {
-                        NRI.CmdBuildBottomLevelAccelerationStructure(commandBuffer, 1, &geometryObject, BLAS_DEFORMABLE_MESH_BUILD_BITS, accelerationStructure, *Get(Buffer::MorphMeshScratch), scratchOffset);
+                    nri::BottomLevelGeometry bottomLevelGeometry = {};
+                    bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
+                    bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
+                    bottomLevelGeometry.geometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
+                    bottomLevelGeometry.geometry.triangles.vertexStride = sizeof(float16_t4);
+                    bottomLevelGeometry.geometry.triangles.vertexOffset = bottomLevelGeometry.geometry.triangles.vertexStride * (m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset);
+                    bottomLevelGeometry.geometry.triangles.vertexNum = mesh.vertexNum;
+                    bottomLevelGeometry.geometry.triangles.vertexFormat = nri::Format::RGBA16_SFLOAT;
+                    bottomLevelGeometry.geometry.triangles.indexBuffer = Get(Buffer::MorphMeshIndices);
+                    bottomLevelGeometry.geometry.triangles.indexOffset = mesh.morphMeshIndexOffset * sizeof(utils::Index);
+                    bottomLevelGeometry.geometry.triangles.indexNum = mesh.indexNum;
+                    bottomLevelGeometry.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
 
-                        uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(accelerationStructure);
+                    nri::BuildBottomLevelAccelerationStructureDesc buildBottomLevelAccelerationStructureDesc = {};
+                    buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
+                    buildBottomLevelAccelerationStructureDesc.geometryObjectNum = 1;
+                    buildBottomLevelAccelerationStructureDesc.geometries = &bottomLevelGeometry;
+                    buildBottomLevelAccelerationStructureDesc.scratchBuffer = Get(Buffer::MorphMeshScratch);
+                    buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchOffset;
+
+                    if (doBuild) {
+                        uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
                         scratchOffset += helper::Align(size, deviceDesc.scratchBufferOffsetAlignment);;
                     }
-                    else
-                    {
-                        NRI.CmdUpdateBottomLevelAccelerationStructure(commandBuffer, 1, &geometryObject, BLAS_DEFORMABLE_MESH_BUILD_BITS, accelerationStructure, accelerationStructure, *Get(Buffer::MorphMeshScratch), scratchOffset);
+                    else {
+                        buildBottomLevelAccelerationStructureDesc.src = accelerationStructure;
 
-                        uint64_t size = NRI.GetAccelerationStructureUpdateScratchBufferSize(accelerationStructure);
+                        uint64_t size = NRI.GetAccelerationStructureUpdateScratchBufferSize(*accelerationStructure);
                         scratchOffset += helper::Align(size, deviceDesc.scratchBufferOffsetAlignment);;
                     }
+
+                    NRI.CmdBuildBottomLevelAccelerationStructures(commandBuffer, &buildBottomLevelAccelerationStructureDesc, 1);
                 }
 
                 { // Transitions
@@ -4753,9 +4769,26 @@ void Sample::RenderFrame(uint32_t frameIndex)
         { // TLAS
             helper::Annotation annotation(NRI, commandBuffer, "TLAS");
 
-            nri::Buffer* dynamicBuffer = NRI.GetStreamerDynamicBuffer(*m_Streamer);
-            NRI.CmdBuildTopLevelAccelerationStructure(commandBuffer, (uint32_t)m_WorldTlasData.size(), *dynamicBuffer, m_WorldTlasDataOffsetInDynamicBuffer, TLAS_BUILD_BITS, *Get(AccelerationStructure::TLAS_World), *Get(Buffer::WorldScratch), 0);
-            NRI.CmdBuildTopLevelAccelerationStructure(commandBuffer, (uint32_t)m_LightTlasData.size(), *dynamicBuffer, m_LightTlasDataOffsetInDynamicBuffer, TLAS_BUILD_BITS, *Get(AccelerationStructure::TLAS_Emissive), *Get(Buffer::LightScratch), 0);
+            nri::BuildTopLevelAccelerationStructureDesc buildTopLevelAccelerationStructureDescs[2] = {};
+            {
+                nri::Buffer* dynamicBuffer = NRI.GetStreamerDynamicBuffer(*m_Streamer);
+
+                buildTopLevelAccelerationStructureDescs[0].dst = Get(AccelerationStructure::TLAS_World);
+                buildTopLevelAccelerationStructureDescs[0].instanceNum = (uint32_t)m_WorldTlasData.size();
+                buildTopLevelAccelerationStructureDescs[0].instanceBuffer = dynamicBuffer;
+                buildTopLevelAccelerationStructureDescs[0].instanceOffset = m_WorldTlasDataOffsetInDynamicBuffer;
+                buildTopLevelAccelerationStructureDescs[0].scratchBuffer = Get(Buffer::WorldScratch);
+                buildTopLevelAccelerationStructureDescs[0].scratchOffset = 0;
+
+                buildTopLevelAccelerationStructureDescs[1].dst = Get(AccelerationStructure::TLAS_Emissive);
+                buildTopLevelAccelerationStructureDescs[1].instanceNum = (uint32_t)m_LightTlasData.size();
+                buildTopLevelAccelerationStructureDescs[1].instanceBuffer = dynamicBuffer;
+                buildTopLevelAccelerationStructureDescs[1].instanceOffset = m_LightTlasDataOffsetInDynamicBuffer;
+                buildTopLevelAccelerationStructureDescs[1].scratchBuffer = Get(Buffer::LightScratch);
+                buildTopLevelAccelerationStructureDescs[1].scratchOffset = 0;
+            }
+
+            NRI.CmdBuildTopLevelAccelerationStructures(commandBuffer, buildTopLevelAccelerationStructureDescs, helper::GetCountOf(buildTopLevelAccelerationStructureDescs));
 
             { // Transitions
                 const nri::BufferBarrierDesc transition = {Get(Buffer::InstanceData), {nri::AccessBits::COPY_DESTINATION}, {nri::AccessBits::SHADER_RESOURCE}};
