@@ -78,7 +78,7 @@ const std::vector<uint32_t> RELAX_interior_improveMeTests =
 }};
 
 const std::vector<uint32_t> DLRR_interior_improveMeTests =
-{{    
+{{
     1, 6, 159, // snappy specular tracking
     4, 181, // boily reaction to importance sampling
     62, 98, 112, // diffuse missing details and ghosting
@@ -198,7 +198,6 @@ enum class Pipeline : uint32_t
 {
     MorphMeshUpdateVertices,
     MorphMeshUpdatePrimitives,
-    SharcClear,
     SharcUpdate,
     SharcResolve,
     SharcHashCopy,
@@ -2703,13 +2702,6 @@ void Sample::CreatePipelines()
         m_Pipelines.push_back(pipeline);
     }
 
-    { // Pipeline::SharcClear
-        pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcClear.cs", shaderCodeStorage);
-
-        NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, pipeline));
-        m_Pipelines.push_back(pipeline);
-    }
-
     { // Pipeline::SharcUpdate
         pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcUpdate.cs", shaderCodeStorage);
 
@@ -2787,7 +2779,7 @@ void Sample::CreateAccelerationStructures()
 
     uint64_t primitivesNum = 0;
     std::vector<nri::BuildBottomLevelAccelerationStructureDesc> buildBottomLevelAccelerationStructureDescs;
-    std::vector<nri::BottomLevelGeometry> geometries;
+    std::vector<nri::BottomLevelGeometryDesc> geometries;
 
     geometries.reserve(m_Scene.instances.size()); // reallocation is NOT allowed!
 
@@ -2962,7 +2954,7 @@ void Sample::CreateAccelerationStructures()
                 memcpy(uploadData + transformOffset, mObjectToWorld.a, sizeof(float[12]));
 
             // Add geometry object
-            nri::BottomLevelGeometry& bottomLevelGeometry = geometries.emplace_back();
+            nri::BottomLevelGeometryDesc& bottomLevelGeometry = geometries.emplace_back();
             bottomLevelGeometry = {};
             bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
             bottomLevelGeometry.flags = material.IsAlphaOpaque() ? nri::BottomLevelGeometryBits::NONE : nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
@@ -3047,7 +3039,7 @@ void Sample::CreateAccelerationStructures()
         }
 
         // Add geometry object
-        nri::BottomLevelGeometry& bottomLevelGeometry = geometries.emplace_back();
+        nri::BottomLevelGeometryDesc& bottomLevelGeometry = geometries.emplace_back();
         bottomLevelGeometry = {};
         bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
         bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
@@ -3468,7 +3460,6 @@ void Sample::CreateResources(nri::Format swapChainFormat)
 void Sample::CreateDescriptorSets()
 {
     nri::DescriptorSet* descriptorSet = nullptr;
-
 
     { // DescriptorSet::Global0
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_GLOBAL, &descriptorSet, 1, 0));
@@ -4719,7 +4710,7 @@ void Sample::RenderFrame(uint32_t frameIndex)
 
                     nri::AccelerationStructure* accelerationStructure = m_AccelerationStructures[meshInstance.blasIndex];
 
-                    nri::BottomLevelGeometry bottomLevelGeometry = {};
+                    nri::BottomLevelGeometryDesc bottomLevelGeometry = {};
                     bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
                     bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
                     bottomLevelGeometry.geometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
@@ -4816,23 +4807,14 @@ void Sample::RenderFrame(uint32_t frameIndex)
 
             const nri::BufferBarrierDesc transitions[] = {
                 {Get(Buffer::SharcHashEntries), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                {Get(Buffer::SharcVoxelDataPing), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                {Get(Buffer::SharcVoxelDataPong), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                {Get(Buffer::SharcVoxelDataPing), {isEven ? nri::AccessBits::COPY_DESTINATION : nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                {Get(Buffer::SharcVoxelDataPong), {!isEven ? nri::AccessBits::COPY_DESTINATION : nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
                 {Get(Buffer::SharcHashCopyOffset), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
             };
 
             nri::BarrierGroupDesc barrierGroupDesc = {};
             barrierGroupDesc.buffers = transitions;
             barrierGroupDesc.bufferNum = (uint16_t)helper::GetCountOf(transitions);
-
-            { // Clear
-                helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
-
-                NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcClear));
-
-                NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
-            }
 
             { // Update
                 helper::Annotation annotation(NRI, commandBuffer, "SHARC - Update");
@@ -5041,6 +5023,7 @@ void Sample::RenderFrame(uint32_t frameIndex)
                 {Texture::Mv, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
                 {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
             };
+
             nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
@@ -5215,7 +5198,12 @@ void Sample::RenderFrame(uint32_t frameIndex)
                 // Output
                 {Texture::PreFinal, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
             };
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+
+            const nri::BufferBarrierDesc buffers[] = {
+                {isEven ? Get(Buffer::SharcVoxelDataPong) : Get(Buffer::SharcVoxelDataPing), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::COPY_DESTINATION}},
+            };
+
+            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, buffers, helper::GetCountOf(buffers), optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
             nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
@@ -5236,6 +5224,14 @@ void Sample::RenderFrame(uint32_t frameIndex)
             NRI.CmdDispatchUpscale(commandBuffer, *m_NIS, dispatchUpscaleDesc);
 
             RestoreBindings(commandBuffer, isEven);
+        }
+
+        // SHARC clear (for the next frame)
+        if (m_Settings.SHARC && NRD_MODE < OCCLUSION)
+        {
+            helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
+            
+            NRI.CmdZeroBuffer(commandBuffer, isEven ? *Get(Buffer::SharcVoxelDataPong) : *Get(Buffer::SharcVoxelDataPing), 0, SHARC_CAPACITY * sizeof(uint32_t) * 4);
         }
 
         //======================================================================================================================================
