@@ -112,7 +112,7 @@ void main( int2 threadPos : SV_GroupThreadId, int2 pixelPos : SV_DispatchThreadI
     m1 /= sum;
     m2 /= sum;
 
-    float3 sigma = sqrt( abs( m2 - m1 * m1 ) ); // TODO: increase sigma for hair and glass?
+    float3 sigma = sqrt( abs( m2 - m1 * m1 ) ) * TAA_SIGMA_SCALE;
 
     // Previous pixel position
     float3 mv = s_Mv[ threadPos.y + offseti.y ][ threadPos.x + offseti.x ].xyz * float3( gInvRectSize.xy, 1.0 );

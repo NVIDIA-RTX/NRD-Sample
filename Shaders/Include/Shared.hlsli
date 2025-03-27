@@ -137,7 +137,8 @@
 #define LEAF_TRANSLUCENCY                   0.25
 #define LEAF_THICKNESS                      0.001 // TODO: viewZ dependent?
 #define STRAND_THICKNESS                    80e-6f
-#define TAA_HISTORY_SHARPNESS               0.5
+#define TAA_HISTORY_SHARPNESS               0.66 // sharper ( was 0.5 )
+#define TAA_SIGMA_SCALE                     2.0 // allow nano ghosting ( was 1.0 ) // TODO: can negatively affect moving shadows
 #define GARBAGE                             sqrt( -1.0 ) // sqrt( -1.0 ) or -log( 0.0 ) or 32768.0
 
 #define MORPH_MAX_ACTIVE_TARGETS_NUM        8u
