@@ -71,7 +71,7 @@ void main( int2 threadPos : SV_GroupThreadId, int2 pixelPos : SV_DispatchThreadI
     float3 input = 0;
 
     float3 centerMv = s_Mv[ threadPos.y + BORDER ][threadPos.x + BORDER ];
-    float mvLengthSqMax = Math::LengthSquared( centerMv.xy );
+    float minViewZ = abs( centerMv.z );
     int2 offseti = int2( BORDER, BORDER );
 
     bool want5x5 = centerMv.z < 0.0; // 5x5 is needed for hair ( super thin ) and glass ( noisy ), also it's safe to use it for sky to get better edges
@@ -89,14 +89,14 @@ void main( int2 threadPos : SV_GroupThreadId, int2 pixelPos : SV_DispatchThreadI
             int2 smemPos = threadPos + offset;
 
             float3 c = s_Color[ smemPos.y ][ smemPos.x ];
-            float2 mv = s_Mv[ smemPos.y ][ smemPos.x ].xy;
-            float mvLengthSq = Math::LengthSquared( mv.xy );
+            float3 mv = s_Mv[ smemPos.y ][ smemPos.x ].xyz;
+            float viewZ = abs( mv.z );
 
             if( dx == BORDER && dy == BORDER )
                 input = c;
-            else if( mvLengthSq > mvLengthSqMax )
+            else if( viewZ < minViewZ )
             {
-                mvLengthSqMax = mvLengthSq;
+                minViewZ = viewZ;
                 offseti = offset;
             }
 
