@@ -4344,12 +4344,12 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gWorldToClipPrev                              = m_Camera.statePrev.mWorldToClip;
         constants.gHitDistParams                                = float4(hitDistanceParameters.A, hitDistanceParameters.B, hitDistanceParameters.C, hitDistanceParameters.D);
         constants.gCameraFrustum                                = frustum;
-        constants.gSunBasisX                                    = float4(sunT.x, sunT.y, sunT.z, 0.0f);
-        constants.gSunBasisY                                    = float4(sunB.x, sunB.y, sunB.z, 0.0f);
-        constants.gSunDirection                                 = float4(sunDirection.x, sunDirection.y, sunDirection.z, 0.0f);
-        constants.gCameraGlobalPos                              = float4(cameraGlobalPos.x, cameraGlobalPos.y, cameraGlobalPos.z, CAMERA_RELATIVE);
-        constants.gCameraGlobalPosPrev                          = float4(cameraGlobalPosPrev.x, cameraGlobalPosPrev.y, cameraGlobalPosPrev.z, 0.0f);
-        constants.gViewDirection                                = float4(viewDir.x, viewDir.y, viewDir.z, 0.0f);
+        constants.gSunBasisX                                    = float4(sunT, 0.0f);
+        constants.gSunBasisY                                    = float4(sunB, 0.0f);
+        constants.gSunDirection                                 = float4(sunDirection, 0.0f);
+        constants.gCameraGlobalPos                              = float4(cameraGlobalPos, CAMERA_RELATIVE);
+        constants.gCameraGlobalPosPrev                          = float4(cameraGlobalPosPrev, 0.0f);
+        constants.gViewDirection                                = float4(viewDir, 0.0f);
         constants.gHairBaseColor                                = pow(m_HairBaseColor, float4(2.2f));
         constants.gHairBetas                                    = m_HairBetas;
         constants.gWindowSize                                   = windowSize;
@@ -5230,7 +5230,7 @@ void Sample::RenderFrame(uint32_t frameIndex)
         if (m_Settings.SHARC && NRD_MODE < OCCLUSION)
         {
             helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
-            
+
             NRI.CmdZeroBuffer(commandBuffer, isEven ? *Get(Buffer::SharcVoxelDataPong) : *Get(Buffer::SharcVoxelDataPing), 0, SHARC_CAPACITY * sizeof(uint32_t) * 4);
         }
 
