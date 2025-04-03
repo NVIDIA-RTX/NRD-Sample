@@ -2958,17 +2958,17 @@ void Sample::CreateAccelerationStructures()
             bottomLevelGeometry = {};
             bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
             bottomLevelGeometry.flags = material.IsAlphaOpaque() ? nri::BottomLevelGeometryBits::NONE : nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
-            bottomLevelGeometry.geometry.triangles.vertexBuffer = uploadBuffer;
-            bottomLevelGeometry.geometry.triangles.vertexOffset = geometryOffset;
-            bottomLevelGeometry.geometry.triangles.vertexNum = mesh.vertexNum;
-            bottomLevelGeometry.geometry.triangles.vertexStride = sizeof(float[3]);
-            bottomLevelGeometry.geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
-            bottomLevelGeometry.geometry.triangles.indexBuffer = uploadBuffer;
-            bottomLevelGeometry.geometry.triangles.indexOffset = geometryOffset + vertexDataSize;
-            bottomLevelGeometry.geometry.triangles.indexNum = mesh.indexNum;
-            bottomLevelGeometry.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
-            bottomLevelGeometry.geometry.triangles.transformBuffer = uploadBuffer;
-            bottomLevelGeometry.geometry.triangles.transformOffset = transformOffset;
+            bottomLevelGeometry.triangles.vertexBuffer = uploadBuffer;
+            bottomLevelGeometry.triangles.vertexOffset = geometryOffset;
+            bottomLevelGeometry.triangles.vertexNum = mesh.vertexNum;
+            bottomLevelGeometry.triangles.vertexStride = sizeof(float[3]);
+            bottomLevelGeometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
+            bottomLevelGeometry.triangles.indexBuffer = uploadBuffer;
+            bottomLevelGeometry.triangles.indexOffset = geometryOffset + vertexDataSize;
+            bottomLevelGeometry.triangles.indexNum = mesh.indexNum;
+            bottomLevelGeometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
+            bottomLevelGeometry.triangles.transformBuffer = uploadBuffer;
+            bottomLevelGeometry.triangles.transformOffset = transformOffset;
 
             // Update geometry offset
             geometryOffset += vertexDataSize + helper::Align(indexDataSize, 4);
@@ -3043,15 +3043,15 @@ void Sample::CreateAccelerationStructures()
         bottomLevelGeometry = {};
         bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
         bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
-        bottomLevelGeometry.geometry.triangles.vertexBuffer = uploadBuffer;
-        bottomLevelGeometry.geometry.triangles.vertexOffset = geometryOffset;
-        bottomLevelGeometry.geometry.triangles.vertexNum = mesh.vertexNum;
-        bottomLevelGeometry.geometry.triangles.vertexStride = vertexStride;
-        bottomLevelGeometry.geometry.triangles.vertexFormat = mesh.HasMorphTargets() ? nri::Format::RGBA16_SFLOAT : nri::Format::RGB32_SFLOAT;
-        bottomLevelGeometry.geometry.triangles.indexBuffer = uploadBuffer;
-        bottomLevelGeometry.geometry.triangles.indexOffset = geometryOffset + vertexDataSize;
-        bottomLevelGeometry.geometry.triangles.indexNum = mesh.indexNum;
-        bottomLevelGeometry.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
+        bottomLevelGeometry.triangles.vertexBuffer = uploadBuffer;
+        bottomLevelGeometry.triangles.vertexOffset = geometryOffset;
+        bottomLevelGeometry.triangles.vertexNum = mesh.vertexNum;
+        bottomLevelGeometry.triangles.vertexStride = vertexStride;
+        bottomLevelGeometry.triangles.vertexFormat = mesh.HasMorphTargets() ? nri::Format::RGBA16_SFLOAT : nri::Format::RGB32_SFLOAT;
+        bottomLevelGeometry.triangles.indexBuffer = uploadBuffer;
+        bottomLevelGeometry.triangles.indexOffset = geometryOffset + vertexDataSize;
+        bottomLevelGeometry.triangles.indexNum = mesh.indexNum;
+        bottomLevelGeometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
 
         // Create BLAS
         nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
@@ -4713,15 +4713,15 @@ void Sample::RenderFrame(uint32_t frameIndex)
                     nri::BottomLevelGeometryDesc bottomLevelGeometry = {};
                     bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
                     bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
-                    bottomLevelGeometry.geometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
-                    bottomLevelGeometry.geometry.triangles.vertexStride = sizeof(float16_t4);
-                    bottomLevelGeometry.geometry.triangles.vertexOffset = bottomLevelGeometry.geometry.triangles.vertexStride * (m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset);
-                    bottomLevelGeometry.geometry.triangles.vertexNum = mesh.vertexNum;
-                    bottomLevelGeometry.geometry.triangles.vertexFormat = nri::Format::RGBA16_SFLOAT;
-                    bottomLevelGeometry.geometry.triangles.indexBuffer = Get(Buffer::MorphMeshIndices);
-                    bottomLevelGeometry.geometry.triangles.indexOffset = mesh.morphMeshIndexOffset * sizeof(utils::Index);
-                    bottomLevelGeometry.geometry.triangles.indexNum = mesh.indexNum;
-                    bottomLevelGeometry.geometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
+                    bottomLevelGeometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
+                    bottomLevelGeometry.triangles.vertexStride = sizeof(float16_t4);
+                    bottomLevelGeometry.triangles.vertexOffset = bottomLevelGeometry.triangles.vertexStride * (m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset);
+                    bottomLevelGeometry.triangles.vertexNum = mesh.vertexNum;
+                    bottomLevelGeometry.triangles.vertexFormat = nri::Format::RGBA16_SFLOAT;
+                    bottomLevelGeometry.triangles.indexBuffer = Get(Buffer::MorphMeshIndices);
+                    bottomLevelGeometry.triangles.indexOffset = mesh.morphMeshIndexOffset * sizeof(utils::Index);
+                    bottomLevelGeometry.triangles.indexNum = mesh.indexNum;
+                    bottomLevelGeometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
 
                     nri::BuildBottomLevelAccelerationStructureDesc buildBottomLevelAccelerationStructureDesc = {};
                     buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
