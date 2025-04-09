@@ -188,7 +188,7 @@ set_source_files_properties(${SHADERS} PROPERTIES VS_TOOL_OVERRIDE "None")
 
 set(SHADERMAKE_GENERAL_ARGS
     --useAPI --flatten --stripReflection --WX
-    --sRegShift 100 --tRegShift 200 --bRegShift 300 --uRegShift 400
+    --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128 # TODO: must be in sync with "VK_BINDING_OFFSETS"
     --binary
     --shaderModel 6_6
     --sourceDir "Shaders"

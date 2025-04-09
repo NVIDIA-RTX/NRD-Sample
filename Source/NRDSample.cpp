@@ -1846,7 +1846,7 @@ void Sample::PrepareFrame(uint32_t frameIndex)
 
                                 sampleShaders +=
                                     " --useAPI --flatten --stripReflection --WX --colorize"
-                                    " --sRegShift 100 --tRegShift 200 --bRegShift 300 --uRegShift 400"
+                                    " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
                                     " --binary"
                                     " --shaderModel 6_6"
                                     " --sourceDir Shaders"
@@ -1864,7 +1864,7 @@ void Sample::PrepareFrame(uint32_t frameIndex)
 
                                 nrdShaders +=
                                     " --useAPI --flatten --stripReflection --WX --colorize"
-                                    " --sRegShift 100 --tRegShift 200 --bRegShift 300 --uRegShift 400"
+                                    " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
                                     " --binary --header"
                                     " --allResourcesBound"
                                     " --vulkanVersion 1.2"
@@ -3001,7 +3001,7 @@ void Sample::CreateAccelerationStructures()
 
             // Update scratch
             uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
-            scratchSize += helper::Align(size, deviceDesc.scratchBufferOffsetAlignment);
+            scratchSize += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);
         }
         else
         {
@@ -3076,12 +3076,12 @@ void Sample::CreateAccelerationStructures()
 
         // Update scratch
         uint64_t buildSize = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
-        scratchSize += helper::Align(buildSize, deviceDesc.scratchBufferOffsetAlignment);
+        scratchSize += helper::Align(buildSize, deviceDesc.memoryAlignment.scratchBufferOffset);
 
         if (mesh.HasMorphTargets())
         {
             uint64_t updateSize = NRI.GetAccelerationStructureUpdateScratchBufferSize(*accelerationStructure);
-            m_MorphMeshScratchSize += helper::Align(max(buildSize, updateSize), deviceDesc.scratchBufferOffsetAlignment);
+            m_MorphMeshScratchSize += helper::Align(max(buildSize, updateSize), deviceDesc.memoryAlignment.scratchBufferOffset);
         }
 
         // Update geometry offset
@@ -3399,15 +3399,15 @@ void Sample::CreateResources(nri::Format swapChainFormat)
         constantBufferViewDesc.viewType = nri::BufferViewType::CONSTANT;
         constantBufferViewDesc.buffer = NRI.GetStreamerConstantBuffer(*m_Streamer);
 
-        constantBufferViewDesc.size = helper::Align(sizeof(GlobalConstants), deviceDesc.constantBufferOffsetAlignment);
+        constantBufferViewDesc.size = helper::Align(sizeof(GlobalConstants), deviceDesc.memoryAlignment.constantBufferOffset);
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
         m_Descriptors.push_back(descriptor);
 
-        constantBufferViewDesc.size = helper::Align(sizeof(MorphMeshUpdateVerticesConstants), deviceDesc.constantBufferOffsetAlignment);
+        constantBufferViewDesc.size = helper::Align(sizeof(MorphMeshUpdateVerticesConstants), deviceDesc.memoryAlignment.constantBufferOffset);
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
         m_Descriptors.push_back(descriptor);
 
-        constantBufferViewDesc.size = helper::Align(sizeof(MorphMeshUpdatePrimitivesConstants), deviceDesc.constantBufferOffsetAlignment);
+        constantBufferViewDesc.size = helper::Align(sizeof(MorphMeshUpdatePrimitivesConstants), deviceDesc.memoryAlignment.constantBufferOffset);
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
         m_Descriptors.push_back(descriptor);
     }
@@ -4732,13 +4732,13 @@ void Sample::RenderFrame(uint32_t frameIndex)
 
                     if (doBuild) {
                         uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
-                        scratchOffset += helper::Align(size, deviceDesc.scratchBufferOffsetAlignment);;
+                        scratchOffset += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);;
                     }
                     else {
                         buildBottomLevelAccelerationStructureDesc.src = accelerationStructure;
 
                         uint64_t size = NRI.GetAccelerationStructureUpdateScratchBufferSize(*accelerationStructure);
-                        scratchOffset += helper::Align(size, deviceDesc.scratchBufferOffsetAlignment);;
+                        scratchOffset += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);;
                     }
 
                     NRI.CmdBuildBottomLevelAccelerationStructures(commandBuffer, &buildBottomLevelAccelerationStructureDesc, 1);
