@@ -227,7 +227,7 @@ struct InstanceData
 // RESOURCES
 //===============================================================
 
-#include "NRICompatibility.hlsli"
+#include "NRI.hlsl"
 
 NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
 {
