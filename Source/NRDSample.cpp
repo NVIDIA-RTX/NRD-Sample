@@ -670,10 +670,8 @@ Sample::~Sample() {
     for (uint32_t i = 0; i < m_Pipelines.size(); i++)
         NRI.DestroyPipeline(*m_Pipelines[i]);
 
-    for (uint32_t i = 0; i < m_AccelerationStructures.size(); i++) {
-        if (m_AccelerationStructures[i])
-            NRI.DestroyAccelerationStructure(*m_AccelerationStructures[i]);
-    }
+    for (uint32_t i = 0; i < m_AccelerationStructures.size(); i++)
+        NRI.DestroyAccelerationStructure(*m_AccelerationStructures[i]);
 
     NRI.DestroyPipelineLayout(*m_PipelineLayout);
     NRI.DestroyDescriptorPool(*m_DescriptorPool);
@@ -2861,7 +2859,6 @@ void Sample::CreateAccelerationStructures() {
     }
 
     // Create temp resources
-    constexpr uint32_t firstBlasOffset = ALLOW_BLAS_MERGING ? (uint32_t)AccelerationStructure::BLAS_MergedOpaque : (uint32_t)AccelerationStructure::BLAS_Other;
     uint32_t blasNum = (uint32_t)buildBottomLevelAccelerationStructureDescs.size();
 
     nri::Buffer* scratchBuffer = nullptr;
@@ -2906,9 +2903,10 @@ void Sample::CreateAccelerationStructures() {
         NRI.BeginCommandBuffer(*commandBuffer, nullptr);
         {
             std::vector<nri::BufferBarrierDesc> bufferBarriers;
+            std::vector<nri::AccelerationStructure*> blases;
 
             // Barriers (write) and patch scratch buffer
-            for (size_t i = 0; i < buildBottomLevelAccelerationStructureDescs.size(); i++) {
+            for (size_t i = 0; i < blasNum; i++) {
                 auto& desc = buildBottomLevelAccelerationStructureDescs[i];
                 desc.scratchBuffer = scratchBuffer;
 
@@ -2917,6 +2915,7 @@ void Sample::CreateAccelerationStructures() {
                 bufferBarrier.after = {nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE};
 
                 bufferBarriers.push_back(bufferBarrier);
+                blases.push_back(desc.dst);
             }
 
             nri::BarrierGroupDesc barrierGroupDesc = {};
@@ -2938,10 +2937,7 @@ void Sample::CreateAccelerationStructures() {
 
             // Emit sizes for compaction
             NRI.CmdResetQueries(*commandBuffer, *queryPool, 0, blasNum);
-
-            nri::AccelerationStructure** firstBlas = m_AccelerationStructures.data() + firstBlasOffset;
-            NRI.CmdWriteAccelerationStructuresSizes(*commandBuffer, firstBlas, blasNum, *queryPool, 0);
-
+            NRI.CmdWriteAccelerationStructuresSizes(*commandBuffer, blases.data(), blasNum, *queryPool, 0);
             NRI.CmdCopyQueries(*commandBuffer, *queryPool, 0, blasNum, *readbackBuffer, 0);
         }
         NRI.EndCommandBuffer(*commandBuffer);
@@ -2980,7 +2976,7 @@ void Sample::CreateAccelerationStructures() {
                 NRI_ABORT_ON_FAILURE(NRI.AllocateAccelerationStructure(*m_Device, allocateAccelerationStructureDesc, compactedBlas));
                 compactedBlases.push_back(compactedBlas);
 
-                nri::AccelerationStructure* tempBlas = m_AccelerationStructures[firstBlasOffset + i];
+                nri::AccelerationStructure* tempBlas = blasBuildDesc.dst;
                 NRI.CmdCopyAccelerationStructure(*commandBuffer, *compactedBlas, *tempBlas, nri::CopyMode::COMPACT);
             }
         }
@@ -3001,9 +2997,13 @@ void Sample::CreateAccelerationStructures() {
 
     // Cleanup
     for (uint32_t i = 0; i < blasNum; i++) {
-        nri::AccelerationStructure* tempBlas = m_AccelerationStructures[firstBlasOffset + i];
+        const nri::BuildBottomLevelAccelerationStructureDesc& blasBuildDesc = buildBottomLevelAccelerationStructureDescs[i];
+
+        nri::AccelerationStructure* tempBlas = blasBuildDesc.dst;
         NRI.DestroyAccelerationStructure(*tempBlas);
-        m_AccelerationStructures[firstBlasOffset + i] = compactedBlases[i];
+
+        nri::AccelerationStructure* compactedBlas = compactedBlases[i];
+        std::replace(m_AccelerationStructures.begin(), m_AccelerationStructures.end(), tempBlas, compactedBlas);
     }
 
     NRI.UnmapBuffer(*uploadBuffer);
@@ -3030,10 +3030,12 @@ void Sample::CreateAccelerationStructures() {
         "  Total time    : %.2f ms\n"
         "  Building time : %.2f ms\n"
         "  Scratch size  : %.2f Mb\n"
-        "  BLAS num      : %zu\n"
+        "  BLAS num      : %u\n"
         "  Geometries    : %zu\n"
         "  Primitives    : %zu\n",
-        m_Scene.instances.size(), m_Scene.meshes.size(), m_Scene.primitives.size(), m_Scene.vertices.size(), totalTime, buildTime, scratchSize / (1024.0 * 1024.0), m_AccelerationStructures.size() - (size_t)AccelerationStructure::BLAS_MergedOpaque, geometries.size(), primitivesNum);
+        m_Scene.instances.size(), m_Scene.meshes.size(), m_Scene.vertices.size(), m_Scene.primitives.size(),
+        totalTime, buildTime, scratchSize / (1024.0 * 1024.0),
+        blasNum, geometries.size(), primitivesNum);
 }
 
 void Sample::CreateSamplers() {
