@@ -3774,9 +3774,9 @@ void Sample::UploadStaticData() {
 
     // Buffer data
     nri::BufferUploadDesc bufferUploadDescs[] = {
-        {primitiveData.data(), helper::GetByteSizeOf(primitiveData), Get(Buffer::PrimitiveData), 0, {nri::AccessBits::SHADER_RESOURCE}},
-        {morphMeshIndices.data(), helper::GetByteSizeOf(morphMeshIndices), Get(Buffer::MorphMeshIndices), 0, {nri::AccessBits::SHADER_RESOURCE}},
-        {m_Scene.morphVertices.data(), helper::GetByteSizeOf(m_Scene.morphVertices), Get(Buffer::MorphMeshVertices), 0, {nri::AccessBits::SHADER_RESOURCE}}};
+        {primitiveData.data(), Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE}},
+        {morphMeshIndices.data(), Get(Buffer::MorphMeshIndices), {nri::AccessBits::SHADER_RESOURCE}},
+        {m_Scene.morphVertices.data(), Get(Buffer::MorphMeshVertices), {nri::AccessBits::SHADER_RESOURCE}}};
 
     // Upload data and apply states
     NRI_ABORT_ON_FAILURE(NRI.UploadData(*m_GraphicsQueue, textureUploadDescs.data(), helper::GetCountOf(textureUploadDescs), bufferUploadDescs, helper::GetCountOf(bufferUploadDescs)));
