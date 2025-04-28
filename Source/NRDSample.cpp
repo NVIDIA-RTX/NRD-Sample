@@ -610,8 +610,8 @@ private:
     float2 m_HairBetas = float2(0.25f, 0.6f);
     uint2 m_RenderResolution = {};
     uint64_t m_MorphMeshScratchSize = 0;
-    uint64_t m_WorldTlasDataOffsetInDynamicBuffer = 0;
-    uint64_t m_LightTlasDataOffsetInDynamicBuffer = 0;
+    nri::BufferOffset m_WorldTlasDataLocation = {};
+    nri::BufferOffset m_LightTlasDataLocation = {};
     uint32_t m_GlobalConstantBufferOffset = 0;
     uint32_t m_OpaqueObjectsNum = 0;
     uint32_t m_TransparentObjectsNum = 0;
@@ -679,7 +679,7 @@ Sample::~Sample() {
     NRI.DestroySwapChain(*m_SwapChain);
     NRI.DestroyStreamer(*m_Streamer);
 
-    DestroyUI(NRI);
+    DestroyUI();
 
     nri::nriDestroyDevice(*m_Device);
 }
@@ -962,7 +962,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
     NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo);
     printf("Allocated %.2f Mb\n", videoMemoryInfo.usageSize / (1024.0f * 1024.0f));
 
-    return InitUI(NRI, NRI, *m_Device, swapChainFormat);
+    return InitUI(*m_Device);
 }
 
 void Sample::LatencySleep(uint32_t frameIndex) {
@@ -1999,7 +1999,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         }
         ImGui::End();
     }
-    EndUI(NRI, *m_Streamer);
+    EndUI();
 
     // Animate scene and update camera
     cBoxf cameraLimits = m_Scene.aabb;
@@ -2266,8 +2266,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     UpdateConstantBuffer(frameIndex, resetHistoryFactor);
     GatherInstanceData();
 
-    NRI.CopyStreamerUpdateRequests(*m_Streamer);
-
     nri::nriEndAnnotation();
 }
 
@@ -2385,6 +2383,7 @@ nri::Format Sample::CreateSwapChain() {
 
         backBuffer = {};
         backBuffer.texture = swapChainTextures[i];
+        backBuffer.attachmentFormat = swapChainFormat;
 
         char name[32];
         snprintf(name, sizeof(name), "Texture::SwapChain#%u", i);
@@ -3982,29 +3981,45 @@ void Sample::GatherInstanceData() {
         }
     }
 
-    {
-        nri::BufferUpdateRequestDesc bufferUpdateRequestDesc = {};
-        bufferUpdateRequestDesc.data = m_InstanceData.data();
-        bufferUpdateRequestDesc.dataSize = m_InstanceData.size() * sizeof(InstanceData);
-        bufferUpdateRequestDesc.dstBuffer = Get(Buffer::InstanceData);
+    const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
 
-        NRI.AddStreamerBufferUpdateRequest(*m_Streamer, bufferUpdateRequestDesc);
+    {
+        nri::DataSize dataChunk = {};
+        dataChunk.data = m_InstanceData.data();
+        dataChunk.size = m_InstanceData.size() * sizeof(InstanceData);
+
+        nri::StreamBufferDataDesc streamBufferDataDesc = {};
+        streamBufferDataDesc.dataChunks = &dataChunk;
+        streamBufferDataDesc.dataChunkNum = 1;
+        streamBufferDataDesc.dstBuffer = Get(Buffer::InstanceData);
+
+        NRI.StreamBufferData(*m_Streamer, streamBufferDataDesc);
     }
 
     {
-        nri::BufferUpdateRequestDesc bufferUpdateRequestDesc = {};
-        bufferUpdateRequestDesc.data = m_WorldTlasData.data();
-        bufferUpdateRequestDesc.dataSize = m_WorldTlasData.size() * sizeof(nri::TopLevelInstance);
+        nri::DataSize dataChunk = {};
+        dataChunk.data = m_WorldTlasData.data();
+        dataChunk.size = m_WorldTlasData.size() * sizeof(nri::TopLevelInstance);
 
-        m_WorldTlasDataOffsetInDynamicBuffer = NRI.AddStreamerBufferUpdateRequest(*m_Streamer, bufferUpdateRequestDesc);
+        nri::StreamBufferDataDesc streamBufferDataDesc = {};
+        streamBufferDataDesc.dataChunks = &dataChunk;
+        streamBufferDataDesc.dataChunkNum = 1;
+        streamBufferDataDesc.placementAlignment = deviceDesc.memoryAlignment.accelerationStructureOffset;
+
+        m_WorldTlasDataLocation = NRI.StreamBufferData(*m_Streamer, streamBufferDataDesc);
     }
 
     {
-        nri::BufferUpdateRequestDesc bufferUpdateRequestDesc = {};
-        bufferUpdateRequestDesc.data = m_LightTlasData.data();
-        bufferUpdateRequestDesc.dataSize = m_LightTlasData.size() * sizeof(nri::TopLevelInstance);
+        nri::DataSize dataChunk = {};
+        dataChunk.data = m_LightTlasData.data();
+        dataChunk.size = m_LightTlasData.size() * sizeof(nri::TopLevelInstance);
 
-        m_LightTlasDataOffsetInDynamicBuffer = NRI.AddStreamerBufferUpdateRequest(*m_Streamer, bufferUpdateRequestDesc);
+        nri::StreamBufferDataDesc streamBufferDataDesc = {};
+        streamBufferDataDesc.dataChunks = &dataChunk;
+        streamBufferDataDesc.dataChunkNum = 1;
+        streamBufferDataDesc.placementAlignment = deviceDesc.memoryAlignment.accelerationStructureOffset;
+
+        m_LightTlasDataLocation = NRI.StreamBufferData(*m_Streamer, streamBufferDataDesc);
     }
 }
 
@@ -4156,7 +4171,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gIsSrgb = (m_IsSrgb && (onScreen == SHOW_FINAL || onScreen == SHOW_BASE_COLOR)) ? 1 : 0;
     }
 
-    m_GlobalConstantBufferOffset = NRI.UpdateStreamerConstantBuffer(*m_Streamer, &constants, sizeof(constants));
+    m_GlobalConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
 }
 
 uint16_t Sample::BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions) {
@@ -4333,7 +4348,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
             // TODO: is barrier from "SHADER_RESOURCE" to "COPY_DESTINATION" needed here for "Buffer::InstanceData"?
 
-            NRI.CmdUploadStreamerUpdateRequests(commandBuffer, *m_Streamer);
+            NRI.CmdCopyStreamedData(commandBuffer, *m_Streamer);
         }
 
         // All-in-one pipeline layout
@@ -4389,7 +4404,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                         constants.gAttributesOutputOffset = meshInstance.morphedVertexOffset;
                     }
 
-                    uint32_t dynamicConstantBufferOffset = NRI.UpdateStreamerConstantBuffer(*m_Streamer, &constants, sizeof(constants));
+                    uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
                     NRI.CmdSetDescriptorSet(commandBuffer, SET_MORPH, *Get(DescriptorSet::MorphTargetPose3), &dynamicConstantBufferOffset);
 
                     NRI.CmdDispatch(commandBuffer, {(mesh.vertexNum + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
@@ -4432,7 +4447,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                         constants.gMorphedPrimitiveOffset = meshInstance.morphedPrimitiveOffset;
                     }
 
-                    uint32_t dynamicConstantBufferOffset = NRI.UpdateStreamerConstantBuffer(*m_Streamer, &constants, sizeof(constants));
+                    uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
                     NRI.CmdSetDescriptorSet(commandBuffer, SET_MORPH, *Get(DescriptorSet::MorphTargetUpdatePrimitives3), &dynamicConstantBufferOffset);
 
                     NRI.CmdDispatch(commandBuffer, {(numPrimitives + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
@@ -4506,19 +4521,17 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
             nri::BuildTopLevelAccelerationStructureDesc buildTopLevelAccelerationStructureDescs[2] = {};
             {
-                nri::Buffer* dynamicBuffer = NRI.GetStreamerDynamicBuffer(*m_Streamer);
-
                 buildTopLevelAccelerationStructureDescs[0].dst = Get(AccelerationStructure::TLAS_World);
                 buildTopLevelAccelerationStructureDescs[0].instanceNum = (uint32_t)m_WorldTlasData.size();
-                buildTopLevelAccelerationStructureDescs[0].instanceBuffer = dynamicBuffer;
-                buildTopLevelAccelerationStructureDescs[0].instanceOffset = m_WorldTlasDataOffsetInDynamicBuffer;
+                buildTopLevelAccelerationStructureDescs[0].instanceBuffer = m_WorldTlasDataLocation.buffer;
+                buildTopLevelAccelerationStructureDescs[0].instanceOffset = m_WorldTlasDataLocation.offset;
                 buildTopLevelAccelerationStructureDescs[0].scratchBuffer = Get(Buffer::WorldScratch);
                 buildTopLevelAccelerationStructureDescs[0].scratchOffset = 0;
 
                 buildTopLevelAccelerationStructureDescs[1].dst = Get(AccelerationStructure::TLAS_Emissive);
                 buildTopLevelAccelerationStructureDescs[1].instanceNum = (uint32_t)m_LightTlasData.size();
-                buildTopLevelAccelerationStructureDescs[1].instanceBuffer = dynamicBuffer;
-                buildTopLevelAccelerationStructureDescs[1].instanceOffset = m_LightTlasDataOffsetInDynamicBuffer;
+                buildTopLevelAccelerationStructureDescs[1].instanceBuffer = m_LightTlasDataLocation.buffer;
+                buildTopLevelAccelerationStructureDescs[1].instanceOffset = m_LightTlasDataLocation.offset;
                 buildTopLevelAccelerationStructureDescs[1].scratchBuffer = Get(Buffer::LightScratch);
                 buildTopLevelAccelerationStructureDescs[1].scratchOffset = 0;
             }
@@ -5011,7 +5024,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             desc.colorNum = 1;
 
             NRI.CmdBeginRendering(commandBuffer, desc);
-            RenderUI(NRI, NRI, *m_Streamer, commandBuffer, m_SdrScale, m_IsSrgb);
+            RenderUI(commandBuffer, *m_Streamer, backBuffer->attachmentFormat, m_SdrScale, m_IsSrgb);
             NRI.CmdEndRendering(commandBuffer);
 
             const nri::TextureBarrierDesc after = nri::TextureBarrierFromState(before, {nri::AccessBits::UNKNOWN, nri::Layout::PRESENT, nri::StageBits::ALL});
@@ -5034,6 +5047,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         NRI.QueueSubmit(*m_GraphicsQueue, queueSubmitDesc);
     }
+
+    NRI.StreamerFinalize(*m_Streamer);
 
     nri::nriEndAnnotation();
 
