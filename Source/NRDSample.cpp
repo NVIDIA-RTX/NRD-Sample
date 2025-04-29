@@ -80,9 +80,6 @@ const std::vector<uint32_t> DLRR_interior_improveMeTests = {{
 
 //=================================================================================
 
-#define _STRINGIFY(x) #x
-#define STRINGIFY(x) _STRINGIFY(x)
-
 // UI
 #define UI_YELLOW ImVec4(1.0f, 0.9f, 0.0f, 1.0f)
 #define UI_GREEN ImVec4(0.5f, 0.9f, 0.0f, 1.0f)
@@ -4995,24 +4992,24 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         uint32_t backBufferIndex = NRI.AcquireNextSwapChainTexture(*m_SwapChain);
         assert(backBufferIndex != nri::OUT_OF_DATE && "Oops, unhandled swap chain is out of date!");
 
-        const BackBuffer* backBuffer = &m_SwapChainBuffers[backBufferIndex];
+        const BackBuffer& backBuffer = m_SwapChainBuffers[backBufferIndex];
 
         { // Copy to back-buffer
             helper::Annotation annotation(NRI, commandBuffer, "Copy to back buffer");
 
             const nri::TextureBarrierDesc transitions[] = {
                 nri::TextureBarrierFromState(GetState(Texture::Final), {nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE}),
-                nri::TextureBarrierFromUnknown(backBuffer->texture, {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION}),
+                nri::TextureBarrierFromUnknown(backBuffer.texture, {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION}),
             };
             nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, transitions, (uint16_t)helper::GetCountOf(transitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-            NRI.CmdCopyTexture(commandBuffer, *backBuffer->texture, nullptr, *Get(Texture::Final), nullptr);
+            NRI.CmdCopyTexture(commandBuffer, *backBuffer.texture, nullptr, *Get(Texture::Final), nullptr);
         }
 
         { // UI
             nri::TextureBarrierDesc before = {};
-            before.texture = backBuffer->texture;
+            before.texture = backBuffer.texture;
             before.before = {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION, nri::StageBits::COPY};
             before.after = {nri::AccessBits::COLOR_ATTACHMENT, nri::Layout::COLOR_ATTACHMENT, nri::StageBits::COLOR_ATTACHMENT};
 
@@ -5020,11 +5017,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
             nri::AttachmentsDesc desc = {};
-            desc.colors = &backBuffer->colorAttachment;
+            desc.colors = &backBuffer.colorAttachment;
             desc.colorNum = 1;
 
             NRI.CmdBeginRendering(commandBuffer, desc);
-            RenderUI(commandBuffer, *m_Streamer, backBuffer->attachmentFormat, m_SdrScale, m_IsSrgb);
+            RenderUI(commandBuffer, *m_Streamer, backBuffer.attachmentFormat, m_SdrScale, m_IsSrgb);
             NRI.CmdEndRendering(commandBuffer);
 
             const nri::TextureBarrierDesc after = nri::TextureBarrierFromState(before, {nri::AccessBits::UNKNOWN, nri::Layout::PRESENT, nri::StageBits::ALL});
