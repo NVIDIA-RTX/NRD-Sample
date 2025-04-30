@@ -863,7 +863,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         nri::VideoMemoryInfo videoMemoryInfo1 = {};
         NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo1);
 
-        NRI_ABORT_ON_FALSE(m_NRD.Initialize(desc, instanceCreationDesc, *m_Device, NRI, NRI));
+        NRI_ABORT_ON_FALSE(m_NRD.Initialize(desc, instanceCreationDesc, *m_Device, NRI));
 
         nri::VideoMemoryInfo videoMemoryInfo2 = {};
         NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo2);

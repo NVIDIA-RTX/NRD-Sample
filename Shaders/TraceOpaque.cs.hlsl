@@ -323,7 +323,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
     #endif
 
     uint pathNum = desc.pathNum << ( gTracingMode == RESOLUTION_FULL ? 1 : 0 );
-    uint diffPathsNum = 0;
+    uint diffPathNum = 0;
 
     [loop]
     for( uint path = 0; path < pathNum; path++ )
@@ -697,7 +697,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
             {
                 result.diffRadiance += Lsum;
                 result.diffHitDist += normHitDist;
-                diffPathsNum++;
+                diffPathNum++;
             }
             else
             {
@@ -739,13 +739,13 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
     result.specRadiance *= radianceNorm;
 
     // Others are not divided by sampling probability, we need to average across diffuse / specular only paths
-    float diffNorm = diffPathsNum == 0 ? 0.0 : 1.0 / float( diffPathsNum );
+    float diffNorm = diffPathNum == 0 ? 0.0 : 1.0 / float( diffPathNum );
     #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
         result.diffDirection *= diffNorm;
     #endif
     result.diffHitDist *= diffNorm;
 
-    float specNorm = pathNum == diffPathsNum ? 0.0 : 1.0 / float( pathNum - diffPathsNum );
+    float specNorm = pathNum == diffPathNum ? 0.0 : 1.0 / float( pathNum - diffPathNum );
     #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
         result.specDirection *= specNorm;
     #endif
