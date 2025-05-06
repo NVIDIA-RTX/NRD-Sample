@@ -333,6 +333,8 @@ struct NRIInterface
 struct QueuedFrame {
     nri::CommandAllocator* commandAllocator;
     nri::CommandBuffer* commandBuffer;
+    nri::Fence* textureAcquiredSemaphore;
+    nri::Fence* renderingFinishedSemaphore;
 };
 
 struct Settings {
@@ -650,6 +652,8 @@ Sample::~Sample() {
     for (QueuedFrame& queuedFrame : m_QueuedFrames) {
         NRI.DestroyCommandBuffer(*queuedFrame.commandBuffer);
         NRI.DestroyCommandAllocator(*queuedFrame.commandAllocator);
+        NRI.DestroyFence(*queuedFrame.textureAcquiredSemaphore);
+        NRI.DestroyFence(*queuedFrame.renderingFinishedSemaphore);
     }
 
     for (BackBuffer& backBuffer : m_SwapChainBuffers)
@@ -676,7 +680,7 @@ Sample::~Sample() {
     NRI.DestroySwapChain(*m_SwapChain);
     NRI.DestroyStreamer(*m_Streamer);
 
-    DestroyUI();
+    DestroyImgui();
 
     nri::nriDestroyDevice(*m_Device);
 }
@@ -959,15 +963,14 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
     NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo);
     printf("Allocated %.2f Mb\n", videoMemoryInfo.usageSize / (1024.0f * 1024.0f));
 
-    return InitUI(*m_Device);
+    return InitImgui(*m_Device);
 }
 
 void Sample::LatencySleep(uint32_t frameIndex) {
     const QueuedFrame& queuedFrame = m_QueuedFrames[frameIndex % GetQueuedFrameNum()];
-    if (frameIndex >= GetQueuedFrameNum()) {
-        NRI.Wait(*m_FrameFence, 1 + frameIndex - GetQueuedFrameNum());
-        NRI.ResetCommandAllocator(*queuedFrame.commandAllocator);
-    }
+
+    NRI.Wait(*m_FrameFence, frameIndex >= GetQueuedFrameNum() ? 1 + frameIndex - GetQueuedFrameNum() : 0);
+    NRI.ResetCommandAllocator(*queuedFrame.commandAllocator);
 }
 
 void Sample::PrepareFrame(uint32_t frameIndex) {
@@ -996,7 +999,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
             m_Settings.denoiser = DENOISER_REFERENCE;
     }
 
-    BeginUI();
+    ImGui::NewFrame();
     if (!IsKeyPressed(Key::LAlt) && m_ShowUi) {
         static const char* onScreenModes[] = {
 #if (NRD_MODE == OCCLUSION)
@@ -1996,7 +1999,8 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         }
         ImGui::End();
     }
-    EndUI();
+    ImGui::EndFrame();
+    ImGui::Render();
 
     // Animate scene and update camera
     cBoxf cameraLimits = m_Scene.aabb;
@@ -2399,6 +2403,8 @@ void Sample::CreateCommandBuffers() {
     for (QueuedFrame& queuedFrame : m_QueuedFrames) {
         NRI_ABORT_ON_FAILURE(NRI.CreateCommandAllocator(*m_GraphicsQueue, queuedFrame.commandAllocator));
         NRI_ABORT_ON_FAILURE(NRI.CreateCommandBuffer(*queuedFrame.commandAllocator, queuedFrame.commandBuffer));
+        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, queuedFrame.textureAcquiredSemaphore));
+        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, queuedFrame.renderingFinishedSemaphore));
     }
 }
 
@@ -4207,6 +4213,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
     bool wantPrintf = IsButtonPressed(Button::Middle) || IsKeyToggled(Key::P);
     bool isEven = !(frameIndex & 0x1);
+
     uint32_t queuedFrameIndex = frameIndex % GetQueuedFrameNum();
     const QueuedFrame& queuedFrame = m_QueuedFrames[queuedFrameIndex];
     nri::CommandBuffer& commandBuffer = *queuedFrame.commandBuffer;
@@ -4991,8 +4998,10 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             NRI.CmdDispatch(commandBuffer, {windowGridW, windowGridH, 1});
         }
 
-        uint32_t backBufferIndex = NRI.AcquireNextSwapChainTexture(*m_SwapChain);
-        assert(backBufferIndex != nri::OUT_OF_DATE && "Oops, unhandled swap chain is out of date!");
+        uint32_t backBufferIndex = 0;
+        nri::Result result = NRI.AcquireNextTexture(*m_SwapChain, *queuedFrame.textureAcquiredSemaphore, backBufferIndex);
+        if (result == nri::Result::OUT_OF_DATE)
+            printf("Oops, unhandled out of date!\n");
 
         const BackBuffer& backBuffer = m_SwapChainBuffers[backBufferIndex];
 
@@ -5023,7 +5032,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             desc.colorNum = 1;
 
             NRI.CmdBeginRendering(commandBuffer, desc);
-            RenderUI(commandBuffer, *m_Streamer, backBuffer.attachmentFormat, m_SdrScale, m_IsSrgb);
+            {
+                RenderImgui(commandBuffer, *m_Streamer, backBuffer.attachmentFormat, m_SdrScale, m_IsSrgb);
+            }
             NRI.CmdEndRendering(commandBuffer);
 
             const nri::TextureBarrierDesc after = nri::TextureBarrierFromState(before, {nri::AccessBits::UNKNOWN, nri::Layout::PRESENT, nri::StageBits::ALL});
@@ -5034,15 +5045,26 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     NRI.EndCommandBuffer(commandBuffer);
 
     { // Submit
-        nri::FenceSubmitDesc signalFence = {};
-        signalFence.fence = m_FrameFence;
-        signalFence.value = 1 + frameIndex;
+        nri::FenceSubmitDesc frameFence = {};
+        frameFence.fence = m_FrameFence;
+        frameFence.value = 1 + frameIndex;
+
+        nri::FenceSubmitDesc textureAcquiredFence = {};
+        textureAcquiredFence.fence = queuedFrame.textureAcquiredSemaphore;
+        textureAcquiredFence.stages = nri::StageBits::COLOR_ATTACHMENT;
+
+        nri::FenceSubmitDesc renderingFinishedFence = {};
+        renderingFinishedFence.fence = queuedFrame.renderingFinishedSemaphore;
+
+        nri::FenceSubmitDesc signalFences[] = {renderingFinishedFence, frameFence};
 
         nri::QueueSubmitDesc queueSubmitDesc = {};
+        queueSubmitDesc.waitFences = &textureAcquiredFence;
+        queueSubmitDesc.waitFenceNum = 1;
         queueSubmitDesc.commandBuffers = &queuedFrame.commandBuffer;
         queueSubmitDesc.commandBufferNum = 1;
-        queueSubmitDesc.signalFences = &signalFence;
-        queueSubmitDesc.signalFenceNum = 1;
+        queueSubmitDesc.signalFences = signalFences;
+        queueSubmitDesc.signalFenceNum = helper::GetCountOf(signalFences);
 
         NRI.QueueSubmit(*m_GraphicsQueue, queueSubmitDesc);
     }
@@ -5054,7 +5076,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     // Present
     nri::nriBeginAnnotation("Present", nri::BGRA_UNUSED);
 
-    NRI.QueuePresent(*m_SwapChain);
+    NRI.QueuePresent(*m_SwapChain, *queuedFrame.renderingFinishedSemaphore);
 
     nri::nriEndAnnotation();
 
