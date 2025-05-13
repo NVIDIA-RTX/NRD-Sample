@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.30)
 
 include(FetchContent)
 
@@ -72,6 +72,7 @@ list(APPEND DEPS sharc)
 if(DEPS)
     message("Downloading dependencies:")
     message(STATUS "${DEPS} ...")
+
     FetchContent_MakeAvailable(${DEPS})
 endif()
 
