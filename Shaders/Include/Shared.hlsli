@@ -357,7 +357,6 @@ float ApplyThinLensEquation( float hitDist, float curvature )
     return hitDist / ( 2.0 * curvature * hitDist + 1.0 );
 }
 
-// Returns 3D motion in world space or 2.5D motion in screen space
 float3 GetMotion( float3 X, float3 Xprev )
 {
     float3 motion = Xprev - X;
