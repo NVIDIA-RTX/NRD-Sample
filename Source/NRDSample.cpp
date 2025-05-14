@@ -2,6 +2,9 @@
 
 #include "NRIFramework.h"
 
+#include "Extensions/NRIWrapperD3D12.h"
+#include "Extensions/NRIWrapperVK.h"
+
 // NRD and NRI-based integration
 #include "NRD.h"
 #include "NRDIntegration.hpp"
@@ -33,10 +36,11 @@ constexpr bool ALLOW_HDR = false;                   // use "WIN + ALT + B" to sw
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true; // saves a bit of memory and performance
 constexpr bool USE_DLSS_TNN = false;                // replace CNN (legacy) with TNN (better)
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
-constexpr bool NRD_ALLOW_DESCRIPTOR_CACHING = true;
+constexpr bool NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING = true;
+constexpr bool NRD_RESTORE_INITIAL_STATE = true;
 constexpr bool NRD_PROMOTE_FLOAT16_TO_32 = false;
 constexpr bool NRD_DEMOTE_FLOAT32_TO_16 = false;
-constexpr bool NRD_RESTORE_INITIAL_STATE = false;
+constexpr bool NRD_USE_AUTO_WRAPPER = true;
 constexpr int32_t MAX_HISTORY_FRAME_NUM = (int32_t)std::min(60u, std::min(nrd::REBLUR_MAX_HISTORY_FRAME_NUM, nrd::RELAX_MAX_HISTORY_FRAME_NUM));
 constexpr uint32_t TEXTURES_PER_MATERIAL = 4;
 constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM = 32;
@@ -333,8 +337,6 @@ struct NRIInterface
 struct QueuedFrame {
     nri::CommandAllocator* commandAllocator;
     nri::CommandBuffer* commandBuffer;
-    nri::Fence* textureAcquiredSemaphore;
-    nri::Fence* renderingFinishedSemaphore;
 };
 
 struct Settings {
@@ -490,6 +492,129 @@ public:
         return m_AccelerationStructures[(uint32_t)index];
     }
 
+    inline nrd::Resource GetNrdResource(Texture index) {
+        nri::TextureBarrierDesc* textureState = &m_TextureStates[(uint32_t)index];
+
+        nrd::Resource resource = {};
+        resource.state = textureState->after;
+        resource.userArg = textureState;
+
+        if constexpr (NRD_USE_AUTO_WRAPPER) {
+            const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
+            const nri::TextureDesc& textureDesc = NRI.GetTextureDesc(*textureState->texture);
+
+            if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
+                resource.d3d12.resource = (ID3D12Resource*)NRI.GetTextureNativeObject(*textureState->texture);
+                resource.d3d12.format = nri::nriConvertNRIFormatToDXGI(textureDesc.format);
+            }
+            else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
+                resource.vk.image = (VKNonDispatchableHandle)NRI.GetTextureNativeObject(*textureState->texture);
+                resource.vk.format = nri::nriConvertNRIFormatToVK(textureDesc.format);
+            }
+        } else
+            resource.nri.texture = textureState->texture;
+
+        return resource;
+    }
+
+    inline void Denoise(const nrd::Identifier* denoisers, uint32_t denoiserNum, nri::CommandBuffer& commandBuffer) {
+        // Fill resource snapshot
+        nrd::ResourceSnapshot resourceSnapshot = {};
+        {
+            resourceSnapshot.restoreInitialState = NRD_RESTORE_INITIAL_STATE;
+
+            // Common
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_MV, GetNrdResource(Texture::Mv));
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_NORMAL_ROUGHNESS, GetNrdResource(Texture::Normal_Roughness));
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_VIEWZ, GetNrdResource(Texture::ViewZ));
+
+            // (Optional) Needed to allow IN_MV modification on the NRD side
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_BASECOLOR_METALNESS, GetNrdResource(Texture::BaseColor_Metalness));
+
+            // (Optional) Validation
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_VALIDATION, GetNrdResource(Texture::Validation));
+
+            // Diffuse
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST, GetNrdResource(Texture::Diff));
+
+            // Diffuse occlusion
+#if (NRD_MODE == OCCLUSION)
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_HITDIST, GetNrdResource(Texture::Diff));
+#endif
+
+            // Diffuse SH
+#if (NRD_MODE == SH)
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_SH0, GetNrdResource(Texture::Unfiltered_Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_SH1, GetNrdResource(Texture::Unfiltered_DiffSh));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_SH0, GetNrdResource(Texture::Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_SH1, GetNrdResource(Texture::DiffSh));
+#endif
+
+            // Diffuse directional occlusion
+#if (NRD_MODE == DIRECTIONAL_OCCLUSION)
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Diff));
+#endif
+
+            // Specular
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST, GetNrdResource(Texture::Unfiltered_Spec));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST, GetNrdResource(Texture::Spec));
+
+            // Specular occlusion
+#if (NRD_MODE == OCCLUSION)
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_HITDIST, GetNrdResource(Texture::Unfiltered_Spec));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_HITDIST, GetNrdResource(Texture::Spec));
+#endif
+
+            // Specular SH
+#if (NRD_MODE == SH)
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_SH0, GetNrdResource(Texture::Unfiltered_Spec));
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_SH1, GetNrdResource(Texture::Unfiltered_SpecSh));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_SH0, GetNrdResource(Texture::Spec));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_SH1, GetNrdResource(Texture::SpecSh));
+#endif
+
+            // SIGMA
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_PENUMBRA, GetNrdResource(Texture::Unfiltered_Penumbra));
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_TRANSLUCENCY, GetNrdResource(Texture::Unfiltered_Translucency));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SHADOW_TRANSLUCENCY, GetNrdResource(Texture::Shadow));
+
+            // REFERENCE
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_SIGNAL, GetNrdResource(Texture::Composed));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SIGNAL, GetNrdResource(Texture::Composed));
+        }
+
+        // Denoise
+        if constexpr (NRD_USE_AUTO_WRAPPER) {
+            const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
+
+            if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
+                nri::CommandBufferD3D12Desc commandBufferD3D12Desc = {};
+                commandBufferD3D12Desc.d3d12CommandList = (ID3D12GraphicsCommandList*)NRI.GetCommandBufferNativeObject(commandBuffer);
+
+                m_NRD.DenoiseD3D12(denoisers, denoiserNum, commandBufferD3D12Desc, resourceSnapshot);
+            } else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
+                nri::CommandBufferVKDesc commandBufferVKDesc = {};
+                commandBufferVKDesc.vkCommandBuffer = (VKHandle)NRI.GetCommandBufferNativeObject(commandBuffer);
+                commandBufferVKDesc.queueType = nri::QueueType::GRAPHICS;
+
+                m_NRD.DenoiseVK(denoisers, denoiserNum, commandBufferVKDesc, resourceSnapshot);
+            }
+        } else
+            m_NRD.Denoise(denoisers, denoiserNum, commandBuffer, resourceSnapshot);
+
+        // Retrieve state
+        if (!resourceSnapshot.restoreInitialState) {
+            for (size_t i = 0; i < resourceSnapshot.uniqueNum; i++) {
+                nri::TextureBarrierDesc* state = (nri::TextureBarrierDesc*)resourceSnapshot.unique[i].userArg;
+                state->before = state->after;
+                state->after = resourceSnapshot.unique[i].state;
+            }
+        }
+    }
+
     inline void InitCmdLine(cmdline::parser& cmdLine) override {
         cmdLine.add<int32_t>("dlssQuality", 'd', "DLSS quality: [-1: 4]", false, -1, cmdline::range(-1, 4));
         cmdLine.add("debugNRD", 0, "enable NRD validation");
@@ -591,7 +716,7 @@ private:
     std::vector<nri::DescriptorSet*> m_DescriptorSets;
     std::vector<nri::Pipeline*> m_Pipelines;
     std::vector<nri::AccelerationStructure*> m_AccelerationStructures;
-    std::vector<BackBuffer> m_SwapChainBuffers;
+    std::vector<SwapChainTexture> m_SwapChainTextures;
 
     // Data
     std::vector<InstanceData> m_InstanceData;
@@ -652,12 +777,13 @@ Sample::~Sample() {
     for (QueuedFrame& queuedFrame : m_QueuedFrames) {
         NRI.DestroyCommandBuffer(*queuedFrame.commandBuffer);
         NRI.DestroyCommandAllocator(*queuedFrame.commandAllocator);
-        NRI.DestroyFence(*queuedFrame.textureAcquiredSemaphore);
-        NRI.DestroyFence(*queuedFrame.renderingFinishedSemaphore);
     }
 
-    for (BackBuffer& backBuffer : m_SwapChainBuffers)
-        NRI.DestroyDescriptor(*backBuffer.colorAttachment);
+    for (SwapChainTexture& swapChainTexture : m_SwapChainTextures) {
+        NRI.DestroyFence(*swapChainTexture.releaseSemaphore);
+        NRI.DestroyFence(*swapChainTexture.acquireSemaphore);
+        NRI.DestroyDescriptor(*swapChainTexture.colorAttachment);
+    }
 
     for (uint32_t i = 0; i < m_Textures.size(); i++)
         NRI.DestroyTexture(*m_Textures[i]);
@@ -856,18 +982,62 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         instanceCreationDesc.denoisersNum = helper::GetCountOf(denoisersDescs);
 
         nrd::IntegrationCreationDesc desc = {};
-        desc.name = "NRD";
+        strcpy(desc.name, "NRD");
         desc.queuedFrameNum = GetQueuedFrameNum();
-        desc.enableDescriptorCaching = NRD_ALLOW_DESCRIPTOR_CACHING;
+        desc.enableWholeLifetimeDescriptorCaching = NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING;
         desc.promoteFloat16to32 = NRD_PROMOTE_FLOAT16_TO_32;
         desc.demoteFloat32to16 = NRD_DEMOTE_FLOAT32_TO_16;
         desc.resourceWidth = (uint16_t)m_RenderResolution.x;
         desc.resourceHeight = (uint16_t)m_RenderResolution.y;
+        desc.autoWaitForIdle = false;
 
         nri::VideoMemoryInfo videoMemoryInfo1 = {};
         NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo1);
 
-        NRI_ABORT_ON_FALSE(m_NRD.Initialize(desc, instanceCreationDesc, *m_Device, NRI));
+        if constexpr (NRD_USE_AUTO_WRAPPER) {
+            const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
+
+            if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
+                ID3D12CommandQueue* queue = (ID3D12CommandQueue*)NRI.GetQueueNativeObject(*m_GraphicsQueue);
+
+                nri::QueueFamilyD3D12Desc queueFamily = {};
+                queueFamily.d3d12Queues = &queue;
+                queueFamily.queueType = nri::QueueType::GRAPHICS;
+                queueFamily.queueNum = 1;
+
+                nri::DeviceCreationD3D12Desc deviceCreationD3D12Desc = {};
+                deviceCreationD3D12Desc.d3d12Device = (ID3D12Device*)NRI.GetDeviceNativeObject(*m_Device);
+                deviceCreationD3D12Desc.queueFamilies = &queueFamily;
+                deviceCreationD3D12Desc.queueFamilyNum = 1;
+                deviceCreationD3D12Desc.enableNRIValidation = m_DebugNRI;
+
+                if (m_NRD.RecreateD3D12(desc, instanceCreationDesc, deviceCreationD3D12Desc) != nrd::Result::SUCCESS)
+                    return false;
+            } else {
+                nri::WrapperVKInterface iWrapperVK = {};
+                NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::WrapperVKInterface), &iWrapperVK));
+
+                nri::QueueFamilyVKDesc queueFamily = {};
+                queueFamily.familyIndex = iWrapperVK.GetQueueFamilyIndexVK(*m_GraphicsQueue);
+                queueFamily.queueType = nri::QueueType::GRAPHICS;
+                queueFamily.queueNum = 1;
+
+                nri::DeviceCreationVKDesc deviceCreationVKDesc = {};
+                deviceCreationVKDesc.vkInstance = (VKHandle)iWrapperVK.GetInstanceVK(*m_Device);
+                deviceCreationVKDesc.vkPhysicalDevice = (VKHandle)iWrapperVK.GetPhysicalDeviceVK(*m_Device);
+                deviceCreationVKDesc.vkDevice = (VKHandle)NRI.GetDeviceNativeObject(*m_Device);
+                deviceCreationVKDesc.minorVersion = 3;
+                deviceCreationVKDesc.queueFamilies = &queueFamily;
+                deviceCreationVKDesc.queueFamilyNum = 1;
+                deviceCreationVKDesc.enableNRIValidation = m_DebugNRI;
+
+                if (m_NRD.RecreateVK(desc, instanceCreationDesc, deviceCreationVKDesc) != nrd::Result::SUCCESS)
+                    return false;
+            }
+        } else {
+            if (m_NRD.Recreate(desc, instanceCreationDesc, m_Device) != nrd::Result::SUCCESS)
+                return false;
+        }
 
         nri::VideoMemoryInfo videoMemoryInfo2 = {};
         NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo2);
@@ -913,7 +1083,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
                 nrd::IntegrationCreationDesc desc = {};
                 desc.name = "Unused";
                 desc.queuedFrameNum = GetQueuedFrameNum();
-                desc.enableDescriptorCaching = NRD_ALLOW_DESCRIPTOR_CACHING;
+                desc.enableDescriptorCaching = NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING;
                 desc.promoteFloat16to32 = NRD_PROMOTE_FLOAT16_TO_32;
                 desc.demoteFloat32to16 = NRD_DEMOTE_FLOAT32_TO_16;
                 desc.resourceWidth = w;
@@ -2367,7 +2537,7 @@ nri::Format Sample::CreateSwapChain() {
     swapChainDesc.verticalSyncInterval = m_VsyncInterval;
     swapChainDesc.width = (uint16_t)GetWindowResolution().x;
     swapChainDesc.height = (uint16_t)GetWindowResolution().y;
-    swapChainDesc.textureNum = GetSwapChainFrameNum();
+    swapChainDesc.textureNum = GetOptimalSwapChainTextureNum();
     swapChainDesc.queuedFrameNum = GetQueuedFrameNum();
 
     NRI_ABORT_ON_FAILURE(NRI.CreateSwapChain(*m_Device, swapChainDesc, m_SwapChain));
@@ -2375,24 +2545,34 @@ nri::Format Sample::CreateSwapChain() {
 
     uint32_t swapChainTextureNum = 0;
     nri::Texture* const* swapChainTextures = NRI.GetSwapChainTextures(*m_SwapChain, swapChainTextureNum);
+
     const nri::TextureDesc& swapChainTextureDesc = NRI.GetTextureDesc(*swapChainTextures[0]);
     nri::Format swapChainFormat = swapChainTextureDesc.format;
 
-    m_SwapChainBuffers.clear();
     for (uint32_t i = 0; i < swapChainTextureNum; i++) {
-        m_SwapChainBuffers.emplace_back();
-        BackBuffer& backBuffer = m_SwapChainBuffers.back();
+        nri::Texture2DViewDesc textureViewDesc = {swapChainTextures[i], nri::Texture2DViewType::COLOR_ATTACHMENT, swapChainFormat};
 
-        backBuffer = {};
-        backBuffer.texture = swapChainTextures[i];
-        backBuffer.attachmentFormat = swapChainFormat;
+        nri::Descriptor* colorAttachment = nullptr;
+        NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(textureViewDesc, colorAttachment));
+
+        nri::Fence* acquireSemaphore = nullptr;
+        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, acquireSemaphore));
+
+        nri::Fence* releaseSemaphore = nullptr;
+        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, releaseSemaphore));
+
+        SwapChainTexture& swapChainTexture = m_SwapChainTextures.emplace_back();
+
+        swapChainTexture = {};
+        swapChainTexture.acquireSemaphore = acquireSemaphore;
+        swapChainTexture.releaseSemaphore = releaseSemaphore;
+        swapChainTexture.texture = swapChainTextures[i];
+        swapChainTexture.colorAttachment = colorAttachment;
+        swapChainTexture.attachmentFormat = swapChainFormat;
 
         char name[32];
         snprintf(name, sizeof(name), "Texture::SwapChain#%u", i);
-        NRI.SetDebugName(backBuffer.texture, name);
-
-        nri::Texture2DViewDesc textureViewDesc = {backBuffer.texture, nri::Texture2DViewType::COLOR_ATTACHMENT, swapChainFormat};
-        NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(textureViewDesc, backBuffer.colorAttachment));
+        NRI.SetDebugName(swapChainTexture.texture, name);
     }
 
     return swapChainFormat;
@@ -2403,8 +2583,6 @@ void Sample::CreateCommandBuffers() {
     for (QueuedFrame& queuedFrame : m_QueuedFrames) {
         NRI_ABORT_ON_FAILURE(NRI.CreateCommandAllocator(*m_GraphicsQueue, queuedFrame.commandAllocator));
         NRI_ABORT_ON_FAILURE(NRI.CreateCommandBuffer(*queuedFrame.commandAllocator, queuedFrame.commandBuffer));
-        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, queuedFrame.textureAcquiredSemaphore));
-        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, queuedFrame.renderingFinishedSemaphore));
     }
 }
 
@@ -2499,7 +2677,7 @@ void Sample::CreatePipelines() {
             NRI.DestroyPipeline(*m_Pipelines[i]);
         m_Pipelines.clear();
 
-        m_NRD.CreatePipelines();
+        m_NRD.RecreatePipelines();
     }
 
     utils::ShaderCodeStorage shaderCodeStorage;
@@ -4228,72 +4406,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     uint32_t windowGridW = (GetWindowResolution().x + 15) / 16;
     uint32_t windowGridH = (GetWindowResolution().y + 15) / 16;
 
-    // NRD user pool
-    nrd::UserPool userPool = {};
-    {
-        // Common
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_MV, &GetState(Texture::Mv));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_NORMAL_ROUGHNESS, &GetState(Texture::Normal_Roughness));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_VIEWZ, &GetState(Texture::ViewZ));
-
-        // (Optional) Needed to allow IN_MV modification on the NRD side
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_BASECOLOR_METALNESS, &GetState(Texture::BaseColor_Metalness));
-
-        // (Optional) Validation
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_VALIDATION, &GetState(Texture::Validation));
-
-        // Diffuse
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST, &GetState(Texture::Unfiltered_Diff));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST, &GetState(Texture::Diff));
-
-        // Diffuse occlusion
-#if (NRD_MODE == OCCLUSION)
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_DIFF_HITDIST, &GetState(Texture::Unfiltered_Diff));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_DIFF_HITDIST, &GetState(Texture::Diff));
-#endif
-
-        // Diffuse SH
-#if (NRD_MODE == SH)
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_DIFF_SH0, &GetState(Texture::Unfiltered_Diff));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_DIFF_SH1, &GetState(Texture::Unfiltered_DiffSh));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_DIFF_SH0, &GetState(Texture::Diff));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_DIFF_SH1, &GetState(Texture::DiffSh));
-#endif
-
-        // Diffuse directional occlusion
-#if (NRD_MODE == DIRECTIONAL_OCCLUSION)
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_DIFF_DIRECTION_HITDIST, &GetState(Texture::Unfiltered_Diff));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_DIFF_DIRECTION_HITDIST, &GetState(Texture::Diff));
-#endif
-
-        // Specular
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST, &GetState(Texture::Unfiltered_Spec));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST, &GetState(Texture::Spec));
-
-        // Specular occlusion
-#if (NRD_MODE == OCCLUSION)
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_SPEC_HITDIST, &GetState(Texture::Unfiltered_Spec));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_SPEC_HITDIST, &GetState(Texture::Spec));
-#endif
-
-        // Specular SH
-#if (NRD_MODE == SH)
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_SPEC_SH0, &GetState(Texture::Unfiltered_Spec));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_SPEC_SH1, &GetState(Texture::Unfiltered_SpecSh));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_SPEC_SH0, &GetState(Texture::Spec));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_SPEC_SH1, &GetState(Texture::SpecSh));
-#endif
-
-        // SIGMA
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_PENUMBRA, &GetState(Texture::Unfiltered_Penumbra));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_TRANSLUCENCY, &GetState(Texture::Unfiltered_Translucency));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_SHADOW_TRANSLUCENCY, &GetState(Texture::Shadow));
-
-        // REFERENCE
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::IN_SIGNAL, &GetState(Texture::Composed));
-        nrd::Integration_SetResource(userPool, nrd::ResourceType::OUT_SIGNAL, &GetState(Texture::Composed));
-    }
-
     // NRD common settings
     nrd::CommonSettings commonSettings = {};
     memcpy(commonSettings.viewToClipMatrix, &m_Camera.state.mViewToClip, sizeof(m_Camera.state.mViewToClip));
@@ -4343,705 +4455,712 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
     const uint32_t dummyDynamicConstantOffset = 0;
 
+    // RECORDING START
     NRI.BeginCommandBuffer(commandBuffer, m_DescriptorPool);
-    {
-        //======================================================================================================================================
-        // Resolution independent
-        //======================================================================================================================================
 
-        { // Copy upload requests to destinations
-            helper::Annotation annotation(NRI, commandBuffer, "Streamer");
+    //======================================================================================================================================
+    // Resolution independent
+    //======================================================================================================================================
 
-            // TODO: is barrier from "SHADER_RESOURCE" to "COPY_DESTINATION" needed here for "Buffer::InstanceData"?
+    { // Copy upload requests to destinations
+        helper::Annotation annotation(NRI, commandBuffer, "Streamer");
 
-            NRI.CmdCopyStreamedData(commandBuffer, *m_Streamer);
-        }
+        // TODO: is barrier from "SHADER_RESOURCE" to "COPY_DESTINATION" needed here for "Buffer::InstanceData"?
 
-        // All-in-one pipeline layout
-        NRI.CmdSetPipelineLayout(commandBuffer, *m_PipelineLayout);
+        NRI.CmdCopyStreamedData(commandBuffer, *m_Streamer);
+    }
 
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_GLOBAL, *Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset);
+    // All-in-one pipeline layout
+    NRI.CmdSetPipelineLayout(commandBuffer, *m_PipelineLayout);
 
-        // Update morph animation
-        if (m_Settings.activeAnimation < m_Scene.animations.size() && m_Scene.animations[m_Settings.activeAnimation].morphMeshInstances.size() && (!m_Settings.pauseAnimation || !m_SettingsPrev.pauseAnimation || frameIndex == 0)) {
-            const utils::Animation& animation = m_Scene.animations[m_Settings.activeAnimation];
-            uint32_t animCurrBufferIndex = frameIndex & 0x1;
-            uint32_t animPrevBufferIndex = frameIndex == 0 ? animCurrBufferIndex : 1 - animCurrBufferIndex;
+    NRI.CmdSetDescriptorSet(commandBuffer, SET_GLOBAL, *Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset);
 
-            { // Update vertices
-                helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: update vertices");
+    // Update morph animation
+    if (m_Settings.activeAnimation < m_Scene.animations.size() && m_Scene.animations[m_Settings.activeAnimation].morphMeshInstances.size() && (!m_Settings.pauseAnimation || !m_SettingsPrev.pauseAnimation || frameIndex == 0)) {
+        const utils::Animation& animation = m_Scene.animations[m_Settings.activeAnimation];
+        uint32_t animCurrBufferIndex = frameIndex & 0x1;
+        uint32_t animPrevBufferIndex = frameIndex == 0 ? animCurrBufferIndex : 1 - animCurrBufferIndex;
 
-                { // Transitions
-                    const nri::BufferBarrierDesc bufferTransitions[] = {
-                        // Output
-                        {Get(Buffer::MorphedPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                        {Get(Buffer::MorphedAttributes), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                    };
-
-                    nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
-                    NRI.CmdBarrier(commandBuffer, transitionBarriers);
-                }
-
-                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::MorphMeshUpdateVertices));
-
-                for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
-                    const utils::WeightsAnimationTrack& weightsTrack = animation.weightTracks[weightTrackMeshInstance.weightTrackIndex];
-                    const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
-                    const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
-
-                    uint32_t numShaderMorphTargets = min((uint32_t)(weightsTrack.activeValues.size()), MORPH_MAX_ACTIVE_TARGETS_NUM);
-                    float totalWeight = 0.f;
-                    for (uint32_t i = 0; i < numShaderMorphTargets; i++)
-                        totalWeight += weightsTrack.activeValues[i].second;
-                    float renormalizeScale = 1.0f / totalWeight;
-
-                    MorphMeshUpdateVerticesConstants constants = {};
-                    {
-                        for (uint32_t i = 0; i < numShaderMorphTargets; i++) {
-                            uint32_t morphTargetIndex = weightsTrack.activeValues[i].first;
-                            uint32_t morphTargetVertexOffset = mesh.morphTargetVertexOffset + morphTargetIndex * mesh.vertexNum;
-
-                            constants.gIndices[i / MORPH_ELEMENTS_PER_ROW_NUM].a[i % MORPH_ELEMENTS_PER_ROW_NUM] = morphTargetVertexOffset;
-                            constants.gWeights[i / MORPH_ELEMENTS_PER_ROW_NUM].a[i % MORPH_ELEMENTS_PER_ROW_NUM] = renormalizeScale * weightsTrack.activeValues[i].second;
-                        }
-                        constants.gNumWeights = numShaderMorphTargets;
-                        constants.gNumVertices = mesh.vertexNum;
-                        constants.gPositionCurrFrameOffset = m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset;
-                        constants.gAttributesOutputOffset = meshInstance.morphedVertexOffset;
-                    }
-
-                    uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
-                    NRI.CmdSetDescriptorSet(commandBuffer, SET_MORPH, *Get(DescriptorSet::MorphTargetPose3), &dynamicConstantBufferOffset);
-
-                    NRI.CmdDispatch(commandBuffer, {(mesh.vertexNum + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
-                }
-
-                { // Transitions
-                    const nri::BufferBarrierDesc bufferTransitions[] = {
-                        // Input
-                        {Get(Buffer::MorphedPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                        {Get(Buffer::MorphedAttributes), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-
-                        // Output
-                        {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                        {Get(Buffer::MorphedPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                    };
-
-                    nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
-                    NRI.CmdBarrier(commandBuffer, transitionBarriers);
-                }
-            }
-
-            { // Update primitives
-                helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: update primitives");
-
-                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::MorphMeshUpdatePrimitives));
-
-                for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
-                    const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
-                    const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
-                    uint32_t numPrimitives = mesh.indexNum / 3;
-
-                    MorphMeshUpdatePrimitivesConstants constants = {};
-                    {
-                        constants.gPositionFrameOffsets.x = m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset;
-                        constants.gPositionFrameOffsets.y = m_Scene.morphedVerticesNum * animPrevBufferIndex + meshInstance.morphedVertexOffset;
-                        constants.gNumPrimitives = numPrimitives;
-                        constants.gIndexOffset = mesh.morphMeshIndexOffset;
-                        constants.gAttributesOffset = meshInstance.morphedVertexOffset;
-                        constants.gPrimitiveOffset = meshInstance.primitiveOffset;
-                        constants.gMorphedPrimitiveOffset = meshInstance.morphedPrimitiveOffset;
-                    }
-
-                    uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
-                    NRI.CmdSetDescriptorSet(commandBuffer, SET_MORPH, *Get(DescriptorSet::MorphTargetUpdatePrimitives3), &dynamicConstantBufferOffset);
-
-                    NRI.CmdDispatch(commandBuffer, {(numPrimitives + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
-                }
-            }
-
-            { // Update BLAS
-                helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: BLAS");
-
-                const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
-
-                // Do build if the animation gets paused
-                bool doBuild = m_Settings.pauseAnimation && !m_SettingsPrev.pauseAnimation;
-
-                size_t scratchOffset = 0;
-                for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
-                    const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
-                    const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
-
-                    nri::AccelerationStructure* accelerationStructure = m_AccelerationStructures[meshInstance.blasIndex];
-
-                    nri::BottomLevelGeometryDesc bottomLevelGeometry = {};
-                    bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
-                    bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
-                    bottomLevelGeometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
-                    bottomLevelGeometry.triangles.vertexStride = sizeof(float16_t4);
-                    bottomLevelGeometry.triangles.vertexOffset = bottomLevelGeometry.triangles.vertexStride * (m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset);
-                    bottomLevelGeometry.triangles.vertexNum = mesh.vertexNum;
-                    bottomLevelGeometry.triangles.vertexFormat = nri::Format::RGBA16_SFLOAT;
-                    bottomLevelGeometry.triangles.indexBuffer = Get(Buffer::MorphMeshIndices);
-                    bottomLevelGeometry.triangles.indexOffset = mesh.morphMeshIndexOffset * sizeof(utils::Index);
-                    bottomLevelGeometry.triangles.indexNum = mesh.indexNum;
-                    bottomLevelGeometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
-
-                    nri::BuildBottomLevelAccelerationStructureDesc buildBottomLevelAccelerationStructureDesc = {};
-                    buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
-                    buildBottomLevelAccelerationStructureDesc.geometryNum = 1;
-                    buildBottomLevelAccelerationStructureDesc.geometries = &bottomLevelGeometry;
-                    buildBottomLevelAccelerationStructureDesc.scratchBuffer = Get(Buffer::MorphMeshScratch);
-                    buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchOffset;
-
-                    if (doBuild) {
-                        uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
-                        scratchOffset += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);
-                        ;
-                    } else {
-                        buildBottomLevelAccelerationStructureDesc.src = accelerationStructure;
-
-                        uint64_t size = NRI.GetAccelerationStructureUpdateScratchBufferSize(*accelerationStructure);
-                        scratchOffset += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);
-                        ;
-                    }
-
-                    NRI.CmdBuildBottomLevelAccelerationStructures(commandBuffer, &buildBottomLevelAccelerationStructureDesc, 1);
-                }
-
-                { // Transitions
-                    const nri::BufferBarrierDesc bufferTransitions[] = {
-                        {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                        {Get(Buffer::MorphedPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                    };
-
-                    nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
-                    NRI.CmdBarrier(commandBuffer, transitionBarriers);
-                }
-            }
-        }
-
-        { // TLAS
-            helper::Annotation annotation(NRI, commandBuffer, "TLAS");
-
-            nri::BuildTopLevelAccelerationStructureDesc buildTopLevelAccelerationStructureDescs[2] = {};
-            {
-                buildTopLevelAccelerationStructureDescs[0].dst = Get(AccelerationStructure::TLAS_World);
-                buildTopLevelAccelerationStructureDescs[0].instanceNum = (uint32_t)m_WorldTlasData.size();
-                buildTopLevelAccelerationStructureDescs[0].instanceBuffer = m_WorldTlasDataLocation.buffer;
-                buildTopLevelAccelerationStructureDescs[0].instanceOffset = m_WorldTlasDataLocation.offset;
-                buildTopLevelAccelerationStructureDescs[0].scratchBuffer = Get(Buffer::WorldScratch);
-                buildTopLevelAccelerationStructureDescs[0].scratchOffset = 0;
-
-                buildTopLevelAccelerationStructureDescs[1].dst = Get(AccelerationStructure::TLAS_Emissive);
-                buildTopLevelAccelerationStructureDescs[1].instanceNum = (uint32_t)m_LightTlasData.size();
-                buildTopLevelAccelerationStructureDescs[1].instanceBuffer = m_LightTlasDataLocation.buffer;
-                buildTopLevelAccelerationStructureDescs[1].instanceOffset = m_LightTlasDataLocation.offset;
-                buildTopLevelAccelerationStructureDescs[1].scratchBuffer = Get(Buffer::LightScratch);
-                buildTopLevelAccelerationStructureDescs[1].scratchOffset = 0;
-            }
-
-            NRI.CmdBuildTopLevelAccelerationStructures(commandBuffer, buildTopLevelAccelerationStructureDescs, helper::GetCountOf(buildTopLevelAccelerationStructureDescs));
+        { // Update vertices
+            helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: update vertices");
 
             { // Transitions
-                const nri::BufferBarrierDesc transition = {Get(Buffer::InstanceData), {nri::AccessBits::COPY_DESTINATION}, {nri::AccessBits::SHADER_RESOURCE}};
+                const nri::BufferBarrierDesc bufferTransitions[] = {
+                    // Output
+                    {Get(Buffer::MorphedPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                    {Get(Buffer::MorphedAttributes), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                };
 
-                nri::BarrierGroupDesc barrierGroupDesc = {};
-                barrierGroupDesc.buffers = &transition;
-                barrierGroupDesc.bufferNum = 1;
+                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
+                NRI.CmdBarrier(commandBuffer, transitionBarriers);
+            }
 
-                NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::MorphMeshUpdateVertices));
+
+            for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
+                const utils::WeightsAnimationTrack& weightsTrack = animation.weightTracks[weightTrackMeshInstance.weightTrackIndex];
+                const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
+                const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
+
+                uint32_t numShaderMorphTargets = min((uint32_t)(weightsTrack.activeValues.size()), MORPH_MAX_ACTIVE_TARGETS_NUM);
+                float totalWeight = 0.f;
+                for (uint32_t i = 0; i < numShaderMorphTargets; i++)
+                    totalWeight += weightsTrack.activeValues[i].second;
+                float renormalizeScale = 1.0f / totalWeight;
+
+                MorphMeshUpdateVerticesConstants constants = {};
+                {
+                    for (uint32_t i = 0; i < numShaderMorphTargets; i++) {
+                        uint32_t morphTargetIndex = weightsTrack.activeValues[i].first;
+                        uint32_t morphTargetVertexOffset = mesh.morphTargetVertexOffset + morphTargetIndex * mesh.vertexNum;
+
+                        constants.gIndices[i / MORPH_ELEMENTS_PER_ROW_NUM].a[i % MORPH_ELEMENTS_PER_ROW_NUM] = morphTargetVertexOffset;
+                        constants.gWeights[i / MORPH_ELEMENTS_PER_ROW_NUM].a[i % MORPH_ELEMENTS_PER_ROW_NUM] = renormalizeScale * weightsTrack.activeValues[i].second;
+                    }
+                    constants.gNumWeights = numShaderMorphTargets;
+                    constants.gNumVertices = mesh.vertexNum;
+                    constants.gPositionCurrFrameOffset = m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset;
+                    constants.gAttributesOutputOffset = meshInstance.morphedVertexOffset;
+                }
+
+                uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
+                NRI.CmdSetDescriptorSet(commandBuffer, SET_MORPH, *Get(DescriptorSet::MorphTargetPose3), &dynamicConstantBufferOffset);
+
+                NRI.CmdDispatch(commandBuffer, {(mesh.vertexNum + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
+            }
+
+            { // Transitions
+                const nri::BufferBarrierDesc bufferTransitions[] = {
+                    // Input
+                    {Get(Buffer::MorphedPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
+                    {Get(Buffer::MorphedAttributes), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
+
+                    // Output
+                    {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                    {Get(Buffer::MorphedPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                };
+
+                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
+                NRI.CmdBarrier(commandBuffer, transitionBarriers);
             }
         }
 
-        // Must be bound here, after updating "Buffer::InstanceData"
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_RAY_TRACING, *Get(DescriptorSet::RayTracing2), nullptr);
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_SHARC, isEven ? *Get(DescriptorSet::SharcPing4) : *Get(DescriptorSet::SharcPong4), nullptr);
+        { // Update primitives
+            helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: update primitives");
 
-        //======================================================================================================================================
-        // Render resolution
-        //======================================================================================================================================
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::MorphMeshUpdatePrimitives));
 
-        // SHARC
-        nri::Buffer* sharcBufferToClear = isEven ? Get(Buffer::SharcVoxelDataPong) : Get(Buffer::SharcVoxelDataPing);
-        if (m_Settings.SHARC && NRD_MODE < OCCLUSION) {
-            helper::Annotation sharc(NRI, commandBuffer, "Radiance cache");
+            for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
+                const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
+                const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
+                uint32_t numPrimitives = mesh.indexNum / 3;
 
-            const nri::BufferBarrierDesc transitions[] = {
-                {Get(Buffer::SharcHashEntries), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                {Get(Buffer::SharcHashCopyOffset), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                {Get(Buffer::SharcVoxelDataPing), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                {Get(Buffer::SharcVoxelDataPong), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-            };
+                MorphMeshUpdatePrimitivesConstants constants = {};
+                {
+                    constants.gPositionFrameOffsets.x = m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset;
+                    constants.gPositionFrameOffsets.y = m_Scene.morphedVerticesNum * animPrevBufferIndex + meshInstance.morphedVertexOffset;
+                    constants.gNumPrimitives = numPrimitives;
+                    constants.gIndexOffset = mesh.morphMeshIndexOffset;
+                    constants.gAttributesOffset = meshInstance.morphedVertexOffset;
+                    constants.gPrimitiveOffset = meshInstance.primitiveOffset;
+                    constants.gMorphedPrimitiveOffset = meshInstance.morphedPrimitiveOffset;
+                }
+
+                uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
+                NRI.CmdSetDescriptorSet(commandBuffer, SET_MORPH, *Get(DescriptorSet::MorphTargetUpdatePrimitives3), &dynamicConstantBufferOffset);
+
+                NRI.CmdDispatch(commandBuffer, {(numPrimitives + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
+            }
+        }
+
+        { // Update BLAS
+            helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: BLAS");
+
+            const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
+
+            // Do build if the animation gets paused
+            bool doBuild = m_Settings.pauseAnimation && !m_SettingsPrev.pauseAnimation;
+
+            size_t scratchOffset = 0;
+            for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
+                const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
+                const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
+
+                nri::AccelerationStructure* accelerationStructure = m_AccelerationStructures[meshInstance.blasIndex];
+
+                nri::BottomLevelGeometryDesc bottomLevelGeometry = {};
+                bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
+                bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::NONE; // will be set in TLAS instance
+                bottomLevelGeometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
+                bottomLevelGeometry.triangles.vertexStride = sizeof(float16_t4);
+                bottomLevelGeometry.triangles.vertexOffset = bottomLevelGeometry.triangles.vertexStride * (m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset);
+                bottomLevelGeometry.triangles.vertexNum = mesh.vertexNum;
+                bottomLevelGeometry.triangles.vertexFormat = nri::Format::RGBA16_SFLOAT;
+                bottomLevelGeometry.triangles.indexBuffer = Get(Buffer::MorphMeshIndices);
+                bottomLevelGeometry.triangles.indexOffset = mesh.morphMeshIndexOffset * sizeof(utils::Index);
+                bottomLevelGeometry.triangles.indexNum = mesh.indexNum;
+                bottomLevelGeometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
+
+                nri::BuildBottomLevelAccelerationStructureDesc buildBottomLevelAccelerationStructureDesc = {};
+                buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
+                buildBottomLevelAccelerationStructureDesc.geometryNum = 1;
+                buildBottomLevelAccelerationStructureDesc.geometries = &bottomLevelGeometry;
+                buildBottomLevelAccelerationStructureDesc.scratchBuffer = Get(Buffer::MorphMeshScratch);
+                buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchOffset;
+
+                if (doBuild) {
+                    uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
+                    scratchOffset += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);
+                    ;
+                } else {
+                    buildBottomLevelAccelerationStructureDesc.src = accelerationStructure;
+
+                    uint64_t size = NRI.GetAccelerationStructureUpdateScratchBufferSize(*accelerationStructure);
+                    scratchOffset += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);
+                    ;
+                }
+
+                NRI.CmdBuildBottomLevelAccelerationStructures(commandBuffer, &buildBottomLevelAccelerationStructureDesc, 1);
+            }
+
+            { // Transitions
+                const nri::BufferBarrierDesc bufferTransitions[] = {
+                    {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
+                    {Get(Buffer::MorphedPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
+                };
+
+                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
+                NRI.CmdBarrier(commandBuffer, transitionBarriers);
+            }
+        }
+    }
+
+    { // TLAS
+        helper::Annotation annotation(NRI, commandBuffer, "TLAS");
+
+        nri::BuildTopLevelAccelerationStructureDesc buildTopLevelAccelerationStructureDescs[2] = {};
+        {
+            buildTopLevelAccelerationStructureDescs[0].dst = Get(AccelerationStructure::TLAS_World);
+            buildTopLevelAccelerationStructureDescs[0].instanceNum = (uint32_t)m_WorldTlasData.size();
+            buildTopLevelAccelerationStructureDescs[0].instanceBuffer = m_WorldTlasDataLocation.buffer;
+            buildTopLevelAccelerationStructureDescs[0].instanceOffset = m_WorldTlasDataLocation.offset;
+            buildTopLevelAccelerationStructureDescs[0].scratchBuffer = Get(Buffer::WorldScratch);
+            buildTopLevelAccelerationStructureDescs[0].scratchOffset = 0;
+
+            buildTopLevelAccelerationStructureDescs[1].dst = Get(AccelerationStructure::TLAS_Emissive);
+            buildTopLevelAccelerationStructureDescs[1].instanceNum = (uint32_t)m_LightTlasData.size();
+            buildTopLevelAccelerationStructureDescs[1].instanceBuffer = m_LightTlasDataLocation.buffer;
+            buildTopLevelAccelerationStructureDescs[1].instanceOffset = m_LightTlasDataLocation.offset;
+            buildTopLevelAccelerationStructureDescs[1].scratchBuffer = Get(Buffer::LightScratch);
+            buildTopLevelAccelerationStructureDescs[1].scratchOffset = 0;
+        }
+
+        NRI.CmdBuildTopLevelAccelerationStructures(commandBuffer, buildTopLevelAccelerationStructureDescs, helper::GetCountOf(buildTopLevelAccelerationStructureDescs));
+
+        { // Transitions
+            const nri::BufferBarrierDesc transition = {Get(Buffer::InstanceData), {nri::AccessBits::COPY_DESTINATION}, {nri::AccessBits::SHADER_RESOURCE}};
 
             nri::BarrierGroupDesc barrierGroupDesc = {};
-            barrierGroupDesc.buffers = transitions;
-            barrierGroupDesc.bufferNum = (uint16_t)helper::GetCountOf(transitions);
+            barrierGroupDesc.buffers = &transition;
+            barrierGroupDesc.bufferNum = 1;
 
-            { // Update
-                helper::Annotation annotation(NRI, commandBuffer, "SHARC - Update");
+            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
+        }
+    }
 
-                NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcUpdate));
+    // Must be bound here, after updating "Buffer::InstanceData"
+    NRI.CmdSetDescriptorSet(commandBuffer, SET_RAY_TRACING, *Get(DescriptorSet::RayTracing2), nullptr);
+    NRI.CmdSetDescriptorSet(commandBuffer, SET_SHARC, isEven ? *Get(DescriptorSet::SharcPing4) : *Get(DescriptorSet::SharcPong4), nullptr);
 
-                uint32_t w = (m_RenderResolution.x / SHARC_DOWNSCALE + 15) / 16;
-                uint32_t h = (m_RenderResolution.y / SHARC_DOWNSCALE + 15) / 16;
+    //======================================================================================================================================
+    // Render resolution
+    //======================================================================================================================================
 
-                NRI.CmdDispatch(commandBuffer, {w, h, 1});
-            }
+    // SHARC
+    nri::Buffer* sharcBufferToClear = isEven ? Get(Buffer::SharcVoxelDataPong) : Get(Buffer::SharcVoxelDataPing);
+    if (m_Settings.SHARC && NRD_MODE < OCCLUSION) {
+        helper::Annotation sharc(NRI, commandBuffer, "Radiance cache");
 
-            { // Resolve
-                helper::Annotation annotation(NRI, commandBuffer, "SHARC - Resolve");
+        const nri::BufferBarrierDesc transitions[] = {
+            {Get(Buffer::SharcHashEntries), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+            {Get(Buffer::SharcHashCopyOffset), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+            {Get(Buffer::SharcVoxelDataPing), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+            {Get(Buffer::SharcVoxelDataPong), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+        };
 
-                NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcResolve));
+        nri::BarrierGroupDesc barrierGroupDesc = {};
+        barrierGroupDesc.buffers = transitions;
+        barrierGroupDesc.bufferNum = (uint16_t)helper::GetCountOf(transitions);
 
-                NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
-            }
+        { // Update
+            helper::Annotation annotation(NRI, commandBuffer, "SHARC - Update");
 
-            { // Hash copy
-                helper::Annotation annotation(NRI, commandBuffer, "SHARC - Hash copy");
+            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcUpdate));
 
-                NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcHashCopy));
+            uint32_t w = (m_RenderResolution.x / SHARC_DOWNSCALE + 15) / 16;
+            uint32_t h = (m_RenderResolution.y / SHARC_DOWNSCALE + 15) / 16;
 
-                NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
-            }
+            NRI.CmdDispatch(commandBuffer, {w, h, 1});
         }
 
-        { // Trace opaque
-            helper::Annotation annotation(NRI, commandBuffer, "Trace opaque");
+        { // Resolve
+            helper::Annotation annotation(NRI, commandBuffer, "SHARC - Resolve");
 
-            const TextureState transitions[] = {
-                // Input
-                {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                // Output
-                {Texture::Mv, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::DirectLighting, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::DirectEmission, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::PsrThroughput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::Unfiltered_Penumbra, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::Unfiltered_Translucency, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::Unfiltered_Diff, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::Unfiltered_Spec, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcResolve));
+
+            NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
+        }
+
+        { // Hash copy
+            helper::Annotation annotation(NRI, commandBuffer, "SHARC - Hash copy");
+
+            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcHashCopy));
+
+            NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
+        }
+    }
+
+    { // Trace opaque
+        helper::Annotation annotation(NRI, commandBuffer, "Trace opaque");
+
+        const TextureState transitions[] = {
+            // Input
+            {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            // Output
+            {Texture::Mv, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::DirectLighting, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::DirectEmission, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::PsrThroughput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Unfiltered_Penumbra, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Unfiltered_Translucency, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Unfiltered_Diff, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Unfiltered_Spec, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
 #if (NRD_MODE == SH)
-                {Texture::Unfiltered_DiffSh, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::Unfiltered_SpecSh, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Unfiltered_DiffSh, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Unfiltered_SpecSh, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
 #endif
-            };
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
-            NRI.CmdBarrier(commandBuffer, transitionBarriers);
+        };
+        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceOpaque));
-            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::TraceOpaque1), &dummyDynamicConstantOffset);
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceOpaque));
+        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::TraceOpaque1), &dummyDynamicConstantOffset);
 
-            uint32_t rectWmod = uint32_t(m_RenderResolution.x * m_Settings.resolutionScale + 0.5f);
-            uint32_t rectHmod = uint32_t(m_RenderResolution.y * m_Settings.resolutionScale + 0.5f);
-            uint32_t rectGridWmod = (rectWmod + 15) / 16;
-            uint32_t rectGridHmod = (rectHmod + 15) / 16;
+        uint32_t rectWmod = uint32_t(m_RenderResolution.x * m_Settings.resolutionScale + 0.5f);
+        uint32_t rectHmod = uint32_t(m_RenderResolution.y * m_Settings.resolutionScale + 0.5f);
+        uint32_t rectGridWmod = (rectWmod + 15) / 16;
+        uint32_t rectGridHmod = (rectHmod + 15) / 16;
 
-            NRI.CmdDispatch(commandBuffer, {rectGridWmod, rectGridHmod, 1});
-        }
+        NRI.CmdDispatch(commandBuffer, {rectGridWmod, rectGridHmod, 1});
+    }
 
 #if (NRD_MODE < OCCLUSION)
-        { // Shadow denoising
-            helper::Annotation annotation(NRI, commandBuffer, "Shadow denoising");
+    { // Shadow denoising
+        helper::Annotation annotation(NRI, commandBuffer, "Shadow denoising");
 
-            float3 sunDir = GetSunDirection();
+        float3 sunDir = GetSunDirection();
 
-            m_SigmaSettings.lightDirection[0] = sunDir.x;
-            m_SigmaSettings.lightDirection[1] = sunDir.y;
-            m_SigmaSettings.lightDirection[2] = sunDir.z;
+        m_SigmaSettings.lightDirection[0] = sunDir.x;
+        m_SigmaSettings.lightDirection[1] = sunDir.y;
+        m_SigmaSettings.lightDirection[2] = sunDir.z;
 
-            nrd::Identifier denoiser = NRD_ID(SIGMA_SHADOW);
+        nrd::Identifier denoiser = NRD_ID(SIGMA_SHADOW);
 
-            m_NRD.SetDenoiserSettings(denoiser, &m_SigmaSettings);
-            m_NRD.Denoise(&denoiser, 1, commandBuffer, userPool, NRD_RESTORE_INITIAL_STATE);
-        }
+        m_NRD.SetDenoiserSettings(denoiser, &m_SigmaSettings);
+        Denoise(&denoiser, 1, commandBuffer);
+    }
 #endif
 
-        { // Opaque Denoising
-            helper::Annotation annotation(NRI, commandBuffer, "Opaque denoising");
+    { // Opaque Denoising
+        helper::Annotation annotation(NRI, commandBuffer, "Opaque denoising");
 
-            if (m_Settings.denoiser == DENOISER_REBLUR || m_Settings.denoiser == DENOISER_REFERENCE) {
-                nrd::HitDistanceParameters hitDistanceParameters = {};
-                hitDistanceParameters.A = m_Settings.hitDistScale * m_Settings.meterToUnitsMultiplier;
-                m_ReblurSettings.hitDistanceParameters = hitDistanceParameters;
+        if (m_Settings.denoiser == DENOISER_REBLUR || m_Settings.denoiser == DENOISER_REFERENCE) {
+            nrd::HitDistanceParameters hitDistanceParameters = {};
+            hitDistanceParameters.A = m_Settings.hitDistScale * m_Settings.meterToUnitsMultiplier;
+            m_ReblurSettings.hitDistanceParameters = hitDistanceParameters;
 
-                nrd::ReblurSettings settings = m_ReblurSettings;
+            nrd::ReblurSettings settings = m_ReblurSettings;
 #if (NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION)
-                // High quality SG resolve allows to use more relaxed normal weights
-                if (m_Resolve)
-                    settings.lobeAngleFraction *= 1.333f;
+            // High quality SG resolve allows to use more relaxed normal weights
+            if (m_Resolve)
+                settings.lobeAngleFraction *= 1.333f;
 #endif
 
 #if (NRD_MODE == OCCLUSION)
 #    if (NRD_COMBINED == 1)
-                const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR_OCCLUSION)};
+            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR_OCCLUSION)};
 #    else
-                const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_OCCLUSION), NRD_ID(REBLUR_SPECULAR_OCCLUSION)};
+            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_OCCLUSION), NRD_ID(REBLUR_SPECULAR_OCCLUSION)};
 #    endif
 #elif (NRD_MODE == SH)
 #    if (NRD_COMBINED == 1)
-                const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR_SH)};
+            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR_SH)};
 #    else
-                const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SH), NRD_ID(REBLUR_SPECULAR_SH)};
+            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SH), NRD_ID(REBLUR_SPECULAR_SH)};
 #    endif
 #elif (NRD_MODE == DIRECTIONAL_OCCLUSION)
-                const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_DIRECTIONAL_OCCLUSION)};
+            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_DIRECTIONAL_OCCLUSION)};
 #else
 #    if (NRD_COMBINED == 1)
-                const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR)};
+            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR)};
 #    else
-                const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE), NRD_ID(REBLUR_SPECULAR)};
+            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE), NRD_ID(REBLUR_SPECULAR)};
 #    endif
 #endif
 
-                for (uint32_t i = 0; i < helper::GetCountOf(denoisers); i++)
-                    m_NRD.SetDenoiserSettings(denoisers[i], &settings);
+            for (uint32_t i = 0; i < helper::GetCountOf(denoisers); i++)
+                m_NRD.SetDenoiserSettings(denoisers[i], &settings);
 
-                m_NRD.Denoise(denoisers, helper::GetCountOf(denoisers), commandBuffer, userPool, NRD_RESTORE_INITIAL_STATE);
-            } else if (m_Settings.denoiser == DENOISER_RELAX) {
-                nrd::RelaxSettings settings = m_RelaxSettings;
+            Denoise(denoisers, helper::GetCountOf(denoisers), commandBuffer);
+        } else if (m_Settings.denoiser == DENOISER_RELAX) {
+            nrd::RelaxSettings settings = m_RelaxSettings;
 #if (NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION)
-                // High quality SG resolve allows to use more relaxed normal weights
-                if (m_Resolve)
-                    settings.lobeAngleFraction *= 1.333f;
+            // High quality SG resolve allows to use more relaxed normal weights
+            if (m_Resolve)
+                settings.lobeAngleFraction *= 1.333f;
 #endif
 
 #if (NRD_COMBINED == 1)
 #    if (NRD_MODE == SH)
-                const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SPECULAR_SH)};
+            const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SPECULAR_SH)};
 #    else
-                const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SPECULAR)};
+            const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SPECULAR)};
 #    endif
 #else
 #    if (NRD_MODE == SH)
-                const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SH), NRD_ID(RELAX_SPECULAR_SH)};
+            const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SH), NRD_ID(RELAX_SPECULAR_SH)};
 #    else
-                const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE), NRD_ID(RELAX_SPECULAR)};
+            const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE), NRD_ID(RELAX_SPECULAR)};
 #    endif
 #endif
 
-                for (uint32_t i = 0; i < helper::GetCountOf(denoisers); i++)
-                    m_NRD.SetDenoiserSettings(denoisers[i], &settings);
+            for (uint32_t i = 0; i < helper::GetCountOf(denoisers); i++)
+                m_NRD.SetDenoiserSettings(denoisers[i], &settings);
 
-                m_NRD.Denoise(denoisers, helper::GetCountOf(denoisers), commandBuffer, userPool, NRD_RESTORE_INITIAL_STATE);
-            }
+            Denoise(denoisers, helper::GetCountOf(denoisers), commandBuffer);
+        }
+    }
+
+    RestoreBindings(commandBuffer, isEven);
+
+    { // Composition
+        helper::Annotation annotation(NRI, commandBuffer, "Composition");
+
+        const TextureState transitions[] = {
+            // Input
+            {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::DirectLighting, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::DirectEmission, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::PsrThroughput, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::Shadow, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::Diff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::Spec, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+#if (NRD_MODE == SH)
+            {Texture::DiffSh, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::SpecSh, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+#endif
+            // Output
+            {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+        };
+        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Composition));
+        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::Composition1), &dummyDynamicConstantOffset);
+
+        NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
+    }
+
+    { // Trace transparent
+        helper::Annotation annotation(NRI, commandBuffer, "Trace transparent");
+
+        const TextureState transitions[] = {
+            // Input
+            {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            // Output
+            {Texture::Composed, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Mv, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+        };
+
+        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceTransparent));
+        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::TraceTransparent1), &dummyDynamicConstantOffset);
+
+        NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
+    }
+
+    if (m_Settings.denoiser == DENOISER_REFERENCE) { // Reference
+        helper::Annotation annotation(NRI, commandBuffer, "Reference accumulation");
+
+        nrd::CommonSettings modifiedCommonSettings = commonSettings;
+        modifiedCommonSettings.splitScreen = m_Settings.separator;
+
+        nrd::Identifier denoiser = NRD_ID(REFERENCE);
+
+        m_NRD.SetCommonSettings(modifiedCommonSettings);
+        m_NRD.SetDenoiserSettings(denoiser, &m_ReferenceSettings);
+
+        Denoise(&denoiser, 1, commandBuffer);
+    }
+
+    RestoreBindings(commandBuffer, isEven);
+
+    //======================================================================================================================================
+    // Output resolution
+    //======================================================================================================================================
+
+    const Texture taaSrc = isEven ? Texture::TaaHistoryPrev : Texture::TaaHistory;
+    const Texture taaDst = isEven ? Texture::TaaHistory : Texture::TaaHistoryPrev;
+
+    if (IsDlssEnabled()) {
+        // Before DLSS
+        if (m_Settings.SR) {
+            helper::Annotation annotation(NRI, commandBuffer, "Before DLSS");
+
+            const TextureState transitions[] = {
+                // Input
+                {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::Unfiltered_Spec, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                // Output
+                {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+                {Texture::RRGuide_DiffAlbedo, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+                {Texture::RRGuide_SpecAlbedo, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+                {Texture::RRGuide_SpecHitDistance, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+                {Texture::RRGuide_Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            };
+            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+            NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssBefore));
+            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::DlssBefore1), &dummyDynamicConstantOffset);
+
+            NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
         }
 
-        RestoreBindings(commandBuffer, isEven);
-
-        { // Composition
-            helper::Annotation annotation(NRI, commandBuffer, "Composition");
+        { // DLSS
+            helper::Annotation annotation(NRI, commandBuffer, "DLSS");
 
             const TextureState transitions[] = {
                 // Input
                 {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::Mv, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
                 {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::DirectLighting, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::DirectEmission, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::PsrThroughput, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Shadow, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Diff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Spec, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-#if (NRD_MODE == SH)
-                {Texture::DiffSh, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::SpecSh, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-#endif
+                {Texture::RRGuide_DiffAlbedo, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::RRGuide_SpecAlbedo, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::RRGuide_SpecHitDistance, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::RRGuide_Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
                 // Output
-                {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+                {Texture::DlssOutput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
             };
             nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Composition));
-            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::Composition1), &dummyDynamicConstantOffset);
+            bool resetHistory = m_ForceHistoryReset || m_Settings.SR != m_SettingsPrev.SR || m_Settings.RR != m_SettingsPrev.RR;
 
-            NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
-        }
+            nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
+            dispatchUpscaleDesc.output = {Get(Texture::DlssOutput), Get(Descriptor::DlssOutput_StorageTexture)};
+            dispatchUpscaleDesc.input = {Get(Texture::Composed), Get(Descriptor::Composed_Texture)};
+            dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
+            dispatchUpscaleDesc.cameraJitter = {-m_Camera.state.viewportJitter.x, -m_Camera.state.viewportJitter.y};
+            dispatchUpscaleDesc.mvScale = {1.0f, 1.0f};
+            dispatchUpscaleDesc.flags = resetHistory ? nri::DispatchUpscaleBits::RESET_HISTORY : nri::DispatchUpscaleBits::NONE;
 
-        { // Trace transparent
-            helper::Annotation annotation(NRI, commandBuffer, "Trace transparent");
+            if (m_Settings.RR) {
+                dispatchUpscaleDesc.guides.denoiser.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
+                dispatchUpscaleDesc.guides.denoiser.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
+                dispatchUpscaleDesc.guides.denoiser.diffuseAlbedo = {Get(Texture::RRGuide_DiffAlbedo), Get(Descriptor::RRGuide_DiffAlbedo_Texture)};
+                dispatchUpscaleDesc.guides.denoiser.specularAlbedo = {Get(Texture::RRGuide_SpecAlbedo), Get(Descriptor::RRGuide_SpecAlbedo_Texture)};
+                dispatchUpscaleDesc.guides.denoiser.normalRoughness = {Get(Texture::RRGuide_Normal_Roughness), Get(Descriptor::RRGuide_Normal_Roughness_Texture)};
+                dispatchUpscaleDesc.guides.denoiser.specularMvOrHitT = {Get(Texture::RRGuide_SpecHitDistance), Get(Descriptor::RRGuide_SpecHitDistance_Texture)};
 
-            const TextureState transitions[] = {
-                // Input
-                {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                // Output
-                {Texture::Composed, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::Mv, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            };
+                memcpy(&dispatchUpscaleDesc.settings.dlrr.worldToViewMatrix, &m_Camera.state.mWorldToView, sizeof(m_Camera.state.mWorldToView));
+                memcpy(&dispatchUpscaleDesc.settings.dlrr.viewToClipMatrix, &m_Camera.state.mViewToClip, sizeof(m_Camera.state.mViewToClip));
 
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
-            NRI.CmdBarrier(commandBuffer, transitionBarriers);
+                NRI.CmdDispatchUpscale(commandBuffer, *m_DLRR, dispatchUpscaleDesc);
+            } else {
+                dispatchUpscaleDesc.guides.upscaler.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
+                dispatchUpscaleDesc.guides.upscaler.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
 
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceTransparent));
-            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::TraceTransparent1), &dummyDynamicConstantOffset);
+                if (m_DLSR && upscalerType == nri::UpscalerType::FSR) // workaround for "conditional expression is constant"
+                {
+                    dispatchUpscaleDesc.settings.fsr.zNear = 0.1f;
+                    dispatchUpscaleDesc.settings.fsr.verticalFov = radians(m_Settings.camFov);
+                    dispatchUpscaleDesc.settings.fsr.frameTime = m_Timer.GetSmoothedFrameTime();
+                    dispatchUpscaleDesc.settings.fsr.viewSpaceToMetersFactor = 1.0f;
+                    dispatchUpscaleDesc.settings.fsr.sharpness = 0.0f;
+                }
 
-            NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
-        }
-
-        if (m_Settings.denoiser == DENOISER_REFERENCE) { // Reference
-            helper::Annotation annotation(NRI, commandBuffer, "Reference accumulation");
-
-            nrd::CommonSettings modifiedCommonSettings = commonSettings;
-            modifiedCommonSettings.splitScreen = m_Settings.separator;
-
-            nrd::Identifier denoiser = NRD_ID(REFERENCE);
-
-            m_NRD.SetCommonSettings(modifiedCommonSettings);
-            m_NRD.SetDenoiserSettings(denoiser, &m_ReferenceSettings);
-            m_NRD.Denoise(&denoiser, 1, commandBuffer, userPool, NRD_RESTORE_INITIAL_STATE);
+                NRI.CmdDispatchUpscale(commandBuffer, *m_DLSR, dispatchUpscaleDesc);
+            }
         }
 
         RestoreBindings(commandBuffer, isEven);
 
-        //======================================================================================================================================
-        // Output resolution
-        //======================================================================================================================================
+        { // After DLSS
+            helper::Annotation annotation(NRI, commandBuffer, "After Dlss");
 
-        const Texture taaSrc = isEven ? Texture::TaaHistoryPrev : Texture::TaaHistory;
-        const Texture taaDst = isEven ? Texture::TaaHistory : Texture::TaaHistoryPrev;
+            const TextureState transitions[] = {
+                // Output
+                {Texture::DlssOutput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            };
+            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+            NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssAfter));
+            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::DlssAfter1), &dummyDynamicConstantOffset);
+
+            NRI.CmdDispatch(commandBuffer, {outputGridW, outputGridH, 1});
+        }
+    } else { // TAA
+        helper::Annotation annotation(NRI, commandBuffer, "TAA");
+
+        const TextureState transitions[] = {
+            // Input
+            {Texture::Mv, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {taaSrc, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            // Output
+            {taaDst, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+        };
+        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Taa));
+        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(isEven ? DescriptorSet::Taa1a : DescriptorSet::Taa1b), &dummyDynamicConstantOffset);
+
+        NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
+    }
+
+    { // NIS
+        helper::Annotation annotation(NRI, commandBuffer, "NIS");
+
+        const TextureState transitions[] = {
+            // Input
+            {IsDlssEnabled() ? Texture::DlssOutput : taaDst, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            // Output
+            {Texture::PreFinal, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+        };
+
+        const nri::BufferBarrierDesc buffers[] = {
+            {sharcBufferToClear, {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::COPY_DESTINATION}},
+        };
+
+        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, buffers, helper::GetCountOf(buffers), optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+        nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
+        dispatchUpscaleDesc.settings.nis.sharpness = NIS_SHARPNESS;
+        dispatchUpscaleDesc.output = {Get(Texture::PreFinal), Get(Descriptor::PreFinal_StorageTexture)};
 
         if (IsDlssEnabled()) {
-            // Before DLSS
-            if (m_Settings.SR) {
-                helper::Annotation annotation(NRI, commandBuffer, "Before DLSS");
-
-                const TextureState transitions[] = {
-                    // Input
-                    {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::Unfiltered_Spec, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    // Output
-                    {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                    {Texture::RRGuide_DiffAlbedo, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                    {Texture::RRGuide_SpecAlbedo, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                    {Texture::RRGuide_SpecHitDistance, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                    {Texture::RRGuide_Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                };
-                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
-                NRI.CmdBarrier(commandBuffer, transitionBarriers);
-
-                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssBefore));
-                NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::DlssBefore1), &dummyDynamicConstantOffset);
-
-                NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
-            }
-
-            { // DLSS
-                helper::Annotation annotation(NRI, commandBuffer, "DLSS");
-
-                const TextureState transitions[] = {
-                    // Input
-                    {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::Mv, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::RRGuide_DiffAlbedo, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::RRGuide_SpecAlbedo, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::RRGuide_SpecHitDistance, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::RRGuide_Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                    // Output
-                    {Texture::DlssOutput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                };
-                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
-                NRI.CmdBarrier(commandBuffer, transitionBarriers);
-
-                bool resetHistory = m_ForceHistoryReset || m_Settings.SR != m_SettingsPrev.SR || m_Settings.RR != m_SettingsPrev.RR;
-
-                nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
-                dispatchUpscaleDesc.output = {Get(Texture::DlssOutput), Get(Descriptor::DlssOutput_StorageTexture)};
-                dispatchUpscaleDesc.input = {Get(Texture::Composed), Get(Descriptor::Composed_Texture)};
-                dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
-                dispatchUpscaleDesc.cameraJitter = {-m_Camera.state.viewportJitter.x, -m_Camera.state.viewportJitter.y};
-                dispatchUpscaleDesc.mvScale = {1.0f, 1.0f};
-                dispatchUpscaleDesc.flags = resetHistory ? nri::DispatchUpscaleBits::RESET_HISTORY : nri::DispatchUpscaleBits::NONE;
-
-                if (m_Settings.RR) {
-                    dispatchUpscaleDesc.guides.denoiser.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
-                    dispatchUpscaleDesc.guides.denoiser.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
-                    dispatchUpscaleDesc.guides.denoiser.diffuseAlbedo = {Get(Texture::RRGuide_DiffAlbedo), Get(Descriptor::RRGuide_DiffAlbedo_Texture)};
-                    dispatchUpscaleDesc.guides.denoiser.specularAlbedo = {Get(Texture::RRGuide_SpecAlbedo), Get(Descriptor::RRGuide_SpecAlbedo_Texture)};
-                    dispatchUpscaleDesc.guides.denoiser.normalRoughness = {Get(Texture::RRGuide_Normal_Roughness), Get(Descriptor::RRGuide_Normal_Roughness_Texture)};
-                    dispatchUpscaleDesc.guides.denoiser.specularMvOrHitT = {Get(Texture::RRGuide_SpecHitDistance), Get(Descriptor::RRGuide_SpecHitDistance_Texture)};
-
-                    memcpy(&dispatchUpscaleDesc.settings.dlrr.worldToViewMatrix, &m_Camera.state.mWorldToView, sizeof(m_Camera.state.mWorldToView));
-                    memcpy(&dispatchUpscaleDesc.settings.dlrr.viewToClipMatrix, &m_Camera.state.mViewToClip, sizeof(m_Camera.state.mViewToClip));
-
-                    NRI.CmdDispatchUpscale(commandBuffer, *m_DLRR, dispatchUpscaleDesc);
-                } else {
-                    dispatchUpscaleDesc.guides.upscaler.mv = {Get(Texture::Mv), Get(Descriptor::Mv_Texture)};
-                    dispatchUpscaleDesc.guides.upscaler.depth = {Get(Texture::ViewZ), Get(Descriptor::ViewZ_Texture)};
-
-                    if (m_DLSR && upscalerType == nri::UpscalerType::FSR) // workaround for "conditional expression is constant"
-                    {
-                        dispatchUpscaleDesc.settings.fsr.zNear = 0.1f;
-                        dispatchUpscaleDesc.settings.fsr.verticalFov = radians(m_Settings.camFov);
-                        dispatchUpscaleDesc.settings.fsr.frameTime = m_Timer.GetSmoothedFrameTime();
-                        dispatchUpscaleDesc.settings.fsr.viewSpaceToMetersFactor = 1.0f;
-                        dispatchUpscaleDesc.settings.fsr.sharpness = 0.0f;
-                    }
-
-                    NRI.CmdDispatchUpscale(commandBuffer, *m_DLSR, dispatchUpscaleDesc);
-                }
-            }
-
-            RestoreBindings(commandBuffer, isEven);
-
-            { // After DLSS
-                helper::Annotation annotation(NRI, commandBuffer, "After Dlss");
-
-                const TextureState transitions[] = {
-                    // Output
-                    {Texture::DlssOutput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                };
-                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
-                NRI.CmdBarrier(commandBuffer, transitionBarriers);
-
-                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssAfter));
-                NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::DlssAfter1), &dummyDynamicConstantOffset);
-
-                NRI.CmdDispatch(commandBuffer, {outputGridW, outputGridH, 1});
-            }
-        } else { // TAA
-            helper::Annotation annotation(NRI, commandBuffer, "TAA");
-
-            const TextureState transitions[] = {
-                // Input
-                {Texture::Mv, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {taaSrc, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                // Output
-                {taaDst, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            };
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
-            NRI.CmdBarrier(commandBuffer, transitionBarriers);
-
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Taa));
-            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(isEven ? DescriptorSet::Taa1a : DescriptorSet::Taa1b), &dummyDynamicConstantOffset);
-
-            NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
+            dispatchUpscaleDesc.input = {Get(Texture::DlssOutput), Get(Descriptor::DlssOutput_Texture)};
+            dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
+        } else {
+            dispatchUpscaleDesc.input = {Get(taaDst), isEven ? Get(Descriptor::TaaHistory_Texture) : Get(Descriptor::TaaHistoryPrev_Texture)};
+            dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
         }
 
-        { // NIS
-            helper::Annotation annotation(NRI, commandBuffer, "NIS");
+        NRI.CmdDispatchUpscale(commandBuffer, *m_NIS, dispatchUpscaleDesc);
 
-            const TextureState transitions[] = {
-                // Input
-                {IsDlssEnabled() ? Texture::DlssOutput : taaDst, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                // Output
-                {Texture::PreFinal, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            };
-
-            const nri::BufferBarrierDesc buffers[] = {
-                {sharcBufferToClear, {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::COPY_DESTINATION}},
-            };
-
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, buffers, helper::GetCountOf(buffers), optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
-            NRI.CmdBarrier(commandBuffer, transitionBarriers);
-
-            nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
-            dispatchUpscaleDesc.settings.nis.sharpness = NIS_SHARPNESS;
-            dispatchUpscaleDesc.output = {Get(Texture::PreFinal), Get(Descriptor::PreFinal_StorageTexture)};
-
-            if (IsDlssEnabled()) {
-                dispatchUpscaleDesc.input = {Get(Texture::DlssOutput), Get(Descriptor::DlssOutput_Texture)};
-                dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
-            } else {
-                dispatchUpscaleDesc.input = {Get(taaDst), isEven ? Get(Descriptor::TaaHistory_Texture) : Get(Descriptor::TaaHistoryPrev_Texture)};
-                dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
-            }
-
-            NRI.CmdDispatchUpscale(commandBuffer, *m_NIS, dispatchUpscaleDesc);
-
-            RestoreBindings(commandBuffer, isEven, false);
-        }
-
-        // SHARC clear (for the next frame)
-        if (m_Settings.SHARC && NRD_MODE < OCCLUSION) {
-            helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
-
-            NRI.CmdZeroBuffer(commandBuffer, *sharcBufferToClear, 0, SHARC_CAPACITY * sizeof(uint32_t) * 4);
-        }
-
-        //======================================================================================================================================
-        // Window resolution
-        //======================================================================================================================================
-
-        { // Final
-            helper::Annotation annotation(NRI, commandBuffer, "Final");
-
-            const TextureState transitions[] = {
-                // Input
-                {Texture::PreFinal, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Validation, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                // Output
-                {Texture::Final, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            };
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
-            NRI.CmdBarrier(commandBuffer, transitionBarriers);
-
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Final));
-            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::Final1), &dummyDynamicConstantOffset);
-
-            NRI.CmdDispatch(commandBuffer, {windowGridW, windowGridH, 1});
-        }
-
-        uint32_t backBufferIndex = 0;
-        nri::Result result = NRI.AcquireNextTexture(*m_SwapChain, *queuedFrame.textureAcquiredSemaphore, backBufferIndex);
-        if (result == nri::Result::OUT_OF_DATE)
-            printf("Oops, unhandled out of date!\n");
-
-        const BackBuffer& backBuffer = m_SwapChainBuffers[backBufferIndex];
-
-        { // Copy to back-buffer
-            helper::Annotation annotation(NRI, commandBuffer, "Copy to back buffer");
-
-            const nri::TextureBarrierDesc transitions[] = {
-                nri::TextureBarrierFromState(GetState(Texture::Final), {nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE}),
-                nri::TextureBarrierFromUnknown(backBuffer.texture, {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION}),
-            };
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, transitions, (uint16_t)helper::GetCountOf(transitions)};
-            NRI.CmdBarrier(commandBuffer, transitionBarriers);
-
-            NRI.CmdCopyTexture(commandBuffer, *backBuffer.texture, nullptr, *Get(Texture::Final), nullptr);
-        }
-
-        { // UI
-            nri::TextureBarrierDesc before = {};
-            before.texture = backBuffer.texture;
-            before.before = {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION, nri::StageBits::COPY};
-            before.after = {nri::AccessBits::COLOR_ATTACHMENT, nri::Layout::COLOR_ATTACHMENT, nri::StageBits::COLOR_ATTACHMENT};
-
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, &before, 1};
-            NRI.CmdBarrier(commandBuffer, transitionBarriers);
-
-            nri::AttachmentsDesc desc = {};
-            desc.colors = &backBuffer.colorAttachment;
-            desc.colorNum = 1;
-
-            NRI.CmdBeginRendering(commandBuffer, desc);
-            {
-                RenderImgui(commandBuffer, *m_Streamer, backBuffer.attachmentFormat, m_SdrScale, m_IsSrgb);
-            }
-            NRI.CmdEndRendering(commandBuffer);
-
-            const nri::TextureBarrierDesc after = nri::TextureBarrierFromState(before, {nri::AccessBits::UNKNOWN, nri::Layout::PRESENT, nri::StageBits::ALL});
-            transitionBarriers = {nullptr, 0, nullptr, 0, &after, 1};
-            NRI.CmdBarrier(commandBuffer, transitionBarriers);
-        }
+        RestoreBindings(commandBuffer, isEven, false);
     }
+
+    // SHARC clear (for the next frame)
+    if (m_Settings.SHARC && NRD_MODE < OCCLUSION) {
+        helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
+
+        NRI.CmdZeroBuffer(commandBuffer, *sharcBufferToClear, 0, SHARC_CAPACITY * sizeof(uint32_t) * 4);
+    }
+
+    //======================================================================================================================================
+    // Window resolution
+    //======================================================================================================================================
+
+    { // Final
+        helper::Annotation annotation(NRI, commandBuffer, "Final");
+
+        const TextureState transitions[] = {
+            // Input
+            {Texture::PreFinal, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::Validation, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            // Output
+            {Texture::Final, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+        };
+        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Final));
+        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::Final1), &dummyDynamicConstantOffset);
+
+        NRI.CmdDispatch(commandBuffer, {windowGridW, windowGridH, 1});
+    }
+
+    // Acquire a swap chain texture
+    uint32_t recycledSemaphoreIndex = frameIndex % (uint32_t)m_SwapChainTextures.size();
+    nri::Fence* swapChainAcquireSemaphore = m_SwapChainTextures[recycledSemaphoreIndex].acquireSemaphore;
+
+    uint32_t currentSwapChainTextureIndex = 0;
+    nri::Result result = NRI.AcquireNextTexture(*m_SwapChain, *swapChainAcquireSemaphore, currentSwapChainTextureIndex);
+    if (result == nri::Result::OUT_OF_DATE)
+        printf("Oops, unhandled out of date!\n");
+
+    const SwapChainTexture& swapChainTexture = m_SwapChainTextures[currentSwapChainTextureIndex];
+
+    { // Copy to back-buffer
+        helper::Annotation annotation(NRI, commandBuffer, "Copy to back buffer");
+
+        const nri::TextureBarrierDesc transitions[] = {
+            nri::TextureBarrierFromState(GetState(Texture::Final), {nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE}),
+            nri::TextureBarrierFromUnknown(swapChainTexture.texture, {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION}),
+        };
+        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, transitions, (uint16_t)helper::GetCountOf(transitions)};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+        NRI.CmdCopyTexture(commandBuffer, *swapChainTexture.texture, nullptr, *Get(Texture::Final), nullptr);
+    }
+
+    { // UI
+        nri::TextureBarrierDesc before = {};
+        before.texture = swapChainTexture.texture;
+        before.before = {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION, nri::StageBits::COPY};
+        before.after = {nri::AccessBits::COLOR_ATTACHMENT, nri::Layout::COLOR_ATTACHMENT, nri::StageBits::COLOR_ATTACHMENT};
+
+        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, &before, 1};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
+
+        nri::AttachmentsDesc desc = {};
+        desc.colors = &swapChainTexture.colorAttachment;
+        desc.colorNum = 1;
+
+        NRI.CmdBeginRendering(commandBuffer, desc);
+        {
+            RenderImgui(commandBuffer, *m_Streamer, swapChainTexture.attachmentFormat, m_SdrScale, m_IsSrgb);
+        }
+        NRI.CmdEndRendering(commandBuffer);
+
+        const nri::TextureBarrierDesc after = nri::TextureBarrierFromState(before, {nri::AccessBits::UNKNOWN, nri::Layout::PRESENT, nri::StageBits::ALL});
+        transitionBarriers = {nullptr, 0, nullptr, 0, &after, 1};
+        NRI.CmdBarrier(commandBuffer, transitionBarriers);
+    }
+
+    // RECORDING END
     NRI.EndCommandBuffer(commandBuffer);
 
     { // Submit
@@ -5050,11 +5169,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         frameFence.value = 1 + frameIndex;
 
         nri::FenceSubmitDesc textureAcquiredFence = {};
-        textureAcquiredFence.fence = queuedFrame.textureAcquiredSemaphore;
+        textureAcquiredFence.fence = swapChainAcquireSemaphore;
         textureAcquiredFence.stages = nri::StageBits::COLOR_ATTACHMENT;
 
         nri::FenceSubmitDesc renderingFinishedFence = {};
-        renderingFinishedFence.fence = queuedFrame.renderingFinishedSemaphore;
+        renderingFinishedFence.fence = swapChainTexture.releaseSemaphore;
 
         nri::FenceSubmitDesc signalFences[] = {renderingFinishedFence, frameFence};
 
@@ -5076,7 +5195,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     // Present
     nri::nriBeginAnnotation("Present", nri::BGRA_UNUSED);
 
-    NRI.QueuePresent(*m_SwapChain, *queuedFrame.renderingFinishedSemaphore);
+    NRI.QueuePresent(*m_SwapChain, *swapChainTexture.releaseSemaphore);
 
     nri::nriEndAnnotation();
 
