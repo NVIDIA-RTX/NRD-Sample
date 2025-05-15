@@ -34,7 +34,6 @@ All-in-one repository including all relevant pieces to see [*NRD (NVIDIA Real-ti
 
 - `USE_MINIMAL_DATA=OFF` - download minimal resource package (90MB)
 - `DISABLE_SHADER_COMPILATION=OFF` - disable compilation of shaders (shaders can be built on other platform)
-- `DXC_CUSTOM_PATH=custom/path/to/dxc` - custom path to *DXC* (will be used if VulkanSDK is not found)
 
 # HOW TO RUN
 
