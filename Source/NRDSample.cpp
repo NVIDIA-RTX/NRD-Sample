@@ -85,12 +85,12 @@ const std::vector<uint32_t> DLRR_interior_improveMeTests = {{
 //=================================================================================
 
 // UI
-#define UI_YELLOW ImVec4(1.0f, 0.9f, 0.0f, 1.0f)
-#define UI_GREEN ImVec4(0.5f, 0.9f, 0.0f, 1.0f)
-#define UI_RED ImVec4(1.0f, 0.1f, 0.0f, 1.0f)
-#define UI_HEADER ImVec4(0.7f, 1.0f, 0.7f, 1.0f)
+#define UI_YELLOW            ImVec4(1.0f, 0.9f, 0.0f, 1.0f)
+#define UI_GREEN             ImVec4(0.5f, 0.9f, 0.0f, 1.0f)
+#define UI_RED               ImVec4(1.0f, 0.1f, 0.0f, 1.0f)
+#define UI_HEADER            ImVec4(0.7f, 1.0f, 0.7f, 1.0f)
 #define UI_HEADER_BACKGROUND ImVec4(0.7f * 0.3f, 1.0f * 0.3f, 0.7f * 0.3f, 1.0f)
-#define UI_DEFAULT ImGui::GetStyleColorVec4(ImGuiCol_Text)
+#define UI_DEFAULT           ImGui::GetStyleColorVec4(ImGuiCol_Text)
 
 enum MvType : int32_t {
     MV_2D,
@@ -506,8 +506,7 @@ public:
             if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
                 resource.d3d12.resource = (ID3D12Resource*)NRI.GetTextureNativeObject(*textureState->texture);
                 resource.d3d12.format = nri::nriConvertNRIFormatToDXGI(textureDesc.format);
-            }
-            else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
+            } else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
                 resource.vk.image = (VKNonDispatchableHandle)NRI.GetTextureNativeObject(*textureState->texture);
                 resource.vk.format = nri::nriConvertNRIFormatToVK(textureDesc.format);
             }
