@@ -12,10 +12,10 @@ compile_commands.json
 # generated
 _Bin/
 _Build/
-_Data/
 _Shaders/
 _NRD_SDK/
 _NRI_SDK/
+_Data/
 
 # can be a symbolic link
 _Data
