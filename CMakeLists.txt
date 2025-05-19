@@ -77,7 +77,7 @@ endif()
 
 # Compile options
 if(NOT(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64") OR(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64"))
-    set(SIMD -msse3 -mssse3)
+    set(SIMD -mssse3)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
