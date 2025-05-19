@@ -77,11 +77,14 @@ endif()
 
 # Compile options
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(COMPILE_OPTIONS -msse4.1 -Wextra)
+    set(COMPILE_OPTIONS -Wextra)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    set(COMPILE_OPTIONS -msse4.1 -Wextra)
+    set(COMPILE_OPTIONS -Wextra)
 elseif(MSVC)
-    set(COMPILE_OPTIONS /W4 /WX /wd4324 /wd4834)
+    set(COMPILE_OPTIONS /W4 /WX
+        /wd4324 # padding was added at the end of a structure because you specified an alignment specifier
+        /wd4834 # discarding return value of function with 'nodiscard' attribute
+    )
 else()
     message(WARNING "Unknown compiler!")
 endif()
