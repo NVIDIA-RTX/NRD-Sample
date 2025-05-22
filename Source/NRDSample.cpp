@@ -2744,7 +2744,7 @@ void Sample::CreatePipelines() {
     }
 
     { // Pipeline::Taa
-        pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "TAA.cs", shaderCodeStorage);
+        pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "Taa.cs", shaderCodeStorage);
 
         NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, pipeline));
         m_Pipelines.push_back(pipeline);

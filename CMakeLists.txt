@@ -24,6 +24,8 @@ set(CMAKE_C_STANDARD 99)
 # Download dependencies (Packman)
 if(WIN32)
     set(PACKMAN_EXT ".cmd")
+  else()
+    set(PACKMAN_EXT ".sh")
 endif()
 
 if((CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64") OR(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64"))
@@ -162,7 +164,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     ML_SOURCE_DIR=${ML_SOURCE_DIR}
     NRI_SOURCE_DIR=${NRI_SOURCE_DIR}/Include
     NRD_SOURCE_DIR=${NRD_SOURCE_DIR}/Shaders/Include
-    SHARC_SOURCE_DIR=${sharc_SOURCE_DIR}/Include
+    SHARC_SOURCE_DIR=${sharc_SOURCE_DIR}/include
 )
 target_compile_options(${PROJECT_NAME} PRIVATE ${COMPILE_OPTIONS})
 
@@ -206,7 +208,7 @@ set(SHADERMAKE_GENERAL_ARGS
     -I "${ML_SOURCE_DIR}"
     -I "${NRD_SOURCE_DIR}/Shaders/Include"
     -I "${NRI_SOURCE_DIR}/Include"
-    -I "${sharc_SOURCE_DIR}/Include"
+    -I "${sharc_SOURCE_DIR}/include"
     -D NRD_NORMAL_ENCODING=${NRD_NORMAL_ENCODING}
     -D NRD_ROUGHNESS_ENCODING=${NRD_ROUGHNESS_ENCODING}
 )
