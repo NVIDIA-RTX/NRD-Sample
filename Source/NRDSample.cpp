@@ -1941,11 +1941,11 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                     " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING) " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING) " -D NRD_INTERNAL";
 
                             if (NRI.GetDeviceDesc(*m_Device).graphicsAPI == nri::GraphicsAPI::D3D12) {
-                                std::string dxil = " -p DXIL --compiler \"" STRINGIFY(DXC_PATH) "\"";
+                                std::string dxil = " -p DXIL --compiler \"" STRINGIFY(SHADERMAKE_DXC_PATH) "\"";
                                 sampleShaders += dxil;
                                 nrdShaders += dxil;
                             } else {
-                                std::string spirv = " -p SPIRV --compiler \"" STRINGIFY(DXC_SPIRV_PATH) "\" --hlsl2021";
+                                std::string spirv = " -p SPIRV --compiler \"" STRINGIFY(SHADERMAKE_DXC_VK_PATH) "\"";
                                 sampleShaders += spirv;
                                 nrdShaders += spirv;
                             }
