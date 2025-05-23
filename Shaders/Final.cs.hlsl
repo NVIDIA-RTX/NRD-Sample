@@ -6,7 +6,7 @@ NRI_RESOURCE( Texture2D<float4>, gIn_PostAA, t, 0, 1 );
 NRI_RESOURCE( Texture2D<float4>, gIn_PreAA, t, 1, 1 );
 NRI_RESOURCE( Texture2D<float4>, gIn_Validation, t, 2, 1 );
 
-NRI_RESOURCE( RWTexture2D<float3>, gOut_Final, u, 0, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_Final, u, 0, 1 );
 
 [numthreads( 16, 16, 1 )]
 void main( uint2 pixelPos : SV_DispatchThreadId )

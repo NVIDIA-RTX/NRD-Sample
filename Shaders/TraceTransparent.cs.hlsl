@@ -11,9 +11,9 @@ NRI_RESOURCE( Texture2D<float3>, gIn_ComposedDiff, t, 0, 1 );
 NRI_RESOURCE( Texture2D<float4>, gIn_ComposedSpec_ViewZ, t, 1, 1 );
 
 // Outputs
-NRI_RESOURCE( RWTexture2D<float3>, gOut_Composed, u, 0, 1 );
-NRI_RESOURCE( RWTexture2D<float4>, gInOut_Mv, u, 1, 1 );
-NRI_RESOURCE( RWTexture2D<float4>, gOut_Normal_Roughness, u, 2, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_Composed, u, 0, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gInOut_Mv, u, 1, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Normal_Roughness, u, 2, 1 );
 
 //========================================================================================
 // TRACE TRANSPARENT

@@ -6,7 +6,7 @@ NRI_RESOURCE( Texture2D<float4>, gIn_Mv, t, 0, 1 );
 NRI_RESOURCE( Texture2D<float3>, gIn_Composed, t, 1, 1 );
 NRI_RESOURCE( Texture2D<float4>, gIn_History, t, 2, 1 );
 
-NRI_RESOURCE( RWTexture2D<float4>, gOut_Result, u, 0, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Result, u, 0, 1 );
 
 #define BORDER          2
 #define GROUP_X         16

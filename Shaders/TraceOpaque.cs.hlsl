@@ -13,20 +13,20 @@ NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking, t, 2, 1 );
 NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 3, 1 );
 
 // Outputs
-NRI_RESOURCE( RWTexture2D<float4>, gOut_Mv, u, 0, 1 );
-NRI_RESOURCE( RWTexture2D<float>, gOut_ViewZ, u, 1, 1 );
-NRI_RESOURCE( RWTexture2D<float4>, gOut_Normal_Roughness, u, 2, 1 );
-NRI_RESOURCE( RWTexture2D<float4>, gOut_BaseColor_Metalness, u, 3, 1 );
-NRI_RESOURCE( RWTexture2D<float3>, gOut_DirectLighting, u, 4, 1 );
-NRI_RESOURCE( RWTexture2D<float3>, gOut_DirectEmission, u, 5, 1 );
-NRI_RESOURCE( RWTexture2D<float3>, gOut_PsrThroughput, u, 6, 1 );
-NRI_RESOURCE( RWTexture2D<float2>, gOut_ShadowData, u, 7, 1 );
-NRI_RESOURCE( RWTexture2D<float4>, gOut_Shadow_Translucency, u, 8, 1 );
-NRI_RESOURCE( RWTexture2D<float4>, gOut_Diff, u, 9, 1 );
-NRI_RESOURCE( RWTexture2D<float4>, gOut_Spec, u, 10, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Mv, u, 0, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float>, gOut_ViewZ, u, 1, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Normal_Roughness, u, 2, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_BaseColor_Metalness, u, 3, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_DirectLighting, u, 4, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_DirectEmission, u, 5, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_PsrThroughput, u, 6, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float2>, gOut_ShadowData, u, 7, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Shadow_Translucency, u, 8, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Diff, u, 9, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Spec, u, 10, 1 );
 #if( NRD_MODE == SH )
-    NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, 1 );
-    NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, 1 );
+    NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, 1 );
+    NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, 1 );
 #endif
 
 float2 GetBlueNoise( uint2 pixelPos, bool isCheckerboard, uint seed = 0 )

@@ -22,8 +22,8 @@ NRI_RESOURCE( Texture2D<float4>, gIn_Spec, t, 8, 1 );
 #endif
 
 // Outputs
-NRI_RESOURCE( RWTexture2D<float3>, gOut_ComposedDiff, u, 0, 1 );
-NRI_RESOURCE( RWTexture2D<float4>, gOut_ComposedSpec_ViewZ, u, 1, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_ComposedDiff, u, 0, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_ComposedSpec_ViewZ, u, 1, 1 );
 
 [numthreads( 16, 16, 1 )]
 void main( int2 pixelPos : SV_DispatchThreadId )
