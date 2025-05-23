@@ -21,16 +21,10 @@ jobs:
           args: install windows-sdk-10.0 cmake -y
 
       - name: Deploy
-        run: |
-          $Env:VULKAN_SDK = "C:/VulkanSDK/"
-          $Env:Path += ";C:/VulkanSDK/Bin"
-          .\1-Deploy.bat
+        run: .\1-Deploy.bat
 
       - name: Build
-        run: |
-          $Env:VULKAN_SDK = "C:/VulkanSDK/"
-          $Env:Path += ";C:/VulkanSDK/Bin"
-          .\2-Build.bat
+        run: .\2-Build.bat
 
   Build-Ubuntu:
     runs-on: ubuntu-22.04
