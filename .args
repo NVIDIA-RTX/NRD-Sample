@@ -76,7 +76,7 @@
           "Command": "--debugNRD"
         },
         {
-          "Command": "--frameNum=9999999"
+          "Command": "--alwaysActive"
         }
       ]
     },
