@@ -83,9 +83,9 @@ if(NOT((CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64") OR(CMAKE_SYSTEM_PROCESSOR MATC
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(COMPILE_OPTIONS ${SIMD} -Wextra)
+    set(COMPILE_OPTIONS ${SIMD} -Wextra -Wno-missing-field-initializers)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    set(COMPILE_OPTIONS ${SIMD} -Wextra)
+    set(COMPILE_OPTIONS ${SIMD} -Wextra -Wno-missing-field-initializers)
 elseif(MSVC)
     set(COMPILE_OPTIONS /W4 /WX
         /wd4324 # padding was added at the end of a structure because you specified an alignment specifier

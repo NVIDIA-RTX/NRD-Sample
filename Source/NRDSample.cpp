@@ -1207,7 +1207,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         const nrd::LibraryDesc& nrdLibraryDesc = nrd::GetLibraryDesc();
 
         char buf[256];
-        snprintf(buf, sizeof(buf) - 1, "NRD v%u.%u.%u (%u.%u) - %s [Tab]", nrdLibraryDesc.versionMajor, nrdLibraryDesc.versionMinor, nrdLibraryDesc.versionBuild, nrdLibraryDesc.normalEncoding, nrdLibraryDesc.roughnessEncoding, nrdModes[NRD_MODE]);
+        snprintf(buf, sizeof(buf) - 1, "NRD v%u.%u.%u (%u.%u) - %s [Tab]", nrdLibraryDesc.versionMajor, nrdLibraryDesc.versionMinor, nrdLibraryDesc.versionBuild, (uint32_t)nrdLibraryDesc.normalEncoding, (uint32_t)nrdLibraryDesc.roughnessEncoding, nrdModes[NRD_MODE]);
 
         ImGui::SetNextWindowPos(ImVec2(m_Settings.windowAlignment ? 5.0f : GetOutputResolution().x - m_UiWidth - 5.0f, 5.0f));
         ImGui::SetNextWindowSize(ImVec2(0.0f, 0.0f));
