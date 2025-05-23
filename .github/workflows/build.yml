@@ -43,10 +43,7 @@ jobs:
         uses: seanmiddleditch/gha-setup-ninja@master
 
       - name: Install dependencies
-        run: |
-          sudo apt install -y wget
-          sudo apt update
-          sudo apt install -y xorg-dev
+        run: sudo apt install -y xorg-dev
 
       - name: Deploy
         run: bash 1-Deploy.sh

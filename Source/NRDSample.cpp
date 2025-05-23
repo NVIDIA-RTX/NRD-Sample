@@ -368,7 +368,7 @@ struct Settings {
     int32_t onScreen = 0;
     int32_t forcedMaterial = 0;
     int32_t animatedObjectNum = 5;
-    int32_t activeAnimation = 0;
+    uint32_t activeAnimation = 0;
     int32_t motionMode = 0;
     int32_t denoiser = DENOISER_REBLUR;
     int32_t rpp = 1;
@@ -1426,7 +1426,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                     memcpy(iterator + offset, animation.name.c_str(), size);
                                     offset += animation.name.length() + 1;
                                 }
-                                ImGui::Combo("Animated scene", &m_Settings.activeAnimation, items, helper::GetCountOf(m_Scene.animations));
+                                ImGui::Combo("Animated scene", (int32_t*)&m_Settings.activeAnimation, items, helper::GetCountOf(m_Scene.animations));
                             }
                         }
                     }
@@ -2205,9 +2205,10 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         }
 
         if (m_Settings.motionMode == 4) {
+            float f = fmod(Pi(period * 2.0f), Pi(2.0f));
             float3 axisX = m_Camera.state.mWorldToView.Row(0).xyz;
             float3 axisY = m_Camera.state.mWorldToView.Row(1).xyz;
-            float2 v = Rotate(float2(1.0f, 0.0f), fmod(Pi(period * 2.0f), Pi(2.0f)));
+            float2 v = Rotate(float2(1.0f, 0.0f), f);
             localPos = (axisX * v.x + axisY * v.y) * amplitude / Pi(1.0f);
         } else
             localPos *= amplitude * (m_Settings.linearMotion ? WaveTriangle(period) - 0.5f : sin(Pi(period)) * 0.5f);
@@ -2383,8 +2384,10 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     if (frameIndex == 0)
         m_ForceHistoryReset = true;
 
-    float sunCurr = smoothstep(-0.9f, 0.05f, sin(radians(m_Settings.sunElevation)));
-    float sunPrev = smoothstep(-0.9f, 0.05f, sin(radians(m_SettingsPrev.sunElevation)));
+    float a = sin(radians(m_Settings.sunElevation));
+    float b = sin(radians(m_SettingsPrev.sunElevation));
+    float sunCurr = smoothstep(-0.9f, 0.05f, a);
+    float sunPrev = smoothstep(-0.9f, 0.05f, b);
     float resetHistoryFactor = 1.0f - smoothstep(0.0f, 0.2f, abs(sunCurr - sunPrev));
 
     float emiCurr = m_Settings.emission * m_Settings.emissionIntensity;
