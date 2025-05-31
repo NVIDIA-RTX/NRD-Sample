@@ -27,9 +27,6 @@ struct TraceTransparentDesc
     // Pixel position
     uint2 pixelPos;
 
-    // Number of bounces to trace ( up to )
-    uint bounceNum;
-
     // Is reflection or refraction in first segment?
     bool isReflection;
 };
@@ -50,7 +47,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
     float bayer = Sequence::Bayer4x4( desc.pixelPos, gFrameIndex );
 
     [loop]
-    for( uint bounce = 1; bounce <= desc.bounceNum; bounce++ ) // TODO: stop if pathThroughput is low
+    for( uint bounce = 1; bounce <= PT_DELTA_BOUNCES_NUM; bounce++ )
     {
         // Reflection or refraction?
         float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
@@ -78,21 +75,11 @@ float3 TraceTransparent( TraceTransparentDesc desc )
             isReflection = rnd < F; // TODO: if "F" is clamped, "pathThroughput" should be adjusted too
         }
 
-        // Compute ray
-        float3 ray = reflect( -geometryProps.V, geometryProps.N );
-        if( !isReflection )
-        {
-            float3 I = -geometryProps.V;
-            float NoI = dot( geometryProps.N, I );
-            float k = max( 1.0 - eta * eta * ( 1.0 - NoI * NoI ), 0.0 );
-
-            ray = normalize( eta * I - ( eta * NoI + sqrt( k ) ) * geometryProps.N );
-            eta = 1.0 / eta;
-        }
-
         // Trace
-        float3 Xoffset = geometryProps.GetXoffset( geometryProps.N * Math::Sign( dot( ray, geometryProps.N ) ), PT_GLASS_RAY_OFFSET );
-        uint flags = bounce == desc.bounceNum ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
+        uint flags = bounce == PT_DELTA_BOUNCES_NUM ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
+
+        float3 Xoffset, ray;
+        eta = GetDeltaEventRay( geometryProps, isReflection, eta, Xoffset, ray );
 
         geometryProps = CastRay( Xoffset, ray, 0.0, INF, GetConeAngleFromRoughness( geometryProps.mip, 0.0 ), gWorldTlas, flags, 0 );
 
@@ -103,74 +90,71 @@ float3 TraceTransparent( TraceTransparentDesc desc )
             pathThroughput *= exp( -extinction * geometryProps.hitT );
 
         // Is opaque hit found?
-        if( !geometryProps.Has( FLAG_TRANSPARENT ) )
+        if( !geometryProps.Has( FLAG_TRANSPARENT ) ) // TODO: stop if pathThroughput is low
+            break;
+    }
+
+    // This is always non-transparent
+    MaterialProps materialProps = GetMaterialProps( geometryProps );
+
+    float4 Lcached = float4( materialProps.Lemi, 0.0 );
+    if( !geometryProps.IsSky( ) )
+    {
+        // L1 cache - reproject previous frame, carefully treating specular
+        float3 prevLdiff, prevLspec;
+        float reprojectionWeight = ReprojectIrradiance( false, !isReflection, gIn_ComposedDiff, gIn_ComposedSpec_ViewZ, geometryProps, desc.pixelPos, prevLdiff, prevLspec );
+        Lcached = float4( prevLdiff + prevLspec, reprojectionWeight );
+
+        // L2 cache - SHARC
+        HashGridParameters hashGridParams;
+        hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
+        hashGridParams.sceneScale = SHARC_SCENE_SCALE;
+        hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+        hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+
+        float3 Xglobal = GetGlobalPos( geometryProps.X );
+        uint level = HashGridGetLevel( Xglobal, hashGridParams );
+        float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
+        float smc = GetSpecMagicCurve( materialProps.roughness );
+
+        float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
+        float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
+        Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
+
+        SharcHitData sharcHitData;
+        sharcHitData.positionWorld = Xglobal;
+        sharcHitData.normalWorld = geometryProps.N;
+        sharcHitData.emissive = materialProps.Lemi;
+
+        HashMapData hashMapData;
+        hashMapData.capacity = SHARC_CAPACITY;
+        hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+
+        SharcParameters sharcParams;
+        sharcParams.gridParameters = hashGridParams;
+        sharcParams.hashMapData = hashMapData;
+        sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
+        sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
+        sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+
+        bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
+        isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
+        isSharcAllowed &= geometryProps.hitT > voxelSize; // voxel angular size is acceptable // TODO: can be skipped to get flat ambient in some cases
+
+        float3 sharcRadiance;
+        if (isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false))
+            Lcached = float4( sharcRadiance, 1.0 );
+
+        // Cache miss - compute lighting, if not found in caches
+        if( Rng::Hash::GetFloat( ) > Lcached.w )
         {
-            MaterialProps materialProps = GetMaterialProps( geometryProps );
-
-            // Lighting
-            float4 Lcached = float4( materialProps.Lemi, 0.0 );
-            if( !geometryProps.IsSky( ) )
-            {
-                // L1 cache - reproject previous frame, carefully treating specular
-                float3 prevLdiff, prevLspec;
-                float reprojectionWeight = ReprojectIrradiance( false, !isReflection, gIn_ComposedDiff, gIn_ComposedSpec_ViewZ, geometryProps, desc.pixelPos, prevLdiff, prevLspec );
-                Lcached = float4( prevLdiff + prevLspec, reprojectionWeight );
-
-                // L2 cache - SHARC
-                HashGridParameters hashGridParams;
-                hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-                hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-                hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-                hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
-
-                float3 Xglobal = GetGlobalPos( geometryProps.X );
-                uint level = HashGridGetLevel( Xglobal, hashGridParams );
-                float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
-                float smc = GetSpecMagicCurve( materialProps.roughness );
-
-                float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-                float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
-                Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
-
-                SharcHitData sharcHitData;
-                sharcHitData.positionWorld = Xglobal;
-                sharcHitData.normalWorld = geometryProps.N;
-                sharcHitData.emissive = materialProps.Lemi;
-
-                HashMapData hashMapData;
-                hashMapData.capacity = SHARC_CAPACITY;
-                hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-                SharcParameters sharcParams;
-                sharcParams.gridParameters = hashGridParams;
-                sharcParams.hashMapData = hashMapData;
-                sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-                sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-                sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
-
-                bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
-                isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
-                isSharcAllowed &= geometryProps.hitT > voxelSize; // voxel angular size is acceptable // TODO: can be skipped to get flat ambient in some cases
-
-                float3 sharcRadiance;
-                if (isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false))
-                    Lcached = float4( sharcRadiance, 1.0 );
-
-                // Cache miss - compute lighting, if not found in caches
-                if( Rng::Hash::GetFloat( ) > Lcached.w )
-                {
-                    float3 L = GetShadowedLighting( geometryProps, materialProps );
-                    Lcached.xyz = max( Lcached.xyz, L );
-                }
-            }
-
-            // Output
-            return Lcached.xyz * pathThroughput;
+            float3 L = GetShadowedLighting( geometryProps, materialProps );
+            Lcached.xyz = max( Lcached.xyz, L );
         }
     }
 
-    // Should't be here
-    return 0.0;
+    // Output
+    return Lcached.xyz * pathThroughput;
 }
 
 //========================================================================================
@@ -229,7 +213,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
         TraceTransparentDesc desc = ( TraceTransparentDesc )0;
         desc.geometryProps = geometryPropsT;
         desc.pixelPos = pixelPos;
-        desc.bounceNum = 10;
 
         // IMPORTANT: use 1 reflection path and 1 refraction path at the primary glass hit to significantly reduce noise
         // TODO: use probabilistic split at the primary glass hit when denoising becomes available

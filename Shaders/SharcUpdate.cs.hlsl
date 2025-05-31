@@ -51,7 +51,7 @@ void Trace( GeometryProps geometryProps )
 
     MaterialProps materialProps = GetMaterialProps( geometryProps, USE_SHARC_V_DEPENDENT == 0 );
 
-    // Update SHARC cache ( this ia always a hit )
+    // Update SHARC cache ( this is always a hit )
     {
         SharcHitData sharcHitData;
         sharcHitData.positionWorld = GetGlobalPos( geometryProps.X ) + ( Rng::Hash::GetFloat4( ).xyz - 0.5 ) * SHARC_POS_DITHER;
@@ -67,7 +67,7 @@ void Trace( GeometryProps geometryProps )
 
     // Secondary rays
     [loop]
-    for( uint bounce = 1; bounce <= SHARC_PROPOGATION_DEPTH && !geometryProps.IsSky( ); bounce++ )
+    for( uint bounce = 1; bounce <= SHARC_PROPOGATION_DEPTH; bounce++ )
     {
         //=============================================================================================================================================================
         // Origin point
@@ -215,7 +215,10 @@ void Trace( GeometryProps geometryProps )
             SharcSetThroughput( sharcState, throughput );
 
             if( geometryProps.IsSky( ) )
+            {
                 SharcUpdateMiss( sharcParams, sharcState, materialProps.Lemi );
+                break;
+            }
             else
             {
                 SharcHitData sharcHitData;
@@ -253,17 +256,41 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Primary ray
     float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, gNearZ, gOrthoMode );
 
-    float3 cameraRayOrigin = Geometry::AffineTransform( gViewToWorld, Xv );
-    float3 cameraRayDirection = gOrthoMode == 0.0 ? normalize( Geometry::RotateVector( gViewToWorld, Xv ) ) : -gViewDirection.xyz;
+    float3 Xoffset = Geometry::AffineTransform( gViewToWorld, Xv );
+    float3 ray = gOrthoMode == 0.0 ? normalize( Geometry::RotateVector( gViewToWorld, Xv ) ) : -gViewDirection.xyz;
 
     // Force some portion of rays to be absolutely random to keep cache alive behind the camera
     if( Rng::Hash::GetFloat( ) < 0.2 )
-        cameraRayDirection = normalize( Rng::Hash::GetFloat4( ).xyz - 0.5 );
+        ray = normalize( Rng::Hash::GetFloat4( ).xyz - 0.5 );
 
-    // Cast ray
-    GeometryProps geometryProps = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromAngularRadius( 0.0, gTanPixelAngularRadius * SHARC_DOWNSCALE ), gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
+    // Skip delta events
+    GeometryProps geometryProps;
+    float eta = BRDF::IOR::Air / BRDF::IOR::Glass;
+    float2 mip = GetConeAngleFromAngularRadius( 0.0, gTanPixelAngularRadius * SHARC_DOWNSCALE );
+
+    [loop]
+    for( uint bounce = 1; bounce <= PT_DELTA_BOUNCES_NUM; bounce++ ) // TODO: stop if pathThroughput is low?
+    {
+        uint flags = bounce == PT_DELTA_BOUNCES_NUM ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
+
+        geometryProps = CastRay( Xoffset, ray, 0.0, INF, mip, gWorldTlas, flags, 0 );
+        MaterialProps materialProps = GetMaterialProps( geometryProps, USE_SHARC_V_DEPENDENT == 0 );
+
+        bool isDelta = geometryProps.Has( FLAG_TRANSPARENT );
+
+        if( !isDelta || geometryProps.IsSky() )
+            break;
+
+        // Reflection or refraction?
+        float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
+        float F = BRDF::FresnelTerm_Dielectric( eta, NoV );
+        float rnd = Rng::Hash::GetFloat( );
+        bool isReflection = rnd < F;
+
+        eta = GetDeltaEventRay( geometryProps, isReflection, eta, Xoffset, ray );
+    }
 
     // Opaque path
     if( !geometryProps.IsSky( ) )
-        Trace( geometryProps ); // looping this for 4-8 iterations helps to improve cache quality, but it's expensive
+        Trace( geometryProps ); // TODO: looping this for 4-8 iterations helps to improve cache quality, but it's expensive
 }

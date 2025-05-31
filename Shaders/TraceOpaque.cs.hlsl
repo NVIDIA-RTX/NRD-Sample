@@ -173,7 +173,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         bool isPSR = false;
 
         [loop]
-        while( desc.bounceNum && !geometryProps.IsSky( ) && IsPsrAllowed( materialProps ) )
+        while( gPSR && desc.bounceNum && !geometryProps.IsSky( ) && IsDelta( materialProps ) )
         {
             isPSR = true;
 

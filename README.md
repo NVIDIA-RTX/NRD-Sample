@@ -29,7 +29,6 @@ All-in-one repository including all relevant pieces to see [*NRD (NVIDIA Real-ti
 ### CMAKE OPTIONS
 
 - `USE_MINIMAL_DATA=OFF` - download minimal resource package (90MB)
-- `DISABLE_SHADER_COMPILATION=OFF` - disable compilation of shaders (shaders can be built on other platform)
 
 # HOW TO RUN
 

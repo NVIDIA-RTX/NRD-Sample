@@ -540,9 +540,31 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps, bool viewIndependen
 // MISC
 //====================================================================================================================================
 
-bool IsPsrAllowed( MaterialProps materialProps )
+float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float eta, out float3 Xoffset, out float3 ray )
 {
-    return gPSR && materialProps.roughness < 0.044 && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 ); // TODO: tweaked for some content?
+    if( isReflection )
+        ray = reflect( -geometryProps.V, geometryProps.N );
+    else
+    {
+        float3 I = -geometryProps.V;
+        float NoI = dot( geometryProps.N, I );
+        float k = max( 1.0 - eta * eta * ( 1.0 - NoI * NoI ), 0.0 );
+
+        ray = normalize( eta * I - ( eta * NoI + sqrt( k ) ) * geometryProps.N );
+        eta = 1.0 / eta;
+    }
+
+    float amount = geometryProps.Has( FLAG_TRANSPARENT ) ? PT_GLASS_RAY_OFFSET : PT_BOUNCE_RAY_OFFSET;
+    float s = Math::Sign( dot( ray, geometryProps.N ) );
+
+    Xoffset = geometryProps.GetXoffset( geometryProps.N * s, amount );
+
+    return eta;
+}
+
+bool IsDelta( MaterialProps materialProps )
+{
+    return materialProps.roughness < 0.044 && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 ); // TODO: tweaked for some content?
 }
 
 #define SKIP_SOFT_SHADOWS 0x1

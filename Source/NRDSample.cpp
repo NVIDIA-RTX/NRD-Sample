@@ -841,7 +841,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         streamerDesc.constantBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
         streamerDesc.constantBufferSize = DYNAMIC_CONSTANT_BUFFER_SIZE;
         streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
-        streamerDesc.dynamicBufferUsageBits = nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT;
+        streamerDesc.dynamicBufferUsageBits = nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER | nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT;
         streamerDesc.queuedFrameNum = GetQueuedFrameNum();
         NRI_ABORT_ON_FAILURE(NRI.CreateStreamer(*m_Device, streamerDesc, m_Streamer));
     }
@@ -1902,18 +1902,25 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::SameLine();
                         ImGui::PushStyleColor(ImGuiCol_Text, m_IsReloadShadersSucceeded ? UI_DEFAULT : UI_RED);
                         if (ImGui::Button("Reload shaders")) {
-                            int result = 0;
-#ifdef _WIN32 // TODO: can be made Linux friendly too
-#    ifdef _DEBUG
-                            std::string sampleShaders = "_Bin\\Debug\\ShaderMake.exe";
-                            std::string nrdShaders = "_Bin\\Debug\\ShaderMake.exe";
-#    else
-                            std::string sampleShaders = "_Bin\\Release\\ShaderMake.exe";
-                            std::string nrdShaders = "_Bin\\Release\\ShaderMake.exe";
-#    endif
+                            std::string sampleShaders;
+                            std::string nrdShaders;
+
+                            bool isTool = std::string(STRINGIFY(SHADERMAKE_PATH)) == "ShaderMake";
+                            if (isTool) {
+#ifdef _DEBUG
+                                sampleShaders = "_Bin\\Debug\\ShaderMake.exe";
+                                nrdShaders = "_Bin\\Debug\\ShaderMake.exe";
+#else
+                                sampleShaders = "_Bin\\Release\\ShaderMake.exe";
+                                nrdShaders = "_Bin\\Release\\ShaderMake.exe";
+#endif
+                            } else {
+                                sampleShaders = STRINGIFY(SHADERMAKE_PATH);
+                                nrdShaders = STRINGIFY(SHADERMAKE_PATH);
+                            }
 
                             sampleShaders +=
-                                " --useAPI --flatten --stripReflection --WX --colorize"
+                                " --flatten --stripReflection --WX --colorize"
                                 " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
                                 " --binary"
                                 " --shaderModel 6_6"
@@ -1926,7 +1933,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 " -I " STRINGIFY(ML_SOURCE_DIR) " -I " STRINGIFY(NRD_SOURCE_DIR) " -I " STRINGIFY(NRI_SOURCE_DIR) " -I " STRINGIFY(SHARC_SOURCE_DIR) " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING) " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING);
 
                             nrdShaders +=
-                                " --useAPI --flatten --stripReflection --WX --colorize"
+                                " --flatten --stripReflection --WX --colorize"
                                 " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
                                 " --binary --header"
                                 " --allResourcesBound"
@@ -1951,7 +1958,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             }
 
                             printf("Compiling sample shaders...\n");
-                            result = system(sampleShaders.c_str());
+                            int32_t result = system(sampleShaders.c_str());
                             if (!result) {
                                 printf("Compiling NRD shaders...\n");
                                 result = system(nrdShaders.c_str());
@@ -1961,10 +1968,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 SetForegroundWindow(GetConsoleWindow());
 
                             m_IsReloadShadersSucceeded = !result;
-
-#    undef SAMPLE_SHADERS
-#    undef NRD_SHADERS
-#endif
 
                             if (!result)
                                 CreatePipelines();
@@ -4467,7 +4470,15 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     { // Copy upload requests to destinations
         helper::Annotation annotation(NRI, commandBuffer, "Streamer");
 
-        // TODO: is barrier from "SHADER_RESOURCE" to "COPY_DESTINATION" needed here for "Buffer::InstanceData"?
+        { // Transitions
+            const nri::BufferBarrierDesc transition = {Get(Buffer::InstanceData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::COPY_DESTINATION}};
+
+            nri::BarrierGroupDesc barrierGroupDesc = {};
+            barrierGroupDesc.buffers = &transition;
+            barrierGroupDesc.bufferNum = 1;
+
+            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
+        }
 
         NRI.CmdCopyStreamedData(commandBuffer, *m_Streamer);
     }

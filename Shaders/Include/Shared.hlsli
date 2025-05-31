@@ -113,6 +113,7 @@
 #define PT_MAX_FIREFLY_RELATIVE_INTENSITY   20.0 // no more than 20x energy increase in case of probabilistic sampling
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
 #define PT_GLASS_MIN_F                      0.05 // adds a bit of stability and bias
+#define PT_DELTA_BOUNCES_NUM                8
 
 // Spatial HAsh-ased Radiance Cache ( SHARC )
 #define SHARC_CAPACITY                      ( 1 << 22 )
