@@ -6,8 +6,13 @@ include(FetchContent)
 option(USE_MINIMAL_DATA "Use minimal '_Data' (90MB)" OFF)
 
 set(SHADER_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/_Shaders" CACHE STRING "")
-set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/_Bin" CACHE STRING "")
+
+get_property(IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+
+if(IS_MULTI_CONFIG)
+    set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "")
+endif()
 
 # Create project
 project(NRDSample LANGUAGES C CXX)
@@ -22,7 +27,7 @@ set(CMAKE_C_STANDARD 99)
 # Download dependencies (Packman)
 if(WIN32)
     set(PACKMAN_EXT ".cmd")
-  else()
+else()
     set(PACKMAN_EXT ".sh")
 endif()
 
