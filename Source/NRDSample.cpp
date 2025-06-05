@@ -325,15 +325,6 @@ enum class DescriptorSet : uint32_t {
 // thus we can use fields of "nrd::Denoiser" enum as unique identifiers
 #define NRD_ID(x) nrd::Identifier(nrd::Denoiser::x)
 
-struct NRIInterface
-    : public nri::CoreInterface,
-      public nri::HelperInterface,
-      public nri::RayTracingInterface,
-      public nri::ResourceAllocatorInterface,
-      public nri::StreamerInterface,
-      public nri::SwapChainInterface,
-      public nri::UpscalerInterface {};
-
 struct QueuedFrame {
     nri::CommandAllocator* commandAllocator;
     nri::CommandBuffer* commandBuffer;
@@ -704,7 +695,7 @@ private:
     nri::Upscaler* m_DLRR = nullptr;
     nri::SwapChain* m_SwapChain = nullptr;
     nri::Queue* m_GraphicsQueue = nullptr;
-    nri::Fence* m_FrameFence;
+    nri::Fence* m_FrameFence = nullptr;
     nri::DescriptorPool* m_DescriptorPool = nullptr;
     nri::PipelineLayout* m_PipelineLayout = nullptr;
     std::vector<QueuedFrame> m_QueuedFrames = {};
@@ -762,48 +753,54 @@ private:
 };
 
 Sample::~Sample() {
-    if (!m_Device)
-        return;
+    if (NRI.HasHelper())
+        NRI.WaitForIdle(*m_GraphicsQueue);
 
-    NRI.WaitForIdle(*m_GraphicsQueue);
+    if (NRI.HasUpscaler()) {
+        NRI.DestroyUpscaler(*m_NIS);
+        NRI.DestroyUpscaler(*m_DLSR);
+        NRI.DestroyUpscaler(*m_DLRR);
+    }
 
-    NRI.DestroyUpscaler(*m_NIS);
-    NRI.DestroyUpscaler(*m_DLSR);
-    NRI.DestroyUpscaler(*m_DLRR);
+    if (NRI.HasCore()) {
+        for (QueuedFrame& queuedFrame : m_QueuedFrames) {
+            NRI.DestroyCommandBuffer(*queuedFrame.commandBuffer);
+            NRI.DestroyCommandAllocator(*queuedFrame.commandAllocator);
+        }
+
+        for (SwapChainTexture& swapChainTexture : m_SwapChainTextures) {
+            NRI.DestroyFence(*swapChainTexture.releaseSemaphore);
+            NRI.DestroyFence(*swapChainTexture.acquireSemaphore);
+            NRI.DestroyDescriptor(*swapChainTexture.colorAttachment);
+        }
+
+        for (uint32_t i = 0; i < m_Textures.size(); i++)
+            NRI.DestroyTexture(*m_Textures[i]);
+
+        for (uint32_t i = 0; i < m_Buffers.size(); i++)
+            NRI.DestroyBuffer(*m_Buffers[i]);
+
+        for (uint32_t i = 0; i < m_Descriptors.size(); i++)
+            NRI.DestroyDescriptor(*m_Descriptors[i]);
+
+        for (uint32_t i = 0; i < m_Pipelines.size(); i++)
+            NRI.DestroyPipeline(*m_Pipelines[i]);
+
+        for (uint32_t i = 0; i < m_AccelerationStructures.size(); i++)
+            NRI.DestroyAccelerationStructure(*m_AccelerationStructures[i]);
+
+        NRI.DestroyPipelineLayout(*m_PipelineLayout);
+        NRI.DestroyDescriptorPool(*m_DescriptorPool);
+        NRI.DestroyFence(*m_FrameFence);
+    }
+
+    if (NRI.HasSwapChain())
+        NRI.DestroySwapChain(*m_SwapChain);
+
+    if (NRI.HasStreamer())
+        NRI.DestroyStreamer(*m_Streamer);
 
     m_NRD.Destroy();
-
-    for (QueuedFrame& queuedFrame : m_QueuedFrames) {
-        NRI.DestroyCommandBuffer(*queuedFrame.commandBuffer);
-        NRI.DestroyCommandAllocator(*queuedFrame.commandAllocator);
-    }
-
-    for (SwapChainTexture& swapChainTexture : m_SwapChainTextures) {
-        NRI.DestroyFence(*swapChainTexture.releaseSemaphore);
-        NRI.DestroyFence(*swapChainTexture.acquireSemaphore);
-        NRI.DestroyDescriptor(*swapChainTexture.colorAttachment);
-    }
-
-    for (uint32_t i = 0; i < m_Textures.size(); i++)
-        NRI.DestroyTexture(*m_Textures[i]);
-
-    for (uint32_t i = 0; i < m_Buffers.size(); i++)
-        NRI.DestroyBuffer(*m_Buffers[i]);
-
-    for (uint32_t i = 0; i < m_Descriptors.size(); i++)
-        NRI.DestroyDescriptor(*m_Descriptors[i]);
-
-    for (uint32_t i = 0; i < m_Pipelines.size(); i++)
-        NRI.DestroyPipeline(*m_Pipelines[i]);
-
-    for (uint32_t i = 0; i < m_AccelerationStructures.size(); i++)
-        NRI.DestroyAccelerationStructure(*m_AccelerationStructures[i]);
-
-    NRI.DestroyPipelineLayout(*m_PipelineLayout);
-    NRI.DestroyDescriptorPool(*m_DescriptorPool);
-    NRI.DestroyFence(*m_FrameFence);
-    NRI.DestroySwapChain(*m_SwapChain);
-    NRI.DestroyStreamer(*m_Streamer);
 
     DestroyImgui();
 
@@ -1585,8 +1582,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 isSame = false;
                             else if (m_ReblurSettings.enableAntiFirefly != defaults.enableAntiFirefly)
                                 isSame = false;
-                            else if (m_ReblurSettings.enablePerformanceMode != defaults.enablePerformanceMode)
-                                isSame = false;
                             else if (m_ReblurSettings.usePrepassOnlyForSpecularMotionEstimation != defaults.usePrepassOnlyForSpecularMotionEstimation)
                                 isSame = false;
                             else if ((int32_t)m_ReblurSettings.maxStabilizedFrameNum < m_Settings.maxAccumulatedFrameNum)
@@ -1633,11 +1628,9 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             ImGui::SameLine();
                             ImGui::Checkbox("Anti-firefly", &m_ReblurSettings.enableAntiFirefly);
 
-                            ImGui::Checkbox("Performance mode", &m_ReblurSettings.enablePerformanceMode);
-                            if (m_Settings.SHARC && m_Settings.adaptiveAccumulation) {
-                                ImGui::SameLine();
+                            if (m_Settings.SHARC && m_Settings.adaptiveAccumulation)
                                 ImGui::Checkbox("SHARC boost", &m_Settings.boost);
-                            }
+
 #if (NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION)
                             ImGui::SameLine();
                             ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
@@ -2539,7 +2532,7 @@ nri::Format Sample::CreateSwapChain() {
     swapChainDesc.window = GetWindow();
     swapChainDesc.queue = m_GraphicsQueue;
     swapChainDesc.format = ALLOW_HDR ? nri::SwapChainFormat::BT709_G10_16BIT : nri::SwapChainFormat::BT709_G22_8BIT;
-    swapChainDesc.verticalSyncInterval = m_VsyncInterval;
+    swapChainDesc.flags = (m_Vsync ? nri::SwapChainBits::VSYNC : nri::SwapChainBits::NONE) | nri::SwapChainBits::ALLOW_TEARING;
     swapChainDesc.width = (uint16_t)GetWindowResolution().x;
     swapChainDesc.height = (uint16_t)GetWindowResolution().y;
     swapChainDesc.textureNum = GetOptimalSwapChainTextureNum();

@@ -39,17 +39,6 @@
       ]
     },
     {
-      "Command": "VSYNC",
-      "Items": [
-        {
-          "Command": "--vsyncInterval=0"
-        },
-        {
-          "Command": "--vsyncInterval=1"
-        }
-      ]
-    },
-    {
       "Command": "DPI",
       "Items": [
         {
@@ -74,6 +63,9 @@
         },
         {
           "Command": "--debugNRD"
+        },
+        {
+          "Command": "--vsync"
         },
         {
           "Command": "--alwaysActive"
