@@ -243,7 +243,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     uint32_t gSharcMaxAccumulatedFrameNum;
     uint32_t gDenoiserType;
     uint32_t gDisableShadowsAndEnableImportanceSampling; // TODO: remove - modify GetSunIntensity to return 0 if sun is below horizon
-    uint32_t gOnScreen;
     uint32_t gFrameIndex;
     uint32_t gForcedMaterial;
     uint32_t gUseNormalMap;
@@ -312,16 +311,14 @@ float3 GetMotion( float3 X, float3 Xprev )
 
 float3 ApplyExposure( float3 Lsum )
 {
-    if( gOnScreen <= SHOW_DENOISED_SPECULAR )
-        Lsum *= gExposure;
+    Lsum *= gExposure;
 
     return Lsum;
 }
 
 float3 ApplyTonemap( float3 Lsum )
 {
-    if( gOnScreen == SHOW_FINAL )
-        Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
+    Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
 
     return Lsum;
 }

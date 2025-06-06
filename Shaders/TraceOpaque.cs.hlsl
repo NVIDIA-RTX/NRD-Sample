@@ -625,13 +625,6 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
             }
         }
 
-        // Debug visualization: specular mip level at the end of the path
-        if( gOnScreen == SHOW_MIP_SPECULAR )
-        {
-            float mipNorm = Math::Sqrt01( geometryProps.mip / MAX_MIP_LEVEL );
-            Lsum = Color::ColorizeZucconi( mipNorm );
-        }
-
         // Normalize hit distances for REBLUR and REFERENCE ( needed only for AO ) before averaging
         float normHitDist = accumulatedHitDist;
         if( gDenoiserType != DENOISER_RELAX )
@@ -667,11 +660,8 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
             specFactor = 1.0;
         }
 
-        if( gOnScreen != SHOW_MIP_SPECULAR )
-        {
-            result.diffRadiance /= diffFactor;
-            result.specRadiance /= specFactor;
-        }
+        result.diffRadiance /= diffFactor;
+        result.specRadiance /= specFactor;
     }
 
     NRD_FrontEnd_SpecHitDistAveraging_End( result.specHitDist );
@@ -725,7 +715,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     float3 cameraRayDirection = ( float3 )0;
     GetCameraRay( cameraRayOrigin, cameraRayDirection, sampleUv );
 
-    GeometryProps geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, ( gOnScreen == SHOW_INSTANCE_INDEX || gOnScreen == SHOW_NORMAL ) ? GEOMETRY_ALL : FLAG_NON_TRANSPARENT, 0 );
+    GeometryProps geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
     MaterialProps materialProps0 = GetMaterialProps( geometryProps0 );
 
     // ViewZ
@@ -780,27 +770,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
     gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( N, materialProps0.roughness, materialID );
     gOut_BaseColor_Metalness[ pixelPos ] = float4( Color::ToSrgb( materialProps0.baseColor ), materialProps0.metalness );
-
-    // Debug
-    if( gOnScreen == SHOW_INSTANCE_INDEX )
-    {
-        Rng::Hash::Initialize( geometryProps0.instanceIndex, 0 );
-
-        uint checkerboard = Sequence::CheckerBoard( pixelPos >> 2, 0 ) != 0;
-        float3 color = Rng::Hash::GetFloat4( ).xyz;
-        color *= ( checkerboard && !geometryProps0.Has( FLAG_STATIC ) ) ? 0.5 : 1.0;
-
-        materialProps0.Ldirect = color;
-    }
-    else if( gOnScreen == SHOW_UV )
-        materialProps0.Ldirect = float3( frac( geometryProps0.uv ), 0 );
-    else if( gOnScreen == SHOW_CURVATURE )
-        materialProps0.Ldirect = sqrt(abs(materialProps0.curvature)) * 0.1;
-    else if( gOnScreen == SHOW_MIP_PRIMARY )
-    {
-        float mipNorm = Math::Sqrt01( geometryProps0.mip / MAX_MIP_LEVEL );
-        materialProps0.Ldirect = Color::ColorizeZucconi(mipNorm);
-    }
 
     // Unshadowed sun lighting and emission
     gOut_DirectLighting[ pixelPos ] = materialProps0.Ldirect;

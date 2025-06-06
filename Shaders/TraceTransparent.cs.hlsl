@@ -176,7 +176,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     // Composed without glass
     float3 diff = gIn_ComposedDiff[ pixelPos ];
     float3 spec = gIn_ComposedSpec_ViewZ[ pixelPos ].xyz;
-    float3 Lsum = diff + spec * float( gOnScreen == SHOW_FINAL );
+    float3 Lsum = diff + spec;
 
     // Primary ray for transparent geometry only
     float3 cameraRayOrigin = ( float3 )0;
@@ -191,7 +191,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmin0, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_TRANSPARENT, 0 );
 
     // Trace delta events
-    if( !geometryPropsT.IsSky( ) && geometryPropsT.hitT < tmin0 && gOnScreen == SHOW_FINAL )
+    if( !geometryPropsT.IsSky( ) && geometryPropsT.hitT < tmin0 )
     {
         // Append "glass" mask to "hair" mask
         viewZAndTaaMask = viewZAndTaaMask < 0.0 ? viewZAndTaaMask : -viewZAndTaaMask;

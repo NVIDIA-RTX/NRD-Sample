@@ -322,23 +322,23 @@ struct Settings {
 
     int32_t maxAccumulatedFrameNum = 31;
     int32_t maxFastAccumulatedFrameNum = 7;
-    int32_t onScreen = 0;
+    int32_t unused1 = 0;
     int32_t forcedMaterial = 0;
     int32_t animatedObjectNum = 5;
     uint32_t activeAnimation = 0;
     int32_t motionMode = 0;
     int32_t denoiser = DENOISER_REBLUR;
-    int32_t unused1 = 0;
-    int32_t bounceNum = 1;
     int32_t unused2 = 0;
+    int32_t bounceNum = 1;
     int32_t unused3 = 0;
+    int32_t unused4 = 0;
 
     bool cameraJitter = true;
     bool limitFps = false;
-    bool unused4 = true;
-    bool unused5 = false;
-    bool unused6 = true;
+    bool unused5 = true;
+    bool unused6 = false;
     bool unused7 = true;
+    bool unused8 = true;
     bool normalMap = true;
     bool TAA = true;
     bool animatedObjects = false;
@@ -351,7 +351,7 @@ struct Settings {
     bool linearMotion = true;
     bool emissiveObjects = false;
     bool importanceSampling = true;
-    bool unused8 = true;
+    bool unused9 = true;
     bool ortho = false;
     bool adaptiveAccumulation = true;
     bool usePrevFrame = true;
@@ -540,6 +540,10 @@ public:
         defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
         defaults.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
         defaults.minMaterialForSpecular = MATERIAL_ID_METAL;
+        defaults.diffuseMaxAccumulatedFrameNum = m_RelaxSettings.diffuseMaxAccumulatedFrameNum;
+        defaults.specularMaxAccumulatedFrameNum = m_RelaxSettings.specularMaxAccumulatedFrameNum;
+        defaults.diffuseMaxFastAccumulatedFrameNum = m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum;
+        defaults.specularMaxFastAccumulatedFrameNum = m_RelaxSettings.specularMaxFastAccumulatedFrameNum;
 
         // Helps to mitigate fireflies emphasized by DLSS
         // defaults.enableAntiFirefly = m_DlssQuality != -1 && IsDlssEnabled(); // TODO: currently doesn't help in this case, but makes the image darker
@@ -553,6 +557,9 @@ public:
         defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
         defaults.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
         defaults.minMaterialForSpecular = MATERIAL_ID_METAL;
+        defaults.maxAccumulatedFrameNum = m_ReblurSettings.maxAccumulatedFrameNum;
+        defaults.maxFastAccumulatedFrameNum = m_ReblurSettings.maxFastAccumulatedFrameNum;
+        defaults.maxStabilizedFrameNum = m_ReblurSettings.maxStabilizedFrameNum;
 
         // Helps to mitigate fireflies emphasized by DLSS
         defaults.enableAntiFirefly = m_DlssQuality != -1 && IsDlssEnabled();
@@ -878,65 +885,6 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         printf("NRD: allocated %.2f Mb for REBLUR, RELAX, SIGMA and REFERENCE denoisers\n", (videoMemoryInfo2.usageSize - videoMemoryInfo1.usageSize) / (1024.0f * 1024.0f));
     }
 
-#if 0
-        // README "Memory requirements" table generator
-        printf("| %10s | %36s | %16s | %16s | %16s |\n", "Resolution", "Denoiser", "Working set (Mb)", "Persistent (Mb)", "Aliasable (Mb)");
-        printf("|------------|--------------------------------------|------------------|------------------|------------------|\n");
-
-        for (uint32_t j = 0; j < 3; j++)
-        {
-            const char* resolution = "1080p";
-            uint16_t w = 1920;
-            uint16_t h = 1080;
-
-            if (j == 1)
-            {
-                resolution = "1440p";
-                w = 2560;
-                h = 1440;
-            }
-            else if (j == 2)
-            {
-                resolution = "2160p";
-                w = 3840;
-                h = 2160;
-            }
-
-            for (uint32_t i = 0; i <= (uint32_t)nrd::Denoiser::REFERENCE; i++)
-            {
-                nrd::Denoiser denoiser = (nrd::Denoiser)i;
-                const char* methodName = nrd::GetDenoiserString(denoiser);
-
-                const nrd::DenoiserDesc denoiserDesc = {0, denoiser};
-
-                nrd::InstanceCreationDesc instanceCreationDesc = {};
-                instanceCreationDesc.denoisers = &denoiserDesc;
-                instanceCreationDesc.denoisersNum = 1;
-
-                nrd::IntegrationCreationDesc desc = {};
-                desc.name = "Unused";
-                desc.queuedFrameNum = GetQueuedFrameNum();
-                desc.enableDescriptorCaching = NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING;
-                desc.promoteFloat16to32 = NRD_PROMOTE_FLOAT16_TO_32;
-                desc.demoteFloat32to16 = NRD_DEMOTE_FLOAT32_TO_16;
-                desc.resourceWidth = w;
-                desc.resourceHeight = h;
-
-                nrd::Integration instance;
-                NRI_ABORT_ON_FALSE( instance.Initialize(desc, instanceCreationDesc, *m_Device, NRI, NRI) );
-
-                printf("| %10s | %36s | %16.2f | %16.2f | %16.2f |\n", i == 0 ? resolution : "", methodName, instance.GetTotalMemoryUsageInMb(), instance.GetPersistentMemoryUsageInMb(), instance.GetAliasableMemoryUsageInMb());
-
-                instance.Destroy();
-            }
-
-            if (j != 2)
-                printf("| %10s | %36s | %16s | %16s | %16s |\n", "", "", "", "", "");
-        }
-
-        __debugbreak();
-#endif
-
     LoadScene();
 
     if (m_SceneFile.find("BistroInterior") != std::string::npos)
@@ -1004,27 +952,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     ImGui::NewFrame();
     if (!IsKeyPressed(Key::LAlt) && m_ShowUi) {
-        static const char* onScreenModes[] = {
-            "Final",
-            "Denoised diffuse",
-            "Denoised specular",
-            "Diffuse occlusion",
-            "Specular occlusion",
-            "Shadow",
-            "Base color",
-            "Normal",
-            "Roughness",
-            "Metalness",
-            "Material ID",
-            "PSR throughput",
-            "World units",
-            "Instance index",
-            "UV",
-            "Curvature",
-            "Mip level (primary)",
-            "Mip level (specular)",
-        };
-
         static std::array<const char*, 2> nrdModes = {
             "NORMAL",
             "SH",
@@ -1079,7 +1006,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         "Pan",
                     };
 
-                    ImGui::Combo("On screen", &m_Settings.onScreen, onScreenModes, helper::GetCountOf(onScreenModes));
                     ImGui::Checkbox("Ortho", &m_Settings.ortho);
                     ImGui::SameLine();
                     ImGui::PushStyleColor(ImGuiCol_Text, (!m_Settings.cameraJitter && (m_Settings.TAA || IsDlssEnabled())) ? UI_RED : UI_DEFAULT);
@@ -1160,725 +1086,556 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                 }
                 ImGui::PopID();
 
-                // "Hair" section
-                if (m_SceneFile.find("Hair") != std::string::npos) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
-                    ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
-                    isUnfolded = ImGui::CollapsingHeader("HAIR", ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
-                    ImGui::PopStyleColor();
-                    ImGui::PopStyleColor();
+                // "World" section
+                snprintf(buf, sizeof(buf) - 1, "WORLD%s", (m_Settings.animateSun || m_Settings.animatedObjects || m_Settings.animateScene) ? (m_Settings.pauseAnimation ? " (SPACE - unpause)" : " (SPACE - pause)") : "");
 
-                    ImGui::PushID("HAIR");
-                    if (isUnfolded) {
-                        ImGui::SliderFloat2("Beta", m_HairBetas.a, 0.01f, 1.0f, "%.3f");
-                        ImGui::ColorEdit3("Base color", m_HairBaseColor.a, ImGuiColorEditFlags_Float);
+                ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
+                ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
+                isUnfolded = ImGui::CollapsingHeader(buf, ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
+                ImGui::PopStyleColor();
+                ImGui::PopStyleColor();
+
+                ImGui::PushID("WORLD");
+                if (isUnfolded) {
+                    ImGui::Checkbox("Animate sun", &m_Settings.animateSun);
+                    if (m_Scene.animations.size() > 0) {
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Animate scene", &m_Settings.animateScene);
                     }
-                    ImGui::PopID();
+
+                    if (m_Settings.animateSun || m_Settings.animatedObjects || m_Settings.animateScene) {
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Pause", &m_Settings.pauseAnimation);
+                    }
+
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetCursorPosX() + ImGui::GetStyle().ItemSpacing.x);
+                    ImGui::SliderFloat("Sun size (deg)", &m_Settings.sunAngularDiameter, 0.0f, 3.0f, "%.1f");
+
+                    ImGui::SliderFloat2("Sun position (deg)", &m_Settings.sunAzimuth, -180.0f, 180.0f, "%.2f");
+                    if (!m_Settings.pauseAnimation && (m_Settings.animateSun || m_Settings.animatedObjects || m_Settings.animateScene))
+                        ImGui::SliderFloat("Slower / Faster", &m_Settings.animationSpeed, -10.0f, 10.0f);
+
+                    ImGui::Checkbox("Objects", &m_Settings.animatedObjects);
+                    if (m_Settings.animatedObjects) {
+                        ImGui::SameLine();
+                        ImGui::Checkbox("9", &m_Settings.nineBrothers);
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Blink", &m_Settings.blink);
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Emissive", &m_Settings.emissiveObjects);
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Glass", &m_GlassObjects);
+                        if (!m_Settings.nineBrothers)
+                            ImGui::SliderInt("Object number", &m_Settings.animatedObjectNum, 1, (int32_t)MAX_ANIMATED_INSTANCE_NUM);
+                        ImGui::SliderFloat("Object scale", &m_Settings.animatedObjectScale, 0.1f, 2.0f);
+                    }
+
+                    if (m_Settings.animateScene && m_Scene.animations[m_Settings.activeAnimation].durationMs != 0.0f) {
+                        char animationLabel[128];
+                        snprintf(animationLabel, sizeof(animationLabel), "Animation %.1f sec (%%)", 0.001f * m_Scene.animations[m_Settings.activeAnimation].durationMs / (m_Settings.animationSpeed < 0.0f ? 1.0f / (1.0f + abs(m_Settings.animationSpeed)) : (1.0f + m_Settings.animationSpeed)));
+                        ImGui::SliderFloat(animationLabel, &m_Settings.animationProgress, 0.0f, 99.999f);
+
+                        if (m_Scene.animations.size() > 1) {
+                            char items[1024] = {'\0'};
+                            size_t offset = 0;
+                            char* iterator = items;
+                            for (auto animation : m_Scene.animations) {
+                                const size_t size = std::min(sizeof(items), animation.name.length() + 1);
+                                memcpy(iterator + offset, animation.name.c_str(), size);
+                                offset += animation.name.length() + 1;
+                            }
+                            ImGui::Combo("Animated scene", (int32_t*)&m_Settings.activeAnimation, items, helper::GetCountOf(m_Scene.animations));
+                        }
+                    }
                 }
+                ImGui::PopID();
 
-                if (m_Settings.onScreen == 11)
-                    ImGui::SliderFloat("Units in 1 meter", &m_Settings.meterToUnitsMultiplier, 0.001f, 100.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
-                else {
-                    // "World" section
-                    snprintf(buf, sizeof(buf) - 1, "WORLD%s", (m_Settings.animateSun || m_Settings.animatedObjects || m_Settings.animateScene) ? (m_Settings.pauseAnimation ? " (SPACE - unpause)" : " (SPACE - pause)") : "");
+                // "Path tracer" section
+                ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
+                ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
+                isUnfolded = ImGui::CollapsingHeader("PATH TRACER", ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
+                ImGui::PopStyleColor();
+                ImGui::PopStyleColor();
 
-                    ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
-                    ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
-                    isUnfolded = ImGui::CollapsingHeader(buf, ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
+                ImGui::PushID("PATH TRACER");
+                if (isUnfolded) {
+                    const float sceneRadiusInMeters = m_Scene.aabb.GetRadius() / m_Settings.meterToUnitsMultiplier;
+
+                    ImGui::SliderFloat("AO / SO range (m)", &m_Settings.hitDistScale, 0.01f, sceneRadiusInMeters, "%.2f");
+                    ImGui::Checkbox("Normal map", &m_Settings.normalMap);
+
+                    const float3& sunDirection = GetSunDirection();
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, sunDirection.z > 0.0f ? UI_DEFAULT : (m_Settings.importanceSampling ? UI_GREEN : UI_YELLOW));
+                    ImGui::Checkbox("IS", &m_Settings.importanceSampling);
                     ImGui::PopStyleColor();
-                    ImGui::PopStyleColor();
 
-                    ImGui::PushID("WORLD");
-                    if (isUnfolded) {
-                        ImGui::Checkbox("Animate sun", &m_Settings.animateSun);
-                        if (m_Scene.animations.size() > 0) {
-                            ImGui::SameLine();
-                            ImGui::Checkbox("Animate scene", &m_Settings.animateScene);
-                        }
+                    ImGui::Checkbox("L1 (prev frame)", &m_Settings.usePrevFrame);
+                }
+                ImGui::PopID();
 
-                        if (m_Settings.animateSun || m_Settings.animatedObjects || m_Settings.animateScene) {
-                            ImGui::SameLine();
-                            ImGui::Checkbox("Pause", &m_Settings.pauseAnimation);
-                        }
+                // "NRD" section
+                static const char* denoiser[] = {
+#if (NRD_MODE == SH)
+                    "REBLUR_SH",
+                    "RELAX_SH",
+#else
+                    "REBLUR",
+                    "RELAX",
+#endif
+                    "REFERENCE",
+                };
+                snprintf(buf, sizeof(buf) - 1, "NRD/%s [PgDown / PgUp]", denoiser[m_Settings.denoiser]);
+
+                ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
+                ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
+                isUnfolded = ImGui::CollapsingHeader(buf, ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
+                ImGui::PopStyleColor();
+                ImGui::PopStyleColor();
+
+                ImGui::PushID("NRD");
+                if (m_Settings.RR)
+                    ImGui::Text("Pass-through mode...");
+                else if (isUnfolded) {
+                    if (m_DebugNRD) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_ShowValidationOverlay ? UI_YELLOW : UI_DEFAULT);
+                        ImGui::Checkbox("Validation overlay", &m_ShowValidationOverlay);
+                        ImGui::PopStyleColor();
+                    }
+
+                    if (ImGui::Button("<<")) {
+                        m_Settings.denoiser--;
+                        if (m_Settings.denoiser < DENOISER_REBLUR)
+                            m_Settings.denoiser = DENOISER_REFERENCE;
+                    }
+
+                    ImGui::SameLine();
+                    if (ImGui::Button(">>")) {
+                        m_Settings.denoiser++;
+                        if (m_Settings.denoiser > DENOISER_REFERENCE)
+                            m_Settings.denoiser = DENOISER_REBLUR;
+                    }
+
+                    ImGui::SameLine();
+                    m_ForceHistoryReset = ImGui::Button("Reset");
+
+                    if (m_Settings.denoiser == DENOISER_REBLUR) {
+                        nrd::ReblurSettings defaults = GetDefaultReblurSettings();
+
+                        bool isSame = !memcmp(&m_ReblurSettings, &defaults, sizeof(defaults));
+                        bool hasSpatial = m_ReblurSettings.minBlurRadius + m_ReblurSettings.maxBlurRadius != 0.0f
+                            || m_ReblurSettings.diffusePrepassBlurRadius != 0.0f
+                            || m_ReblurSettings.specularPrepassBlurRadius != 0.0f;
 
                         ImGui::SameLine();
-                        ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetCursorPosX() + ImGui::GetStyle().ItemSpacing.x);
-                        ImGui::SliderFloat("Sun size (deg)", &m_Settings.sunAngularDiameter, 0.0f, 3.0f, "%.1f");
-
-                        ImGui::SliderFloat2("Sun position (deg)", &m_Settings.sunAzimuth, -180.0f, 180.0f, "%.2f");
-                        if (!m_Settings.pauseAnimation && (m_Settings.animateSun || m_Settings.animatedObjects || m_Settings.animateScene))
-                            ImGui::SliderFloat("Slower / Faster", &m_Settings.animationSpeed, -10.0f, 10.0f);
-
-                        ImGui::Checkbox("Objects", &m_Settings.animatedObjects);
-                        if (m_Settings.animatedObjects) {
-                            ImGui::SameLine();
-                            ImGui::Checkbox("9", &m_Settings.nineBrothers);
-                            ImGui::SameLine();
-                            ImGui::Checkbox("Blink", &m_Settings.blink);
-                            ImGui::SameLine();
-                            ImGui::Checkbox("Emissive", &m_Settings.emissiveObjects);
-                            ImGui::SameLine();
-                            ImGui::Checkbox("Glass", &m_GlassObjects);
-                            if (!m_Settings.nineBrothers)
-                                ImGui::SliderInt("Object number", &m_Settings.animatedObjectNum, 1, (int32_t)MAX_ANIMATED_INSTANCE_NUM);
-                            ImGui::SliderFloat("Object scale", &m_Settings.animatedObjectScale, 0.1f, 2.0f);
-                        }
-
-                        if (m_Settings.animateScene && m_Scene.animations[m_Settings.activeAnimation].durationMs != 0.0f) {
-                            char animationLabel[128];
-                            snprintf(animationLabel, sizeof(animationLabel), "Animation %.1f sec (%%)", 0.001f * m_Scene.animations[m_Settings.activeAnimation].durationMs / (m_Settings.animationSpeed < 0.0f ? 1.0f / (1.0f + abs(m_Settings.animationSpeed)) : (1.0f + m_Settings.animationSpeed)));
-                            ImGui::SliderFloat(animationLabel, &m_Settings.animationProgress, 0.0f, 99.999f);
-
-                            if (m_Scene.animations.size() > 1) {
-                                char items[1024] = {'\0'};
-                                size_t offset = 0;
-                                char* iterator = items;
-                                for (auto animation : m_Scene.animations) {
-                                    const size_t size = std::min(sizeof(items), animation.name.length() + 1);
-                                    memcpy(iterator + offset, animation.name.c_str(), size);
-                                    offset += animation.name.length() + 1;
-                                }
-                                ImGui::Combo("Animated scene", (int32_t*)&m_Settings.activeAnimation, items, helper::GetCountOf(m_Scene.animations));
+                        if (ImGui::Button(hasSpatial ? "No spatial" : "Spatial")) {
+                            if (hasSpatial) {
+                                m_ReblurSettings.minBlurRadius = 0.0f;
+                                m_ReblurSettings.maxBlurRadius = 0.0f;
+                                m_ReblurSettings.diffusePrepassBlurRadius = 0.0f;
+                                m_ReblurSettings.specularPrepassBlurRadius = 0.0f;
+                            } else {
+                                m_ReblurSettings.minBlurRadius = defaults.minBlurRadius;
+                                m_ReblurSettings.maxBlurRadius = defaults.maxBlurRadius;
+                                m_ReblurSettings.diffusePrepassBlurRadius = defaults.diffusePrepassBlurRadius;
+                                m_ReblurSettings.specularPrepassBlurRadius = defaults.specularPrepassBlurRadius;
                             }
                         }
-                    }
-                    ImGui::PopID();
 
-                    // "Path tracer" section
-                    ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
-                    ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
-                    isUnfolded = ImGui::CollapsingHeader("PATH TRACER", ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
-                    ImGui::PopStyleColor();
-                    ImGui::PopStyleColor();
-
-                    ImGui::PushID("PATH TRACER");
-                    if (isUnfolded) {
-                        const float sceneRadiusInMeters = m_Scene.aabb.GetRadius() / m_Settings.meterToUnitsMultiplier;
-
-                        ImGui::SliderFloat("AO / SO range (m)", &m_Settings.hitDistScale, 0.01f, sceneRadiusInMeters, "%.2f");
-                        ImGui::Checkbox("Normal map", &m_Settings.normalMap);
-
-                        const float3& sunDirection = GetSunDirection();
                         ImGui::SameLine();
-                        ImGui::PushStyleColor(ImGuiCol_Text, sunDirection.z > 0.0f ? UI_DEFAULT : (m_Settings.importanceSampling ? UI_GREEN : UI_YELLOW));
-                        ImGui::Checkbox("IS", &m_Settings.importanceSampling);
+                        ImGui::PushStyleColor(ImGuiCol_Text, isSame ? UI_DEFAULT : UI_YELLOW);
+                        if (ImGui::Button("Defaults") || frameIndex == 0) {
+                            m_ReblurSettings = defaults;
+                            m_ReblurSettings.maxStabilizedFrameNum = m_Settings.maxAccumulatedFrameNum;
+                        }
                         ImGui::PopStyleColor();
 
-                        ImGui::Checkbox("L1 (prev frame)", &m_Settings.usePrevFrame);
-                    }
-                    ImGui::PopID();
-
-                    // "NRD" section
-                    static const char* denoiser[] = {
-#if (NRD_MODE == SH)
-                        "REBLUR_SH",
-                        "RELAX_SH",
-#else
-                        "REBLUR",
-                        "RELAX",
-#endif
-                        "REFERENCE",
-                    };
-                    snprintf(buf, sizeof(buf) - 1, "NRD/%s [PgDown / PgUp]", denoiser[m_Settings.denoiser]);
-
-                    ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
-                    ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
-                    isUnfolded = ImGui::CollapsingHeader(buf, ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
-                    ImGui::PopStyleColor();
-                    ImGui::PopStyleColor();
-
-                    ImGui::PushID("NRD");
-                    if (m_Settings.RR)
-                        ImGui::Text("Pass-through mode...");
-                    else if (isUnfolded) {
-                        if (m_DebugNRD) {
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_ShowValidationOverlay ? UI_YELLOW : UI_DEFAULT);
-                            ImGui::Checkbox("Validation overlay", &m_ShowValidationOverlay);
-                            ImGui::PopStyleColor();
-                        }
-
-                        if (ImGui::Button("<<")) {
-                            m_Settings.denoiser--;
-                            if (m_Settings.denoiser < DENOISER_REBLUR)
-                                m_Settings.denoiser = DENOISER_REFERENCE;
-                        }
-
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.adaptiveAccumulation ? UI_GREEN : UI_YELLOW);
+                        ImGui::Checkbox("Adaptive accumulation", &m_Settings.adaptiveAccumulation);
+                        ImGui::PopStyleColor();
                         ImGui::SameLine();
-                        if (ImGui::Button(">>")) {
-                            m_Settings.denoiser++;
-                            if (m_Settings.denoiser > DENOISER_REFERENCE)
-                                m_Settings.denoiser = DENOISER_REBLUR;
-                        }
+                        ImGui::Checkbox("Anti-firefly", &m_ReblurSettings.enableAntiFirefly);
 
-                        ImGui::SameLine();
-                        m_ForceHistoryReset = ImGui::Button("Reset");
-
-                        if (m_Settings.denoiser == DENOISER_REBLUR) {
-                            nrd::ReblurSettings defaults = GetDefaultReblurSettings();
-
-                            bool isSame = true;
-                            if (m_ReblurSettings.antilagSettings.luminanceSigmaScale != defaults.antilagSettings.luminanceSigmaScale)
-                                isSame = false;
-                            else if (m_ReblurSettings.antilagSettings.luminanceSensitivity != defaults.antilagSettings.luminanceSensitivity)
-                                isSame = false;
-                            else if (m_ReblurSettings.historyFixFrameNum != defaults.historyFixFrameNum)
-                                isSame = false;
-                            else if (m_ReblurSettings.historyFixBasePixelStride != defaults.historyFixBasePixelStride)
-                                isSame = false;
-                            else if (m_ReblurSettings.minBlurRadius != defaults.minBlurRadius)
-                                isSame = false;
-                            else if (m_ReblurSettings.maxBlurRadius != defaults.maxBlurRadius)
-                                isSame = false;
-                            else if (m_ReblurSettings.diffusePrepassBlurRadius != defaults.diffusePrepassBlurRadius)
-                                isSame = false;
-                            else if (m_ReblurSettings.specularPrepassBlurRadius != defaults.specularPrepassBlurRadius)
-                                isSame = false;
-                            else if (m_ReblurSettings.minHitDistanceWeight != defaults.minHitDistanceWeight)
-                                isSame = false;
-                            else if (m_ReblurSettings.lobeAngleFraction != defaults.lobeAngleFraction)
-                                isSame = false;
-                            else if (m_ReblurSettings.roughnessFraction != defaults.roughnessFraction)
-                                isSame = false;
-                            else if (m_ReblurSettings.responsiveAccumulationRoughnessThreshold != defaults.responsiveAccumulationRoughnessThreshold)
-                                isSame = false;
-                            else if (m_ReblurSettings.planeDistanceSensitivity != defaults.planeDistanceSensitivity)
-                                isSame = false;
-                            else if (m_ReblurSettings.enableAntiFirefly != defaults.enableAntiFirefly)
-                                isSame = false;
-                            else if (m_ReblurSettings.usePrepassOnlyForSpecularMotionEstimation != defaults.usePrepassOnlyForSpecularMotionEstimation)
-                                isSame = false;
-                            else if ((int32_t)m_ReblurSettings.maxStabilizedFrameNum < m_Settings.maxAccumulatedFrameNum)
-                                isSame = false;
-
-                            bool hasSpatial = m_ReblurSettings.minBlurRadius + m_ReblurSettings.maxBlurRadius != 0.0f
-                                || m_ReblurSettings.diffusePrepassBlurRadius != 0.0f
-                                || m_ReblurSettings.specularPrepassBlurRadius != 0.0f;
-                            ImGui::SameLine();
-                            if (ImGui::Button(hasSpatial ? "No spatial" : "Spatial")) {
-                                if (hasSpatial) {
-                                    m_ReblurSettings.minBlurRadius = 0.0f;
-                                    m_ReblurSettings.maxBlurRadius = 0.0f;
-                                    m_ReblurSettings.diffusePrepassBlurRadius = 0.0f;
-                                    m_ReblurSettings.specularPrepassBlurRadius = 0.0f;
-                                } else {
-                                    m_ReblurSettings.minBlurRadius = defaults.minBlurRadius;
-                                    m_ReblurSettings.maxBlurRadius = defaults.maxBlurRadius;
-                                    m_ReblurSettings.diffusePrepassBlurRadius = defaults.diffusePrepassBlurRadius;
-                                    m_ReblurSettings.specularPrepassBlurRadius = defaults.specularPrepassBlurRadius;
-                                }
-                            }
-
-                            bool hasFastHistory = m_Settings.maxFastAccumulatedFrameNum < m_Settings.maxAccumulatedFrameNum;
-                            ImGui::SameLine();
-                            if (ImGui::Button(hasFastHistory ? "No fast" : "Fast")) {
-                                if (hasFastHistory)
-                                    m_Settings.maxFastAccumulatedFrameNum = MAX_HISTORY_FRAME_NUM;
-                                else
-                                    m_Settings.maxFastAccumulatedFrameNum = defaults.maxFastAccumulatedFrameNum;
-                            }
-
-                            ImGui::SameLine();
-                            ImGui::PushStyleColor(ImGuiCol_Text, isSame ? UI_DEFAULT : UI_YELLOW);
-                            if (ImGui::Button("Defaults") || frameIndex == 0) {
-                                m_ReblurSettings = defaults;
-                                m_ReblurSettings.maxStabilizedFrameNum = m_Settings.maxAccumulatedFrameNum;
-                            }
-                            ImGui::PopStyleColor();
-
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.adaptiveAccumulation ? UI_GREEN : UI_YELLOW);
-                            ImGui::Checkbox("Adaptive accumulation", &m_Settings.adaptiveAccumulation);
-                            ImGui::PopStyleColor();
-                            ImGui::SameLine();
-                            ImGui::Checkbox("Anti-firefly", &m_ReblurSettings.enableAntiFirefly);
-
-                            if (m_Settings.adaptiveAccumulation)
-                                ImGui::Checkbox("SHARC boost", &m_Settings.boost);
-
-#if (NRD_MODE == SH)
-                            ImGui::SameLine();
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
-                            ImGui::Checkbox("Resolve", &m_Resolve);
-                            ImGui::PopStyleColor();
-#endif
-
-                            ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
-                            ImGui::SliderInt2("Accumulation (frames)", &m_Settings.maxAccumulatedFrameNum, 0, MAX_HISTORY_FRAME_NUM, "%d");
-                            ImGui::SliderInt("Stabilization (frames)", (int32_t*)&m_ReblurSettings.maxStabilizedFrameNum, 0, m_Settings.maxAccumulatedFrameNum, "%d");
-                            ImGui::EndDisabled();
-
-                            ImGui::SliderFloat2("Pre-pass radius (px)", &m_ReblurSettings.diffusePrepassBlurRadius, 0.0f, 75.0f, "%.1f");
-
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_ReblurSettings.minBlurRadius < 0.5f ? UI_RED : UI_DEFAULT);
-                            ImGui::SliderFloat("Min blur radius (px)", &m_ReblurSettings.minBlurRadius, 0.0f, 10.0f, "%.1f");
-                            ImGui::PopStyleColor();
-
-                            ImGui::SliderFloat("Max blur radius (px)", &m_ReblurSettings.maxBlurRadius, 0.0f, 60.0f, "%.1f");
-                            ImGui::SliderFloat("Lobe fraction", &m_ReblurSettings.lobeAngleFraction, 0.0f, 1.0f, "%.2f");
-                            ImGui::SliderFloat("Roughness fraction", &m_ReblurSettings.roughnessFraction, 0.0f, 1.0f, "%.2f");
-                            ImGui::SliderFloat("Min hitT weight", &m_ReblurSettings.minHitDistanceWeight, 0.01f, 0.2f, "%.2f");
-                            ImGui::SliderInt("History fix frames", (int32_t*)&m_ReblurSettings.historyFixFrameNum, 0, 5);
-                            ImGui::SliderInt("History fix stride", (int32_t*)&m_ReblurSettings.historyFixBasePixelStride, 1, 20);
-                            ImGui::SetNextItemWidth(ImGui::CalcItemWidth() * 0.5f);
-                            ImGui::SliderFloat("Responsive accumulation roughness threshold", &m_ReblurSettings.responsiveAccumulationRoughnessThreshold, 0.0f, 1.0f, "%.2f");
-
-                            if (m_ReblurSettings.maxAccumulatedFrameNum && m_ReblurSettings.maxStabilizedFrameNum) {
-                                ImGui::Text("ANTI-LAG:");
-                                ImGui::SliderFloat("Sigma scale", &m_ReblurSettings.antilagSettings.luminanceSigmaScale, 1.0f, 5.0f, "%.1f");
-                                ImGui::SliderFloat("Sensitivity", &m_ReblurSettings.antilagSettings.luminanceSensitivity, 1.0f, 5.0f, "%.1f");
-                            }
-                        } else if (m_Settings.denoiser == DENOISER_RELAX) {
-                            nrd::RelaxSettings defaults = GetDefaultRelaxSettings();
-
-                            bool isSame = true;
-                            if (m_RelaxSettings.antilagSettings.accelerationAmount != defaults.antilagSettings.accelerationAmount)
-                                isSame = false;
-                            else if (m_RelaxSettings.antilagSettings.spatialSigmaScale != defaults.antilagSettings.spatialSigmaScale)
-                                isSame = false;
-                            else if (m_RelaxSettings.antilagSettings.temporalSigmaScale != defaults.antilagSettings.temporalSigmaScale)
-                                isSame = false;
-                            else if (m_RelaxSettings.antilagSettings.resetAmount != defaults.antilagSettings.resetAmount)
-                                isSame = false;
-                            else if (m_RelaxSettings.diffusePrepassBlurRadius != defaults.diffusePrepassBlurRadius)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularPrepassBlurRadius != defaults.specularPrepassBlurRadius)
-                                isSame = false;
-                            else if (m_RelaxSettings.minHitDistanceWeight != defaults.minHitDistanceWeight)
-                                isSame = false;
-                            else if (m_RelaxSettings.historyFixFrameNum != defaults.historyFixFrameNum)
-                                isSame = false;
-                            else if (m_RelaxSettings.historyFixBasePixelStride != defaults.historyFixBasePixelStride)
-                                isSame = false;
-                            else if (m_RelaxSettings.historyFixEdgeStoppingNormalPower != defaults.historyFixEdgeStoppingNormalPower)
-                                isSame = false;
-                            else if (m_RelaxSettings.diffusePhiLuminance != defaults.diffusePhiLuminance)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularPhiLuminance != defaults.specularPhiLuminance)
-                                isSame = false;
-                            else if (m_RelaxSettings.lobeAngleFraction != defaults.lobeAngleFraction)
-                                isSame = false;
-                            else if (m_RelaxSettings.roughnessFraction != defaults.roughnessFraction)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularVarianceBoost != defaults.specularVarianceBoost)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularLobeAngleSlack != defaults.specularLobeAngleSlack)
-                                isSame = false;
-                            else if (m_RelaxSettings.historyClampingColorBoxSigmaScale != defaults.historyClampingColorBoxSigmaScale)
-                                isSame = false;
-                            else if (m_RelaxSettings.spatialVarianceEstimationHistoryThreshold != defaults.spatialVarianceEstimationHistoryThreshold)
-                                isSame = false;
-                            else if (m_RelaxSettings.atrousIterationNum != defaults.atrousIterationNum)
-                                isSame = false;
-                            else if (m_RelaxSettings.diffuseMinLuminanceWeight != defaults.diffuseMinLuminanceWeight)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularMinLuminanceWeight != defaults.specularMinLuminanceWeight)
-                                isSame = false;
-                            else if (m_RelaxSettings.depthThreshold != defaults.depthThreshold)
-                                isSame = false;
-                            else if (m_RelaxSettings.confidenceDrivenRelaxationMultiplier != defaults.confidenceDrivenRelaxationMultiplier)
-                                isSame = false;
-                            else if (m_RelaxSettings.confidenceDrivenLuminanceEdgeStoppingRelaxation != defaults.confidenceDrivenLuminanceEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.confidenceDrivenNormalEdgeStoppingRelaxation != defaults.confidenceDrivenNormalEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.luminanceEdgeStoppingRelaxation != defaults.luminanceEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.normalEdgeStoppingRelaxation != defaults.normalEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.roughnessEdgeStoppingRelaxation != defaults.roughnessEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.enableAntiFirefly != defaults.enableAntiFirefly)
-                                isSame = false;
-                            else if (m_RelaxSettings.enableRoughnessEdgeStopping != defaults.enableRoughnessEdgeStopping)
-                                isSame = false;
-
-                            bool hasSpatial = m_RelaxSettings.diffusePhiLuminance != 0.0f
-                                || m_RelaxSettings.specularPhiLuminance != 0.0f
-                                || m_RelaxSettings.diffusePrepassBlurRadius != 0.0f
-                                || m_RelaxSettings.specularPrepassBlurRadius != 0.0f
-                                || m_RelaxSettings.spatialVarianceEstimationHistoryThreshold != 0;
-                            ImGui::SameLine();
-                            if (ImGui::Button(hasSpatial ? "No spatial" : "Spatial")) {
-                                if (hasSpatial) {
-                                    m_RelaxSettings.diffusePhiLuminance = 0.0f;
-                                    m_RelaxSettings.specularPhiLuminance = 0.0f;
-                                    m_RelaxSettings.diffusePrepassBlurRadius = 0.0f;
-                                    m_RelaxSettings.specularPrepassBlurRadius = 0.0f;
-                                    m_RelaxSettings.spatialVarianceEstimationHistoryThreshold = 0;
-                                } else {
-                                    m_RelaxSettings.diffusePhiLuminance = defaults.diffusePhiLuminance;
-                                    m_RelaxSettings.specularPhiLuminance = defaults.specularPhiLuminance;
-                                    m_RelaxSettings.diffusePrepassBlurRadius = defaults.diffusePrepassBlurRadius;
-                                    m_RelaxSettings.specularPrepassBlurRadius = defaults.specularPrepassBlurRadius;
-                                    m_RelaxSettings.spatialVarianceEstimationHistoryThreshold = defaults.spatialVarianceEstimationHistoryThreshold;
-                                }
-                            }
-
-                            bool hasFastHistory = m_Settings.maxFastAccumulatedFrameNum < m_Settings.maxAccumulatedFrameNum;
-                            ImGui::SameLine();
-                            if (ImGui::Button(hasFastHistory ? "No fast" : "Fast")) {
-                                if (hasFastHistory)
-                                    m_Settings.maxFastAccumulatedFrameNum = MAX_HISTORY_FRAME_NUM;
-                                else
-                                    m_Settings.maxFastAccumulatedFrameNum = defaults.diffuseMaxFastAccumulatedFrameNum;
-                            }
-
-                            ImGui::SameLine();
-                            ImGui::PushStyleColor(ImGuiCol_Text, isSame ? UI_DEFAULT : UI_YELLOW);
-                            if (ImGui::Button("Defaults") || frameIndex == 0)
-                                m_RelaxSettings = defaults;
-                            ImGui::PopStyleColor();
-
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.adaptiveAccumulation ? UI_GREEN : UI_YELLOW);
-                            ImGui::Checkbox("Adaptive accumulation", &m_Settings.adaptiveAccumulation);
-                            ImGui::PopStyleColor();
-                            ImGui::SameLine();
-                            ImGui::Checkbox("Anti-firefly", &m_RelaxSettings.enableAntiFirefly);
-
-                            ImGui::Checkbox("Roughness edge stopping", &m_RelaxSettings.enableRoughnessEdgeStopping);
-                            ImGui::SameLine();
+                        if (m_Settings.adaptiveAccumulation)
                             ImGui::Checkbox("SHARC boost", &m_Settings.boost);
+
 #if (NRD_MODE == SH)
-                            ImGui::SameLine();
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
-                            ImGui::Checkbox("Resolve", &m_Resolve);
-                            ImGui::PopStyleColor();
-#endif
-
-                            ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
-                            ImGui::SliderInt2("Accumulation (frames)", &m_Settings.maxAccumulatedFrameNum, 0, MAX_HISTORY_FRAME_NUM, "%d");
-                            ImGui::EndDisabled();
-
-                            ImGui::SliderFloat2("Pre-pass radius (px)", &m_RelaxSettings.diffusePrepassBlurRadius, 0.0f, 75.0f, "%.1f");
-
-                            ImGui::SliderInt("A-trous iterations", (int32_t*)&m_RelaxSettings.atrousIterationNum, 2, 8);
-                            ImGui::SliderFloat2("Diff-Spec luma weight", &m_RelaxSettings.diffusePhiLuminance, 0.0f, 10.0f, "%.1f");
-                            ImGui::SliderFloat2("Min luma weight", &m_RelaxSettings.diffuseMinLuminanceWeight, 0.0f, 1.0f, "%.2f");
-                            ImGui::SliderFloat("Depth threshold", &m_RelaxSettings.depthThreshold, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
-                            ImGui::SliderFloat("Lobe fraction", &m_RelaxSettings.lobeAngleFraction, 0.0f, 1.0f, "%.2f");
-                            ImGui::SliderFloat("Roughness fraction", &m_RelaxSettings.roughnessFraction, 0.0f, 1.0f, "%.2f");
-                            ImGui::SliderFloat("Min hitT weight", &m_RelaxSettings.minHitDistanceWeight, 0.01f, 0.2f, "%.2f");
-                            ImGui::SliderFloat("Spec variance boost", &m_RelaxSettings.specularVarianceBoost, 0.0f, 8.0f, "%.2f");
-                            ImGui::SliderFloat("Clamping sigma scale", &m_RelaxSettings.historyClampingColorBoxSigmaScale, 0.0f, 10.0f, "%.1f");
-                            ImGui::SliderInt("History threshold", (int32_t*)&m_RelaxSettings.spatialVarianceEstimationHistoryThreshold, 0, 10);
-                            ImGui::Text("Luminance / Normal / Roughness:");
-                            ImGui::SliderFloat3("Relaxation", &m_RelaxSettings.luminanceEdgeStoppingRelaxation, 0.0f, 1.0f, "%.2f");
-
-                            ImGui::Text("HISTORY FIX:");
-                            ImGui::SliderFloat("Normal weight power", &m_RelaxSettings.historyFixEdgeStoppingNormalPower, 0.0f, 128.0f, "%.1f");
-                            ImGui::SliderInt("Frames", (int32_t*)&m_RelaxSettings.historyFixFrameNum, 0, 5);
-                            ImGui::SliderInt("Stride", (int32_t*)&m_RelaxSettings.historyFixBasePixelStride, 1, 20);
-
-                            ImGui::Text("ANTI-LAG:");
-                            ImGui::SliderFloat("Acceleration amount", &m_RelaxSettings.antilagSettings.accelerationAmount, 0.0f, 1.0f, "%.2f");
-                            ImGui::SliderFloat2("S/T sigma scales", &m_RelaxSettings.antilagSettings.spatialSigmaScale, 0.0f, 10.0f, "%.1f");
-                            ImGui::SliderFloat("Reset amount", &m_RelaxSettings.antilagSettings.resetAmount, 0.0f, 1.0f, "%.2f");
-                        } else if (m_Settings.denoiser == DENOISER_REFERENCE) {
-                            float t = (float)m_ReferenceSettings.maxAccumulatedFrameNum;
-                            ImGui::SliderFloat("Accumulation (frames)", &t, 0.0f, nrd::REFERENCE_MAX_HISTORY_FRAME_NUM, "%.0f", ImGuiSliderFlags_Logarithmic);
-                            m_ReferenceSettings.maxAccumulatedFrameNum = (int32_t)t;
-                        }
-                    }
-                    ImGui::PopID();
-
-                    // NRD/SIGMA
-                    ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
-                    ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
-                    isUnfolded = ImGui::CollapsingHeader("NRD/SIGMA", ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
-                    ImGui::PopStyleColor();
-                    ImGui::PopStyleColor();
-
-                    ImGui::PushID("NRD/SIGMA");
-                    if (m_Settings.RR)
-                        ImGui::Text("Pass-through mode...");
-                    else if (isUnfolded) {
-                        ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
-                        ImGui::SliderInt("Stabilization (frames)", (int32_t*)&m_SigmaSettings.maxStabilizedFrameNum, 0, nrd::SIGMA_MAX_HISTORY_FRAME_NUM, "%d");
-                        ImGui::EndDisabled();
-                    }
-                    ImGui::PopID();
-
-                    // "Other" section
-                    ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
-                    ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
-                    isUnfolded = ImGui::CollapsingHeader("OTHER", ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
-                    ImGui::PopStyleColor();
-                    ImGui::PopStyleColor();
-
-                    ImGui::PushID("OTHER");
-                    if (isUnfolded) {
-                        ImGui::SliderFloat("Debug [F1]", &m_Settings.debug, 0.0f, 1.0f, "%.6f");
-                        ImGui::SliderFloat("Input / Denoised", &m_Settings.separator, 0.0f, 1.0f, "%.2f");
-
-                        if (ImGui::Button(m_Settings.windowAlignment ? ">>" : "<<"))
-                            m_Settings.windowAlignment = !m_Settings.windowAlignment;
-
                         ImGui::SameLine();
-                        ImGui::PushStyleColor(ImGuiCol_Text, m_IsReloadShadersSucceeded ? UI_DEFAULT : UI_RED);
-                        if (ImGui::Button("Reload shaders")) {
-                            std::string sampleShaders;
-                            std::string nrdShaders;
-
-                            bool isTool = std::string(STRINGIFY(SHADERMAKE_PATH)) == "ShaderMake";
-                            if (isTool) {
-#ifdef _DEBUG
-                                sampleShaders = "_Bin\\Debug\\ShaderMake.exe";
-                                nrdShaders = "_Bin\\Debug\\ShaderMake.exe";
-#else
-                                sampleShaders = "_Bin\\Release\\ShaderMake.exe";
-                                nrdShaders = "_Bin\\Release\\ShaderMake.exe";
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
+                        ImGui::Checkbox("Resolve", &m_Resolve);
+                        ImGui::PopStyleColor();
 #endif
-                            } else {
-                                sampleShaders = STRINGIFY(SHADERMAKE_PATH);
-                                nrdShaders = STRINGIFY(SHADERMAKE_PATH);
-                            }
 
-                            sampleShaders +=
-                                " --flatten --stripReflection --WX --colorize"
-                                " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
-                                " --binary"
-                                " --shaderModel 6_6"
-                                " --sourceDir Shaders"
-                                " --ignoreConfigDir"
-                                " -c Shaders/Shaders.cfg"
-                                " -o _Shaders"
-                                " -I Shaders"
-                                " -I External"
-                                " -I " STRINGIFY(ML_SOURCE_DIR) " -I " STRINGIFY(NRD_SOURCE_DIR) " -I " STRINGIFY(NRI_SOURCE_DIR) " -I " STRINGIFY(SHARC_SOURCE_DIR) " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING) " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING);
+                        ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
+                        ImGui::SliderInt2("Accumulation (frames)", &m_Settings.maxAccumulatedFrameNum, 0, MAX_HISTORY_FRAME_NUM, "%d");
+                        ImGui::SliderInt("Stabilization (frames)", (int32_t*)&m_ReblurSettings.maxStabilizedFrameNum, 0, m_Settings.maxAccumulatedFrameNum, "%d");
+                        ImGui::EndDisabled();
 
-                            nrdShaders +=
-                                " --flatten --stripReflection --WX --colorize"
-                                " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
-                                " --binary --header"
-                                " --allResourcesBound"
-                                " --vulkanVersion 1.2"
-                                " --sourceDir External/NRD/Shaders/Source"
-                                " --ignoreConfigDir"
-                                " -c External/NRD/Shaders/Shaders.cfg"
-                                " -o _Shaders"
-                                " -I " STRINGIFY(ML_SOURCE_DIR)
-                                    " -I External/NRD/Shaders/Include"
-                                    " -I External/NRD/Shaders/Resources"
-                                    " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING) " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING) " -D NRD_INTERNAL";
+                        ImGui::SliderFloat2("Pre-pass radius (px)", &m_ReblurSettings.diffusePrepassBlurRadius, 0.0f, 75.0f, "%.1f");
 
-                            if (NRI.GetDeviceDesc(*m_Device).graphicsAPI == nri::GraphicsAPI::D3D12) {
-                                std::string dxil = " -p DXIL --compiler \"" STRINGIFY(SHADERMAKE_DXC_PATH) "\"";
-                                sampleShaders += dxil;
-                                nrdShaders += dxil;
-                            } else {
-                                std::string spirv = " -p SPIRV --compiler \"" STRINGIFY(SHADERMAKE_DXC_VK_PATH) "\"";
-                                sampleShaders += spirv;
-                                nrdShaders += spirv;
-                            }
-
-                            printf("Compiling sample shaders...\n");
-                            int32_t result = system(sampleShaders.c_str());
-                            if (!result) {
-                                printf("Compiling NRD shaders...\n");
-                                result = system(nrdShaders.c_str());
-                            }
-
-                            if (result)
-                                SetForegroundWindow(GetConsoleWindow());
-
-                            m_IsReloadShadersSucceeded = !result;
-
-                            if (!result)
-                                CreatePipelines();
-
-                            printf("Ready!\n");
-                        }
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_ReblurSettings.minBlurRadius < 0.5f ? UI_RED : UI_DEFAULT);
+                        ImGui::SliderFloat("Min blur radius (px)", &m_ReblurSettings.minBlurRadius, 0.0f, 10.0f, "%.1f");
                         ImGui::PopStyleColor();
 
-                        ImGui::SameLine();
-                        if (ImGui::Button("Defaults")) {
-                            m_Camera.Initialize(m_Scene.aabb.GetCenter(), m_Scene.aabb.vMin, CAMERA_RELATIVE);
-                            m_Settings = m_SettingsDefault;
-                            m_RelaxSettings = GetDefaultRelaxSettings();
-                            m_ReblurSettings = GetDefaultReblurSettings();
-                            m_ForceHistoryReset = true;
+                        ImGui::SliderFloat("Max blur radius (px)", &m_ReblurSettings.maxBlurRadius, 0.0f, 60.0f, "%.1f");
+                        ImGui::SliderFloat("Lobe fraction", &m_ReblurSettings.lobeAngleFraction, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Roughness fraction", &m_ReblurSettings.roughnessFraction, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Min hitT weight", &m_ReblurSettings.minHitDistanceWeight, 0.01f, 0.2f, "%.2f");
+                        ImGui::SliderInt("History fix frames", (int32_t*)&m_ReblurSettings.historyFixFrameNum, 0, 5);
+                        ImGui::SliderInt("History fix stride", (int32_t*)&m_ReblurSettings.historyFixBasePixelStride, 1, 20);
+                        ImGui::SetNextItemWidth(ImGui::CalcItemWidth() * 0.5f);
+                        ImGui::SliderFloat("Responsive accumulation roughness threshold", &m_ReblurSettings.responsiveAccumulationRoughnessThreshold, 0.0f, 1.0f, "%.2f");
+
+                        if (m_ReblurSettings.maxAccumulatedFrameNum && m_ReblurSettings.maxStabilizedFrameNum) {
+                            ImGui::Text("ANTI-LAG:");
+                            ImGui::SliderFloat("Sigma scale", &m_ReblurSettings.antilagSettings.luminanceSigmaScale, 1.0f, 5.0f, "%.1f");
+                            ImGui::SliderFloat("Sensitivity", &m_ReblurSettings.antilagSettings.luminanceSensitivity, 1.0f, 5.0f, "%.1f");
                         }
-                    }
-                    ImGui::PopID();
+                    } else if (m_Settings.denoiser == DENOISER_RELAX) {
+                        nrd::RelaxSettings defaults = GetDefaultRelaxSettings();
 
-                    // "Tests" section
-                    ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
-                    ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
-                    isUnfolded = ImGui::CollapsingHeader("TESTS [F2]", ImGuiTreeNodeFlags_CollapsingHeader);
-                    ImGui::PopStyleColor();
-                    ImGui::PopStyleColor();
+                        bool isSame = !memcmp(&m_RelaxSettings, &defaults, sizeof(defaults));
+                        bool hasSpatial = m_RelaxSettings.diffusePhiLuminance != 0.0f
+                            || m_RelaxSettings.specularPhiLuminance != 0.0f
+                            || m_RelaxSettings.diffusePrepassBlurRadius != 0.0f
+                            || m_RelaxSettings.specularPrepassBlurRadius != 0.0f
+                            || m_RelaxSettings.spatialVarianceEstimationHistoryThreshold != 0;
 
-                    ImGui::PushID("TESTS");
-                    if (isUnfolded) {
-                        float buttonWidth = 25.0f * float(GetWindowResolution().x) / float(GetOutputResolution().x);
+                        ImGui::SameLine();
+                        if (ImGui::Button(hasSpatial ? "No spatial" : "Spatial")) {
+                            if (hasSpatial) {
+                                m_RelaxSettings.diffusePhiLuminance = 0.0f;
+                                m_RelaxSettings.specularPhiLuminance = 0.0f;
+                                m_RelaxSettings.diffusePrepassBlurRadius = 0.0f;
+                                m_RelaxSettings.specularPrepassBlurRadius = 0.0f;
+                                m_RelaxSettings.spatialVarianceEstimationHistoryThreshold = 0;
+                            } else {
+                                m_RelaxSettings.diffusePhiLuminance = defaults.diffusePhiLuminance;
+                                m_RelaxSettings.specularPhiLuminance = defaults.specularPhiLuminance;
+                                m_RelaxSettings.diffusePrepassBlurRadius = defaults.diffusePrepassBlurRadius;
+                                m_RelaxSettings.specularPrepassBlurRadius = defaults.specularPrepassBlurRadius;
+                                m_RelaxSettings.spatialVarianceEstimationHistoryThreshold = defaults.spatialVarianceEstimationHistoryThreshold;
+                            }
+                        }
 
-                        char s[64];
-                        std::string sceneName = std::string(utils::GetFileName(m_SceneFile));
-                        size_t dotPos = sceneName.find_last_of(".");
-                        if (dotPos != std::string::npos)
-                            sceneName = sceneName.substr(0, dotPos) + ".bin";
-                        const std::string path = utils::GetFullPath(sceneName, utils::DataFolder::TESTS);
-                        const uint32_t testByteSize = sizeof(m_Settings) + Camera::GetStateSize();
+                        ImGui::SameLine();
+                        ImGui::PushStyleColor(ImGuiCol_Text, isSame ? UI_DEFAULT : UI_YELLOW);
+                        if (ImGui::Button("Defaults") || frameIndex == 0)
+                            m_RelaxSettings = defaults;
+                        ImGui::PopStyleColor();
 
-                        // Get number of tests
-                        if (m_TestNum == uint32_t(-1)) {
-                            FILE* fp = fopen(path.c_str(), "rb");
-                            if (fp) {
-// Use this code to convert tests to reflect new Settings and Camera layouts
-#if 0
-                                    typedef Settings SettingsOld; // adjust if needed
-                                    typedef Camera CameraOld; // adjust if needed
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.adaptiveAccumulation ? UI_GREEN : UI_YELLOW);
+                        ImGui::Checkbox("Adaptive accumulation", &m_Settings.adaptiveAccumulation);
+                        ImGui::PopStyleColor();
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Anti-firefly", &m_RelaxSettings.enableAntiFirefly);
 
-                                    const uint32_t oldItemSize = sizeof(SettingsOld) + CameraOld::GetStateSize();
-
-                                    fseek(fp, 0, SEEK_END);
-                                    m_TestNum = ftell(fp) / oldItemSize;
-                                    fseek(fp, 0, SEEK_SET);
-
-                                    FILE* fpNew;
-                                    fopen_s(&fpNew, (path + ".new").c_str(), "wb");
-
-                                    for (uint32_t i = 0; i < m_TestNum && fpNew; i++)
-                                    {
-                                        SettingsOld settingsOld;
-                                        fread_s(&settingsOld, sizeof(SettingsOld), 1, sizeof(SettingsOld), fp);
-
-                                        CameraOld cameraOld;
-                                        fread_s(cameraOld.GetState(), CameraOld::GetStateSize(), 1, CameraOld::GetStateSize(), fp);
-
-                                        // Convert Old to New here
-                                        m_Settings = settingsOld;
-                                        m_Camera.state = cameraOld.state;
-
-                                        // ...
-
-                                        fwrite(&m_Settings, 1, sizeof(m_Settings), fpNew);
-                                        fwrite(m_Camera.GetState(), 1, Camera::GetStateSize(), fpNew);
-                                    }
-
-                                    fclose(fp);
-                                    fclose(fpNew);
-
-                                    __debugbreak();
+                        ImGui::Checkbox("Roughness edge stopping", &m_RelaxSettings.enableRoughnessEdgeStopping);
+                        ImGui::SameLine();
+                        ImGui::Checkbox("SHARC boost", &m_Settings.boost);
+#if (NRD_MODE == SH)
+                        ImGui::SameLine();
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
+                        ImGui::Checkbox("Resolve", &m_Resolve);
+                        ImGui::PopStyleColor();
 #endif
 
-                                fseek(fp, 0, SEEK_END);
-                                m_TestNum = ftell(fp) / testByteSize;
-                                fclose(fp);
-                            } else
-                                m_TestNum = 0;
+                        ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
+                        ImGui::SliderInt2("Accumulation (frames)", &m_Settings.maxAccumulatedFrameNum, 0, MAX_HISTORY_FRAME_NUM, "%d");
+                        ImGui::EndDisabled();
+
+                        ImGui::SliderFloat2("Pre-pass radius (px)", &m_RelaxSettings.diffusePrepassBlurRadius, 0.0f, 75.0f, "%.1f");
+
+                        ImGui::SliderInt("A-trous iterations", (int32_t*)&m_RelaxSettings.atrousIterationNum, 2, 8);
+                        ImGui::SliderFloat2("Diff-Spec luma weight", &m_RelaxSettings.diffusePhiLuminance, 0.0f, 10.0f, "%.1f");
+                        ImGui::SliderFloat2("Min luma weight", &m_RelaxSettings.diffuseMinLuminanceWeight, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Depth threshold", &m_RelaxSettings.depthThreshold, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                        ImGui::SliderFloat("Lobe fraction", &m_RelaxSettings.lobeAngleFraction, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Roughness fraction", &m_RelaxSettings.roughnessFraction, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Min hitT weight", &m_RelaxSettings.minHitDistanceWeight, 0.01f, 0.2f, "%.2f");
+                        ImGui::SliderFloat("Spec variance boost", &m_RelaxSettings.specularVarianceBoost, 0.0f, 8.0f, "%.2f");
+                        ImGui::SliderFloat("Clamping sigma scale", &m_RelaxSettings.historyClampingColorBoxSigmaScale, 0.0f, 10.0f, "%.1f");
+                        ImGui::SliderInt("History threshold", (int32_t*)&m_RelaxSettings.spatialVarianceEstimationHistoryThreshold, 0, 10);
+                        ImGui::Text("Luminance / Normal / Roughness:");
+                        ImGui::SliderFloat3("Relaxation", &m_RelaxSettings.luminanceEdgeStoppingRelaxation, 0.0f, 1.0f, "%.2f");
+
+                        ImGui::Text("HISTORY FIX:");
+                        ImGui::SliderFloat("Normal weight power", &m_RelaxSettings.historyFixEdgeStoppingNormalPower, 0.0f, 128.0f, "%.1f");
+                        ImGui::SliderInt("Frames", (int32_t*)&m_RelaxSettings.historyFixFrameNum, 0, 5);
+                        ImGui::SliderInt("Stride", (int32_t*)&m_RelaxSettings.historyFixBasePixelStride, 1, 20);
+
+                        ImGui::Text("ANTI-LAG:");
+                        ImGui::SliderFloat("Acceleration amount", &m_RelaxSettings.antilagSettings.accelerationAmount, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat2("S/T sigma scales", &m_RelaxSettings.antilagSettings.spatialSigmaScale, 0.0f, 10.0f, "%.1f");
+                        ImGui::SliderFloat("Reset amount", &m_RelaxSettings.antilagSettings.resetAmount, 0.0f, 1.0f, "%.2f");
+                    } else if (m_Settings.denoiser == DENOISER_REFERENCE) {
+                        float t = (float)m_ReferenceSettings.maxAccumulatedFrameNum;
+                        ImGui::SliderFloat("Accumulation (frames)", &t, 0.0f, nrd::REFERENCE_MAX_HISTORY_FRAME_NUM, "%.0f", ImGuiSliderFlags_Logarithmic);
+                        m_ReferenceSettings.maxAccumulatedFrameNum = (int32_t)t;
+                    }
+                }
+                ImGui::PopID();
+
+                // NRD/SIGMA
+                ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
+                ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
+                isUnfolded = ImGui::CollapsingHeader("NRD/SIGMA", ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
+                ImGui::PopStyleColor();
+                ImGui::PopStyleColor();
+
+                ImGui::PushID("NRD/SIGMA");
+                if (m_Settings.RR)
+                    ImGui::Text("Pass-through mode...");
+                else if (isUnfolded) {
+                    ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
+                    ImGui::SliderInt("Stabilization (frames)", (int32_t*)&m_SigmaSettings.maxStabilizedFrameNum, 0, nrd::SIGMA_MAX_HISTORY_FRAME_NUM, "%d");
+                    ImGui::EndDisabled();
+                }
+                ImGui::PopID();
+
+                // "Other" section
+                ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
+                ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
+                isUnfolded = ImGui::CollapsingHeader("OTHER", ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
+                ImGui::PopStyleColor();
+                ImGui::PopStyleColor();
+
+                ImGui::PushID("OTHER");
+                if (isUnfolded) {
+                    ImGui::SliderFloat("Debug [F1]", &m_Settings.debug, 0.0f, 1.0f, "%.6f");
+                    ImGui::SliderFloat("Input / Denoised", &m_Settings.separator, 0.0f, 1.0f, "%.2f");
+
+                    if (ImGui::Button(m_Settings.windowAlignment ? ">>" : "<<"))
+                        m_Settings.windowAlignment = !m_Settings.windowAlignment;
+
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, m_IsReloadShadersSucceeded ? UI_DEFAULT : UI_RED);
+                    if (ImGui::Button("Reload shaders")) {
+                        std::string sampleShaders;
+                        std::string nrdShaders;
+
+                        bool isTool = std::string(STRINGIFY(SHADERMAKE_PATH)) == "ShaderMake";
+                        if (isTool) {
+#ifdef _DEBUG
+                            sampleShaders = "_Bin\\Debug\\ShaderMake.exe";
+                            nrdShaders = "_Bin\\Debug\\ShaderMake.exe";
+#else
+                            sampleShaders = "_Bin\\Release\\ShaderMake.exe";
+                            nrdShaders = "_Bin\\Release\\ShaderMake.exe";
+#endif
+                        } else {
+                            sampleShaders = STRINGIFY(SHADERMAKE_PATH);
+                            nrdShaders = STRINGIFY(SHADERMAKE_PATH);
                         }
 
-                        // Adjust current test index
-                        bool isTestChanged = false;
-                        if (IsKeyToggled(Key::F2) && m_TestNum) {
-                            m_LastSelectedTest++;
-                            isTestChanged = true;
+                        sampleShaders +=
+                            " --flatten --stripReflection --WX --colorize"
+                            " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
+                            " --binary"
+                            " --shaderModel 6_6"
+                            " --sourceDir Shaders"
+                            " --ignoreConfigDir"
+                            " -c Shaders/Shaders.cfg"
+                            " -o _Shaders"
+                            " -I Shaders"
+                            " -I External"
+                            " -I " STRINGIFY(ML_SOURCE_DIR) " -I " STRINGIFY(NRD_SOURCE_DIR) " -I " STRINGIFY(NRI_SOURCE_DIR) " -I " STRINGIFY(SHARC_SOURCE_DIR) " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING) " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING);
+
+                        nrdShaders +=
+                            " --flatten --stripReflection --WX --colorize"
+                            " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
+                            " --binary --header"
+                            " --allResourcesBound"
+                            " --vulkanVersion 1.2"
+                            " --sourceDir External/NRD/Shaders/Source"
+                            " --ignoreConfigDir"
+                            " -c External/NRD/Shaders/Shaders.cfg"
+                            " -o _Shaders"
+                            " -I " STRINGIFY(ML_SOURCE_DIR)
+                                " -I External/NRD/Shaders/Include"
+                                " -I External/NRD/Shaders/Resources"
+                                " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING) " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING) " -D NRD_INTERNAL";
+
+                        if (NRI.GetDeviceDesc(*m_Device).graphicsAPI == nri::GraphicsAPI::D3D12) {
+                            std::string dxil = " -p DXIL --compiler \"" STRINGIFY(SHADERMAKE_DXC_PATH) "\"";
+                            sampleShaders += dxil;
+                            nrdShaders += dxil;
+                        } else {
+                            std::string spirv = " -p SPIRV --compiler \"" STRINGIFY(SHADERMAKE_DXC_VK_PATH) "\"";
+                            sampleShaders += spirv;
+                            nrdShaders += spirv;
                         }
 
-                        if (m_LastSelectedTest == uint32_t(-1) || !m_TestNum)
-                            m_LastSelectedTest = uint32_t(-1);
-                        else
-                            m_LastSelectedTest %= m_TestNum;
-
-                        // Main buttons
-                        uint32_t i = 0;
-                        for (; i < m_TestNum; i++) {
-                            snprintf(s, sizeof(s), "%u", i + 1);
-
-                            if (i % 14 != 0)
-                                ImGui::SameLine();
-
-                            bool isColorChanged = false;
-                            if (m_improveMeTests && std::find(m_improveMeTests->begin(), m_improveMeTests->end(), i + 1) != m_improveMeTests->end()) {
-                                ImGui::PushStyleColor(ImGuiCol_Text, UI_RED);
-                                isColorChanged = true;
-                            } else if (m_checkMeTests && std::find(m_checkMeTests->begin(), m_checkMeTests->end(), i + 1) != m_checkMeTests->end()) {
-                                ImGui::PushStyleColor(ImGuiCol_Text, UI_YELLOW);
-                                isColorChanged = true;
-                            }
-
-                            if (ImGui::Button(i == m_LastSelectedTest ? "*" : s, ImVec2(buttonWidth, 0.0f)) || isTestChanged) {
-                                uint32_t test = isTestChanged ? m_LastSelectedTest : i;
-                                FILE* fp = fopen(path.c_str(), "rb");
-
-                                if (fp && fseek(fp, test * testByteSize, SEEK_SET) == 0) {
-                                    size_t elemNum = fread(&m_Settings, sizeof(m_Settings), 1, fp);
-                                    if (elemNum == 1)
-                                        elemNum = fread(m_Camera.GetState(), Camera::GetStateSize(), 1, fp);
-
-                                    m_LastSelectedTest = test;
-
-                                    // File read error
-                                    if (elemNum != 1) {
-                                        m_Camera.Initialize(m_Scene.aabb.GetCenter(), m_Scene.aabb.vMin, CAMERA_RELATIVE);
-                                        m_Settings = m_SettingsDefault;
-                                    }
-
-                                    // Reset some settings to defaults to avoid a potential confusion
-                                    m_Settings.debug = 0.0f;
-                                    m_Settings.denoiser = DENOISER_REBLUR;
-                                    m_Settings.RR = m_DLRR;
-                                    m_Settings.SR = m_DLSR;
-                                    m_Settings.TAA = true;
-                                    m_Settings.cameraJitter = true;
-                                    m_Settings.onScreen = clamp(m_Settings.onScreen, 0, (int32_t)helper::GetCountOf(onScreenModes));
-
-                                    m_ForceHistoryReset = true;
-                                }
-
-                                if (fp)
-                                    fclose(fp);
-
-                                isTestChanged = false;
-                            }
-
-                            if (isColorChanged)
-                                ImGui::PopStyleColor();
+                        printf("Compiling sample shaders...\n");
+                        int32_t result = system(sampleShaders.c_str());
+                        if (!result) {
+                            printf("Compiling NRD shaders...\n");
+                            result = system(nrdShaders.c_str());
                         }
+
+                        if (result)
+                            SetForegroundWindow(GetConsoleWindow());
+
+                        m_IsReloadShadersSucceeded = !result;
+
+                        if (!result)
+                            CreatePipelines();
+
+                        printf("Ready!\n");
+                    }
+                    ImGui::PopStyleColor();
+
+                    ImGui::SameLine();
+                    if (ImGui::Button("Defaults")) {
+                        m_Camera.Initialize(m_Scene.aabb.GetCenter(), m_Scene.aabb.vMin, CAMERA_RELATIVE);
+                        m_Settings = m_SettingsDefault;
+                        m_RelaxSettings = GetDefaultRelaxSettings();
+                        m_ReblurSettings = GetDefaultReblurSettings();
+                        m_ForceHistoryReset = true;
+                    }
+                }
+                ImGui::PopID();
+
+                // "Tests" section
+                ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
+                ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
+                isUnfolded = ImGui::CollapsingHeader("TESTS [F2]", ImGuiTreeNodeFlags_CollapsingHeader);
+                ImGui::PopStyleColor();
+                ImGui::PopStyleColor();
+
+                ImGui::PushID("TESTS");
+                if (isUnfolded) {
+                    float buttonWidth = 25.0f * float(GetWindowResolution().x) / float(GetOutputResolution().x);
+
+                    char s[64];
+                    std::string sceneName = std::string(utils::GetFileName(m_SceneFile));
+                    size_t dotPos = sceneName.find_last_of(".");
+                    if (dotPos != std::string::npos)
+                        sceneName = sceneName.substr(0, dotPos) + ".bin";
+                    const std::string path = utils::GetFullPath(sceneName, utils::DataFolder::TESTS);
+                    const uint32_t testByteSize = sizeof(m_Settings) + Camera::GetStateSize();
+
+                    // Get number of tests
+                    if (m_TestNum == uint32_t(-1)) {
+                        FILE* fp = fopen(path.c_str(), "rb");
+                        if (fp) {
+                            fseek(fp, 0, SEEK_END);
+                            m_TestNum = ftell(fp) / testByteSize;
+                            fclose(fp);
+                        } else
+                            m_TestNum = 0;
+                    }
+
+                    // Adjust current test index
+                    bool isTestChanged = false;
+                    if (IsKeyToggled(Key::F2) && m_TestNum) {
+                        m_LastSelectedTest++;
+                        isTestChanged = true;
+                    }
+
+                    if (m_LastSelectedTest == uint32_t(-1) || !m_TestNum)
+                        m_LastSelectedTest = uint32_t(-1);
+                    else
+                        m_LastSelectedTest %= m_TestNum;
+
+                    // Main buttons
+                    uint32_t i = 0;
+                    for (; i < m_TestNum; i++) {
+                        snprintf(s, sizeof(s), "%u", i + 1);
 
                         if (i % 14 != 0)
                             ImGui::SameLine();
 
-                        // "Add" button
-                        if (ImGui::Button("Add")) {
-                            FILE* fp = fopen(path.c_str(), "ab");
-
-                            if (fp) {
-                                m_Settings.motionStartTime = m_Settings.motionStartTime > 0.0 ? -1.0 : 0.0;
-
-                                fwrite(&m_Settings, sizeof(m_Settings), 1, fp);
-                                fwrite(m_Camera.GetState(), Camera::GetStateSize(), 1, fp);
-                                fclose(fp);
-
-                                m_TestNum = uint32_t(-1);
-                            }
+                        bool isColorChanged = false;
+                        if (m_improveMeTests && std::find(m_improveMeTests->begin(), m_improveMeTests->end(), i + 1) != m_improveMeTests->end()) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, UI_RED);
+                            isColorChanged = true;
+                        } else if (m_checkMeTests && std::find(m_checkMeTests->begin(), m_checkMeTests->end(), i + 1) != m_checkMeTests->end()) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, UI_YELLOW);
+                            isColorChanged = true;
                         }
 
-                        if ((i + 1) % 14 != 0)
-                            ImGui::SameLine();
+                        if (ImGui::Button(i == m_LastSelectedTest ? "*" : s, ImVec2(buttonWidth, 0.0f)) || isTestChanged) {
+                            uint32_t test = isTestChanged ? m_LastSelectedTest : i;
+                            FILE* fp = fopen(path.c_str(), "rb");
 
-                        // "Del" button
-                        snprintf(s, sizeof(s), "Del %u", m_LastSelectedTest + 1);
-                        if (m_TestNum != uint32_t(-1) && m_LastSelectedTest != uint32_t(-1) && ImGui::Button(s)) {
-                            std::vector<uint8_t> data;
-                            utils::LoadFile(path, data);
+                            if (fp && fseek(fp, test * testByteSize, SEEK_SET) == 0) {
+                                size_t elemNum = fread(&m_Settings, sizeof(m_Settings), 1, fp);
+                                if (elemNum == 1)
+                                    elemNum = fread(m_Camera.GetState(), Camera::GetStateSize(), 1, fp);
 
-                            FILE* fp = fopen(path.c_str(), "wb");
+                                m_LastSelectedTest = test;
 
-                            if (fp) {
-                                for (i = 0; i < m_TestNum; i++) {
-                                    if (i != m_LastSelectedTest)
-                                        fwrite(&data[i * testByteSize], 1, testByteSize, fp);
+                                // File read error
+                                if (elemNum != 1) {
+                                    m_Camera.Initialize(m_Scene.aabb.GetCenter(), m_Scene.aabb.vMin, CAMERA_RELATIVE);
+                                    m_Settings = m_SettingsDefault;
                                 }
 
+                                // Reset some settings to defaults to avoid a potential confusion
+                                m_Settings.debug = 0.0f;
+                                m_Settings.denoiser = DENOISER_REBLUR;
+                                m_Settings.RR = m_DLRR;
+                                m_Settings.SR = m_DLSR;
+                                m_Settings.TAA = true;
+                                m_Settings.cameraJitter = true;
+
+                                m_ForceHistoryReset = true;
+                            }
+
+                            if (fp)
                                 fclose(fp);
 
-                                m_TestNum = uint32_t(-1);
-                            }
+                            isTestChanged = false;
+                        }
+
+                        if (isColorChanged)
+                            ImGui::PopStyleColor();
+                    }
+
+                    if (i % 14 != 0)
+                        ImGui::SameLine();
+
+                    // "Add" button
+                    if (ImGui::Button("Add")) {
+                        FILE* fp = fopen(path.c_str(), "ab");
+
+                        if (fp) {
+                            m_Settings.motionStartTime = m_Settings.motionStartTime > 0.0 ? -1.0 : 0.0;
+
+                            fwrite(&m_Settings, sizeof(m_Settings), 1, fp);
+                            fwrite(m_Camera.GetState(), Camera::GetStateSize(), 1, fp);
+                            fclose(fp);
+
+                            m_TestNum = uint32_t(-1);
                         }
                     }
-                    ImGui::PopID();
+
+                    if ((i + 1) % 14 != 0)
+                        ImGui::SameLine();
+
+                    // "Del" button
+                    snprintf(s, sizeof(s), "Del %u", m_LastSelectedTest + 1);
+                    if (m_TestNum != uint32_t(-1) && m_LastSelectedTest != uint32_t(-1) && ImGui::Button(s)) {
+                        std::vector<uint8_t> data;
+                        utils::LoadFile(path, data);
+
+                        FILE* fp = fopen(path.c_str(), "wb");
+
+                        if (fp) {
+                            for (i = 0; i < m_TestNum; i++) {
+                                if (i != m_LastSelectedTest)
+                                    fwrite(&data[i * testByteSize], 1, testByteSize, fp);
+                            }
+
+                            fclose(fp);
+
+                            m_TestNum = uint32_t(-1);
+                        }
+                    }
                 }
+                ImGui::PopID();
             }
             m_UiWidth = ImGui::GetWindowWidth();
         }
@@ -2042,8 +1799,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     if (m_SettingsPrev.denoiser != m_Settings.denoiser)
         m_ForceHistoryReset = true;
     if (m_SettingsPrev.ortho != m_Settings.ortho)
-        m_ForceHistoryReset = true;
-    if (m_SettingsPrev.onScreen != m_Settings.onScreen)
         m_ForceHistoryReset = true;
     if (m_SettingsPrev.RR != m_Settings.RR)
         m_ForceHistoryReset = true;
@@ -3778,8 +3533,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     float baseMipBias = ((m_Settings.TAA || IsDlssEnabled()) ? -0.5f : 0.0f) + log2f(m_Settings.resolutionScale);
     float mipBias = baseMipBias + log2f(renderSize.x / outputSize.x);
 
-    uint32_t onScreen = m_Settings.onScreen;
-
     float fps = 1000.0f / m_Timer.GetSmoothedFrameTime();
     fps = min(fps, 121.0f);
     float otherMaxAccumulatedFrameNum = fps * ACCUMULATION_TIME;
@@ -3854,7 +3607,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gSharcMaxAccumulatedFrameNum = sharcMaxAccumulatedFrameNum;
         constants.gDenoiserType = (uint32_t)m_Settings.denoiser;
         constants.gDisableShadowsAndEnableImportanceSampling = (sunDirection.z < 0.0f && m_Settings.importanceSampling) ? 1 : 0;
-        constants.gOnScreen = onScreen;
         constants.gFrameIndex = frameIndex;
         constants.gForcedMaterial = m_Settings.forcedMaterial;
         constants.gUseNormalMap = m_Settings.normalMap ? 1 : 0;
@@ -3863,7 +3615,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gValidation = m_ShowValidationOverlay && m_Settings.denoiser != DENOISER_REFERENCE && m_Settings.separator != 1.0f;
         constants.gSR = (m_Settings.SR && !m_Settings.RR) ? 1 : 0;
         constants.gRR = m_Settings.RR ? 1 : 0;
-        constants.gIsSrgb = (m_IsSrgb && (onScreen == SHOW_FINAL || onScreen == SHOW_BASE_COLOR)) ? 1 : 0;
+        constants.gIsSrgb = m_IsSrgb ? 1 : 0;
     }
 
     m_GlobalConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
@@ -4414,7 +4166,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         RestoreBindings(commandBuffer, isEven, false);
     }
-    
+
     { // SHARC clear (for the next frame)
         helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
 

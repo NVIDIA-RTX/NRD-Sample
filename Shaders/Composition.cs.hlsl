@@ -52,7 +52,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     // Early out - sky
     if( abs( viewZ ) >= INF )
     {
-        gOut_ComposedDiff[ pixelPos ] = Lemi * float( gOnScreen == SHOW_FINAL );
+        gOut_ComposedDiff[ pixelPos ] = Lemi;
         gOut_ComposedSpec_ViewZ[ pixelPos ] = float4( 0, 0, 0, z );
 
         return;
@@ -68,8 +68,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     #endif
 
     float3 Ldirect = gIn_DirectLighting[ pixelPos ];
-    if( gOnScreen < SHOW_INSTANCE_INDEX )
-        Ldirect = Ldirect * shadow + Lemi;
+    Ldirect = Ldirect * shadow + Lemi;
 
     // G-buffer
     float3 albedo, Rf0;
@@ -182,34 +181,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
 
     // IMPORTANT: we store diffuse and specular separately to be able to use the reprojection trick. Let's assume that direct lighting can always be reprojected as diffuse
     Ldiff += Ldirect;
-
-    // Debug
-    if( gOnScreen == SHOW_DENOISED_DIFFUSE )
-        Ldiff = diff.xyz;
-    else if( gOnScreen == SHOW_DENOISED_SPECULAR )
-        Ldiff = spec.xyz;
-    else if( gOnScreen == SHOW_AMBIENT_OCCLUSION )
-        Ldiff = diff.w;
-    else if( gOnScreen == SHOW_SPECULAR_OCCLUSION )
-        Ldiff = spec.w;
-    else if( gOnScreen == SHOW_SHADOW )
-        Ldiff = shadow;
-    else if( gOnScreen == SHOW_BASE_COLOR )
-        Ldiff = baseColorMetalness.xyz;
-    else if( gOnScreen == SHOW_NORMAL )
-        Ldiff = N * 0.5 + 0.5;
-    else if( gOnScreen == SHOW_ROUGHNESS )
-        Ldiff = roughness;
-    else if( gOnScreen == SHOW_METALNESS )
-        Ldiff = baseColorMetalness.w;
-    else if( gOnScreen == SHOW_MATERIAL_ID )
-        Ldiff = materialID / 3.0;
-    else if( gOnScreen == SHOW_PSR_THROUGHPUT )
-        Ldiff = psrThroughput;
-    else if( gOnScreen == SHOW_WORLD_UNITS )
-        Ldiff = frac( X * gUnitToMetersMultiplier );
-    else if( gOnScreen != SHOW_FINAL )
-        Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? spec.xyz : Ldirect.xyz;
 
     // SHARC debug
     HashGridParameters hashGridParams;
