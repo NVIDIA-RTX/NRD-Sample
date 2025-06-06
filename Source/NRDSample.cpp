@@ -86,11 +86,6 @@ const std::vector<uint32_t> DLRR_interior_improveMeTests = {{
 #define UI_HEADER_BACKGROUND ImVec4(0.7f * 0.3f, 1.0f * 0.3f, 0.7f * 0.3f, 1.0f)
 #define UI_DEFAULT           ImGui::GetStyleColorVec4(ImGuiCol_Text)
 
-enum MvType : int32_t {
-    MV_2D,
-    MV_25D,
-};
-
 enum class AccelerationStructure : uint32_t {
     TLAS_World,
     TLAS_Emissive,
@@ -324,7 +319,7 @@ struct Settings {
     float animationProgress = 0.0f;
     float animationSpeed = 0.0f;
     float hitDistScale = 3.0f;
-    float unused1 = 0.0f;
+    float unused = 0.0f;
     float resolutionScale = 1.0f;
     float sharpness = 0.15f;
 
@@ -336,17 +331,17 @@ struct Settings {
     uint32_t activeAnimation = 0;
     int32_t motionMode = 0;
     int32_t denoiser = DENOISER_REBLUR;
-    int32_t unused2 = 0;
+    int32_t unused1 = 0;
     int32_t bounceNum = 1;
-    int32_t unused = 0;
-    int32_t mvType = MV_25D;
+    int32_t unused2 = 0;
+    int32_t unused3 = 0;
 
     bool cameraJitter = true;
     bool limitFps = false;
-    bool SHARC = true;
-    bool PSR = false;
-    bool indirectDiffuse = true;
-    bool indirectSpecular = true;
+    bool unused4 = true;
+    bool unused5 = false;
+    bool unused6 = true;
+    bool unused7 = true;
     bool normalMap = true;
     bool TAA = true;
     bool animatedObjects = false;
@@ -359,7 +354,7 @@ struct Settings {
     bool linearMotion = true;
     bool emissiveObjects = false;
     bool importanceSampling = true;
-    bool unused3 = true;
+    bool unused8 = true;
     bool ortho = false;
     bool adaptiveAccumulation = true;
     bool usePrevFrame = true;
@@ -1090,11 +1085,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         "Pan",
                     };
 
-                    static const char* mvType[] = {
-                        "2D",
-                        "2.5D",
-                    };
-
                     ImGui::Combo("On screen", &m_Settings.onScreen, onScreenModes, helper::GetCountOf(onScreenModes));
                     ImGui::Checkbox("Ortho", &m_Settings.ortho);
                     ImGui::SameLine();
@@ -1104,11 +1094,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                     ImGui::SameLine();
                     ImGui::PushStyleColor(ImGuiCol_Text, (!m_Settings.cameraJitter && (m_Settings.TAA || IsDlssEnabled())) ? UI_RED : UI_DEFAULT);
                     ImGui::Checkbox("Jitter", &m_Settings.cameraJitter);
-                    ImGui::PopStyleColor();
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetCursorPosX() + ImGui::GetStyle().ItemSpacing.x);
-                    ImGui::PushStyleColor(ImGuiCol_Text, (m_Settings.animatedObjects && !m_Settings.pauseAnimation && m_Settings.mvType == MV_2D) ? UI_RED : UI_DEFAULT);
-                    ImGui::Combo("MV", &m_Settings.mvType, mvType, helper::GetCountOf(mvType));
                     ImGui::PopStyleColor();
 
                     ImGui::SliderFloat("FOV (deg)", &m_Settings.camFov, 1.0f, 160.0f, "%.1f");
@@ -1281,11 +1266,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         const float sceneRadiusInMeters = m_Scene.aabb.GetRadius() / m_Settings.meterToUnitsMultiplier;
 
                         ImGui::SliderFloat("AO / SO range (m)", &m_Settings.hitDistScale, 0.01f, sceneRadiusInMeters, "%.2f");
-
-                        ImGui::Checkbox("Diff", &m_Settings.indirectDiffuse);
-                        ImGui::SameLine();
-                        ImGui::Checkbox("Spec", &m_Settings.indirectSpecular);
-                        ImGui::SameLine();
                         ImGui::Checkbox("Normal map", &m_Settings.normalMap);
 
                         const float3& sunDirection = GetSunDirection();
@@ -1295,14 +1275,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::PopStyleColor();
 
                         ImGui::Checkbox("L1 (prev frame)", &m_Settings.usePrevFrame);
-                        ImGui::SameLine();
-                        ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.SHARC ? UI_GREEN : UI_YELLOW);
-                        ImGui::Checkbox("L2 (SHARC)", &m_Settings.SHARC);
-                        ImGui::PopStyleColor();
-                        ImGui::SameLine();
-                        ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.PSR ? UI_GREEN : UI_YELLOW);
-                        ImGui::Checkbox("PSR", &m_Settings.PSR);
-                        ImGui::PopStyleColor();
                     }
                     ImGui::PopID();
 
@@ -1429,7 +1401,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             ImGui::SameLine();
                             ImGui::Checkbox("Anti-firefly", &m_ReblurSettings.enableAntiFirefly);
 
-                            if (m_Settings.SHARC && m_Settings.adaptiveAccumulation)
+                            if (m_Settings.adaptiveAccumulation)
                                 ImGui::Checkbox("SHARC boost", &m_Settings.boost);
 
 #if (NRD_MODE == SH)
@@ -1573,10 +1545,8 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             ImGui::Checkbox("Anti-firefly", &m_RelaxSettings.enableAntiFirefly);
 
                             ImGui::Checkbox("Roughness edge stopping", &m_RelaxSettings.enableRoughnessEdgeStopping);
-                            if (m_Settings.SHARC) {
-                                ImGui::SameLine();
-                                ImGui::Checkbox("SHARC boost", &m_Settings.boost);
-                            }
+                            ImGui::SameLine();
+                            ImGui::Checkbox("SHARC boost", &m_Settings.boost);
 #if (NRD_MODE == SH)
                             ImGui::SameLine();
                             ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
@@ -2111,7 +2081,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         fps = min(fps, 121.0f);
 
         // REBLUR / RELAX
-        float accumulationTime = nrd::REBLUR_DEFAULT_ACCUMULATION_TIME * ((m_Settings.boost && m_Settings.SHARC) ? 0.667f : 1.0f);
+        float accumulationTime = nrd::REBLUR_DEFAULT_ACCUMULATION_TIME * (m_Settings.boost ? 0.667f : 1.0f);
         int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(accumulationTime, fps), 1u);
 
         m_Settings.maxAccumulatedFrameNum = min(maxAccumulatedFrameNum, MAX_HISTORY_FRAME_NUM);
@@ -3878,8 +3848,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gRoughnessOverride = m_Settings.roughnessOverride;
         constants.gMetalnessOverride = m_Settings.metalnessOverride;
         constants.gUnitToMetersMultiplier = 1.0f / m_Settings.meterToUnitsMultiplier;
-        constants.gIndirectDiffuse = m_Settings.indirectDiffuse ? 1.0f : 0.0f;
-        constants.gIndirectSpecular = m_Settings.indirectSpecular ? 1.0f : 0.0f;
         constants.gTanSunAngularRadius = tan(radians(m_Settings.sunAngularDiameter * 0.5f));
         constants.gTanPixelAngularRadius = tan(0.5f * radians(m_Settings.camFov) / rectSize.x);
         constants.gDebug = m_Settings.debug;
@@ -3902,8 +3870,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gUseNormalMap = m_Settings.normalMap ? 1 : 0;
         constants.gBounceNum = m_Settings.bounceNum;
         constants.gResolve = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR) ? false : m_Resolve;
-        constants.gPSR = m_Settings.PSR;
-        constants.gSHARC = m_Settings.SHARC;
         constants.gValidation = m_ShowValidationOverlay && m_Settings.denoiser != DENOISER_REFERENCE && m_Settings.separator != 1.0f;
         constants.gSR = (m_Settings.SR && !m_Settings.RR) ? 1 : 0;
         constants.gRR = m_Settings.RR ? 1 : 0;
@@ -3970,7 +3936,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     memcpy(commonSettings.worldToViewMatrixPrev, &m_Camera.statePrev.mWorldToView, sizeof(m_Camera.statePrev.mWorldToView));
     commonSettings.motionVectorScale[0] = 1.0f / float(rectW);
     commonSettings.motionVectorScale[1] = 1.0f / float(rectH);
-    commonSettings.motionVectorScale[2] = m_Settings.mvType != MV_2D ? 1.0f : 0.0f;
+    commonSettings.motionVectorScale[2] = 1.0f;
     commonSettings.cameraJitter[0] = m_Settings.cameraJitter ? m_Camera.state.viewportJitter.x : 0.0f;
     commonSettings.cameraJitter[1] = m_Settings.cameraJitter ? m_Camera.state.viewportJitter.y : 0.0f;
     commonSettings.cameraJitterPrev[0] = m_Settings.cameraJitter ? m_Camera.statePrev.viewportJitter.x : 0.0f;
@@ -4082,7 +4048,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
     // SHARC
     nri::Buffer* sharcBufferToClear = isEven ? Get(Buffer::SharcVoxelDataPong) : Get(Buffer::SharcVoxelDataPing);
-    if (m_Settings.SHARC) {
+    {
         helper::Annotation sharc(NRI, commandBuffer, "Radiance cache");
 
         const nri::BufferBarrierDesc transitions[] = {
@@ -4458,9 +4424,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         RestoreBindings(commandBuffer, isEven, false);
     }
-
-    // SHARC clear (for the next frame)
-    if (m_Settings.SHARC) {
+    
+    { // SHARC clear (for the next frame)
         helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
 
         NRI.CmdZeroBuffer(commandBuffer, *sharcBufferToClear, 0, SHARC_CAPACITY * sizeof(uint32_t) * 4);

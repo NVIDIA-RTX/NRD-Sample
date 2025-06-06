@@ -166,7 +166,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         bool isPSR = false;
 
         [loop]
-        while( gPSR && desc.bounceNum && !geometryProps.IsSky( ) && IsDelta( materialProps ) )
+        while( desc.bounceNum && !geometryProps.IsSky( ) && IsDelta( materialProps ) )
         {
             isPSR = true;
 
@@ -256,8 +256,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
                 sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
 
-                bool isSharcAllowed = gSHARC; // trivial
-                isSharcAllowed &= Rng::Hash::GetFloat( ) > Lpsr.w; // probabilistically estimate the need
+                bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lpsr.w; // probabilistically estimate the need
                 isSharcAllowed &= geometryProps.hitT > voxelSize; // voxel angular size is acceptable
                 isSharcAllowed &= desc.bounceNum == 0; // allow only for the last bounce for PSR
 
@@ -578,8 +577,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                     sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
 
                     float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == desc.bounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
-                    bool isSharcAllowed = gSHARC; // trivial
-                    isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
+                    bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
                     isSharcAllowed &= footprint > voxelSize; // voxel angular size is acceptable
 
                     float3 sharcRadiance;

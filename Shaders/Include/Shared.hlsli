@@ -227,8 +227,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     float gRoughnessOverride;
     float gMetalnessOverride;
     float gUnitToMetersMultiplier;
-    float gIndirectDiffuse;
-    float gIndirectSpecular;
     float gTanSunAngularRadius;
     float gTanPixelAngularRadius;
     float gDebug;
@@ -251,8 +249,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     uint32_t gUseNormalMap;
     uint32_t gBounceNum;
     uint32_t gResolve;
-    uint32_t gPSR;
-    uint32_t gSHARC;
     uint32_t gValidation;
     uint32_t gSR;
     uint32_t gRR;

@@ -155,9 +155,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
         spec.w = 1.0 / Math::Pi( 1.0 );
     }
 
-    diff.xyz *= gIndirectDiffuse;
-    spec.xyz *= gIndirectSpecular;
-
     // Material modulation ( convert radiance back into irradiance )
     float3 diffFactor, specFactor;
     NRD_MaterialFactors( N, V, albedo, Rf0, roughness, diffFactor, specFactor );

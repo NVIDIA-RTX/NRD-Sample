@@ -48,16 +48,16 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         float3 V = gOrthoMode == 0 ? Geometry::RotateVector( gViewToWorld, normalize( Xv ) ) : gViewDirection.xyz;
 
         float NoV = abs( dot( N, V ) );
-        float3 Fenv = gIndirectSpecular * BRDF::EnvironmentTerm_Rtg( Rf0, NoV, roughness );
+        float3 Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, roughness );
 
         float scaleHitDistance = gDenoiserType == DENOISER_RELAX ? 1.0 : _REBLUR_GetHitDistanceNormalization( viewZ, gHitDistParams, roughness );
         float specHitDistance = gIn_Spec[ pixelPos ].w * scaleHitDistance;
 
         bool isSky = abs( viewZ ) == INF;
 
-        gOut_DiffAlbedo[ pixelPos ] = isSky ? 0.0 : gIndirectDiffuse * albedo * ( 1.0 - Fenv ); // TODO: NGX doesn't support sRGB, manual linearization needed
+        gOut_DiffAlbedo[ pixelPos ] = isSky ? 0.0 : albedo * ( 1.0 - Fenv ); // TODO: NGX doesn't support sRGB, manual linearization needed
         gOut_SpecAlbedo[ pixelPos ] = isSky ? 0.0 : Fenv;
-        gOut_SpecHitDistance[ pixelPos ] = isSky ? 0.0 : gIndirectSpecular * specHitDistance;
+        gOut_SpecHitDistance[ pixelPos ] = isSky ? 0.0 : specHitDistance;
         gOut_Normal_Roughness[ pixelPos ] = float4( N, roughness ); // TODO: NGX supports only this encoding
     }
 }
