@@ -309,8 +309,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
     TraceOpaqueResult result = ( TraceOpaqueResult )0;
     result.specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
 
-    uint diffPathNum = 0;
-
+    bool isDiffusePath = false;
     {
         GeometryProps geometryProps = desc.geometryProps;
         MaterialProps materialProps = desc.materialProps;
@@ -319,9 +318,6 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         float accumulatedDiffuseLikeMotion = 0;
         float accumulatedCurvature = 0;
 
-        bool isDiffusePath = false;
-
-        float diffProb0 = EstimateDiffuseProbability( geometryProps, materialProps ) * float( !geometryProps.Has( FLAG_HAIR ) );
         float3 Lsum = Lpsr.xyz;
         float3 pathThroughput = 1.0 - Lpsr.w;
 
@@ -648,7 +644,6 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
             {
                 result.diffRadiance += Lsum;
                 result.diffHitDist += normHitDist;
-                diffPathNum++;
             }
             else
             {
@@ -679,17 +674,6 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         }
     }
 
-    // Others are not divided by sampling probability, we need to average across diffuse / specular only paths
-    float diffNorm = diffPathNum == 0 ? 0.0 : 1.0 / float( diffPathNum );
-    #if( NRD_MODE == SH )
-        result.diffDirection *= diffNorm;
-    #endif
-    result.diffHitDist *= diffNorm;
-
-    float specNorm = 1 == diffPathNum ? 0.0 : 1.0 / float( 1 - diffPathNum );
-    #if( NRD_MODE == SH )
-        result.specDirection *= specNorm;
-    #endif
     NRD_FrontEnd_SpecHitDistAveraging_End( result.specHitDist );
 
     return result;

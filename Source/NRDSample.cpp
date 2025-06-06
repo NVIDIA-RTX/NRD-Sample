@@ -183,12 +183,9 @@ enum class Descriptor : uint32_t {
     NearestMipmapNearest_Sampler,
 
     Global_ConstantBuffer,
-
     InstanceData_Buffer,
-
     PrimitiveData_Buffer,
     PrimitiveData_StorageBuffer,
-
     SharcHashEntries_StorageBuffer,
     SharcHashCopyOffset_StorageBuffer,
     SharcVoxelDataPing_StorageBuffer,
@@ -662,8 +659,6 @@ private:
     bool m_Resolve = true;
     bool m_DebugNRD = false;
     bool m_ShowValidationOverlay = false;
-    bool m_PositiveZ = true;
-    bool m_ReversedZ = false;
     bool m_IsSrgb = false;
     bool m_GlassObjects = false;
     bool m_IsReloadShadersSucceeded = true;
@@ -773,7 +768,6 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
     if (m_DlssQuality != -1) {
         nri::UpscalerBits upscalerFlags = nri::UpscalerBits::DEPTH_INFINITE;
         upscalerFlags |= nri::UpscalerBits::HDR;
-        upscalerFlags |= m_ReversedZ ? nri::UpscalerBits::DEPTH_INVERTED : nri::UpscalerBits::NONE;
 
         nri::UpscalerMode mode = nri::UpscalerMode::NATIVE;
         if (m_DlssQuality == 0)
@@ -1087,10 +1081,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
                     ImGui::Combo("On screen", &m_Settings.onScreen, onScreenModes, helper::GetCountOf(onScreenModes));
                     ImGui::Checkbox("Ortho", &m_Settings.ortho);
-                    ImGui::SameLine();
-                    ImGui::Checkbox("+Z", &m_PositiveZ);
-                    ImGui::SameLine();
-                    ImGui::Checkbox("rZ", &m_ReversedZ);
                     ImGui::SameLine();
                     ImGui::PushStyleColor(ImGuiCol_Text, (!m_Settings.cameraJitter && (m_Settings.TAA || IsDlssEnabled())) ? UI_RED : UI_DEFAULT);
                     ImGui::Checkbox("Jitter", &m_Settings.cameraJitter);
@@ -1908,8 +1898,8 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     desc.nearZ = NEAR_Z * m_Settings.meterToUnitsMultiplier;
     desc.farZ = 10000.0f * m_Settings.meterToUnitsMultiplier;
     desc.isCustomMatrixSet = false; // No camera animation hooked up
-    desc.isPositiveZ = m_PositiveZ;
-    desc.isReversedZ = m_ReversedZ;
+    desc.isPositiveZ = true;
+    desc.isReversedZ = false;
     desc.orthoRange = m_Settings.ortho ? tan(radians(m_Settings.camFov) * 0.5f) * 3.0f * m_Settings.meterToUnitsMultiplier : 0.0f;
     desc.backwardOffset = CAMERA_BACKWARD_OFFSET;
     GetCameraDescFromInputDevices(desc);
@@ -2008,7 +1998,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
                 float x = float(i) * scale * 4.0f;
                 float y = float(j) * scale * 4.0f;
-                float z = 10.0f * (m_PositiveZ ? scale : -scale);
+                float z = 10.0f * scale;
 
                 float3 pos = basePos + vRight * x + vTop * y + vForward * z;
 
@@ -3779,12 +3769,12 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     float2 rectSizePrev = float2(float(rectWprev), float(rectHprev));
     float2 jitter = (m_Settings.cameraJitter ? m_Camera.state.viewportJitter : 0.0f) / rectSize;
 
-    float3 viewDir = float3(m_Camera.state.mViewToWorld[2].xyz) * (m_PositiveZ ? -1.0f : 1.0f);
+    float3 viewDir = -float3(m_Camera.state.mViewToWorld[2].xyz);
     float3 cameraGlobalPos = float3(m_Camera.state.globalPosition);
     float3 cameraGlobalPosPrev = float3(m_Camera.statePrev.globalPosition);
 
     float emissionIntensity = m_Settings.emissionIntensity * float(m_Settings.emission);
-    float nearZ = (m_PositiveZ ? 1.0f : -1.0f) * NEAR_Z * m_Settings.meterToUnitsMultiplier;
+    float nearZ = NEAR_Z * m_Settings.meterToUnitsMultiplier;
     float baseMipBias = ((m_Settings.TAA || IsDlssEnabled()) ? -0.5f : 0.0f) + log2f(m_Settings.resolutionScale);
     float mipBias = baseMipBias + log2f(renderSize.x / outputSize.x);
 
