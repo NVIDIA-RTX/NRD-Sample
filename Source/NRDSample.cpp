@@ -23,7 +23,6 @@
 
 constexpr uint32_t MAX_ANIMATED_INSTANCE_NUM = 512;
 constexpr auto BLAS_RIGID_MESH_BUILD_BITS = nri::AccelerationStructureBits::PREFER_FAST_TRACE | nri::AccelerationStructureBits::ALLOW_COMPACTION;
-constexpr auto BLAS_DEFORMABLE_MESH_BUILD_BITS = nri::AccelerationStructureBits::PREFER_FAST_BUILD | nri::AccelerationStructureBits::ALLOW_UPDATE | nri::AccelerationStructureBits::ALLOW_COMPACTION;
 constexpr auto TLAS_BUILD_BITS = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
 constexpr float ACCUMULATION_TIME = 0.5f;      // seconds
 constexpr float NEAR_Z = 0.001f;               // m
@@ -36,11 +35,6 @@ constexpr bool ALLOW_HDR = false;                   // use "WIN + ALT + B" to sw
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true; // saves a bit of memory and performance
 constexpr bool USE_DLSS_TNN = false;                // replace CNN (legacy) with TNN (better)
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
-constexpr bool NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING = true;
-constexpr bool NRD_RESTORE_INITIAL_STATE = false;
-constexpr bool NRD_USE_AUTO_WRAPPER = false;
-constexpr bool NRD_PROMOTE_FLOAT16_TO_32 = false;
-constexpr bool NRD_DEMOTE_FLOAT32_TO_16 = false;
 constexpr int32_t MAX_HISTORY_FRAME_NUM = (int32_t)std::min(60u, std::min(nrd::REBLUR_MAX_HISTORY_FRAME_NUM, nrd::RELAX_MAX_HISTORY_FRAME_NUM));
 constexpr uint32_t TEXTURES_PER_MATERIAL = 4;
 constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM = 32;
@@ -110,13 +104,8 @@ enum class AccelerationStructure : uint32_t {
 enum class Buffer : uint32_t {
     // DEVICE (read only)
     InstanceData,
-    MorphMeshIndices,
-    MorphMeshVertices,
 
     // DEVICE
-    MorphedPositions,
-    MorphedAttributes,
-    MorphedPrimitivePrevPositions,
     PrimitiveData,
     SharcHashEntries,
     SharcHashCopyOffset,
@@ -126,7 +115,6 @@ enum class Buffer : uint32_t {
     // DEVICE (scratch)
     WorldScratch,
     LightScratch,
-    MorphMeshScratch,
 };
 
 enum class Texture : uint32_t {
@@ -179,8 +167,6 @@ enum class Texture : uint32_t {
 };
 
 enum class Pipeline : uint32_t {
-    MorphMeshUpdateVertices,
-    MorphMeshUpdatePrimitives,
     SharcUpdate,
     SharcResolve,
     SharcHashCopy,
@@ -202,19 +188,9 @@ enum class Descriptor : uint32_t {
     NearestMipmapNearest_Sampler,
 
     Global_ConstantBuffer,
-    MorphTargetPose_ConstantBuffer,
-    MorphTargetUpdatePrimitives_ConstantBuffer,
 
     InstanceData_Buffer,
-    MorphMeshIndices_Buffer,
-    MorphMeshVertices_Buffer,
 
-    MorphedPositions_Buffer,
-    MorphedPositions_StorageBuffer,
-    MorphedAttributes_Buffer,
-    MorphedAttributes_StorageBuffer,
-    MorphedPrimitivePrevData_Buffer,
-    MorphedPrimitivePrevData_StorageBuffer,
     PrimitiveData_Buffer,
     PrimitiveData_StorageBuffer,
 
@@ -315,8 +291,6 @@ enum class DescriptorSet : uint32_t {
     RayTracing2,
     SharcPing3,
     SharcPong3,
-    MorphTargetPose4,
-    MorphTargetUpdatePrimitives4,
 
     MAX_NUM
 };
@@ -489,20 +463,7 @@ public:
         nrd::Resource resource = {};
         resource.state = textureState->after;
         resource.userArg = textureState;
-
-        if constexpr (NRD_USE_AUTO_WRAPPER) {
-            const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
-            const nri::TextureDesc& textureDesc = NRI.GetTextureDesc(*textureState->texture);
-
-            if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
-                resource.d3d12.resource = (ID3D12Resource*)NRI.GetTextureNativeObject(*textureState->texture);
-                resource.d3d12.format = nri::nriConvertNRIFormatToDXGI(textureDesc.format);
-            } else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
-                resource.vk.image = (VKNonDispatchableHandle)NRI.GetTextureNativeObject(*textureState->texture);
-                resource.vk.format = nri::nriConvertNRIFormatToVK(textureDesc.format);
-            }
-        } else
-            resource.nri.texture = textureState->texture;
+        resource.nri.texture = textureState->texture;
 
         return resource;
     }
@@ -511,7 +472,7 @@ public:
         // Fill resource snapshot
         nrd::ResourceSnapshot resourceSnapshot = {};
         {
-            resourceSnapshot.restoreInitialState = NRD_RESTORE_INITIAL_STATE;
+            resourceSnapshot.restoreInitialState = false;
 
             // Common
             resourceSnapshot.SetResource(nrd::ResourceType::IN_MV, GetNrdResource(Texture::Mv));
@@ -577,23 +538,7 @@ public:
         }
 
         // Denoise
-        if constexpr (NRD_USE_AUTO_WRAPPER) {
-            const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
-
-            if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
-                nri::CommandBufferD3D12Desc commandBufferD3D12Desc = {};
-                commandBufferD3D12Desc.d3d12CommandList = (ID3D12GraphicsCommandList*)NRI.GetCommandBufferNativeObject(commandBuffer);
-
-                m_NRD.DenoiseD3D12(denoisers, denoiserNum, commandBufferD3D12Desc, resourceSnapshot);
-            } else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
-                nri::CommandBufferVKDesc commandBufferVKDesc = {};
-                commandBufferVKDesc.vkCommandBuffer = (VKHandle)NRI.GetCommandBufferNativeObject(commandBuffer);
-                commandBufferVKDesc.queueType = nri::QueueType::GRAPHICS;
-
-                m_NRD.DenoiseVK(denoisers, denoiserNum, commandBufferVKDesc, resourceSnapshot);
-            }
-        } else
-            m_NRD.Denoise(denoisers, denoiserNum, commandBuffer, resourceSnapshot);
+        m_NRD.Denoise(denoisers, denoiserNum, commandBuffer, resourceSnapshot);
 
         // Retrieve state
         if (!resourceSnapshot.restoreInitialState) {
@@ -723,7 +668,6 @@ private:
     float3 m_PrevLocalPos = {};
     float2 m_HairBetas = float2(0.25f, 0.6f);
     uint2 m_RenderResolution = {};
-    uint64_t m_MorphMeshScratchSize = 0;
     nri::BufferOffset m_WorldTlasDataLocation = {};
     nri::BufferOffset m_LightTlasDataLocation = {};
     uint32_t m_GlobalConstantBufferOffset = 0;
@@ -734,7 +678,6 @@ private:
     uint32_t m_LastSelectedTest = uint32_t(-1);
     uint32_t m_TestNum = uint32_t(-1);
     int32_t m_DlssQuality = int32_t(-1);
-    float m_SigmaTemporalStabilizationStrength = 1.0f;
     float m_UiWidth = 0.0f;
     float m_MinResolutionScale = 0.5f;
     float m_DofAperture = 0.0f;
@@ -980,9 +923,8 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         nrd::IntegrationCreationDesc desc = {};
         strcpy(desc.name, "NRD");
         desc.queuedFrameNum = GetQueuedFrameNum();
-        desc.enableWholeLifetimeDescriptorCaching = NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING;
-        desc.promoteFloat16to32 = NRD_PROMOTE_FLOAT16_TO_32;
-        desc.demoteFloat32to16 = NRD_DEMOTE_FLOAT32_TO_16;
+        desc.enableWholeLifetimeDescriptorCaching = true;
+        desc.demoteFloat32to16 = false;
         desc.resourceWidth = (uint16_t)m_RenderResolution.x;
         desc.resourceHeight = (uint16_t)m_RenderResolution.y;
         desc.autoWaitForIdle = false;
@@ -990,50 +932,8 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         nri::VideoMemoryInfo videoMemoryInfo1 = {};
         NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo1);
 
-        if constexpr (NRD_USE_AUTO_WRAPPER) {
-            const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
-
-            if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
-                ID3D12CommandQueue* queue = (ID3D12CommandQueue*)NRI.GetQueueNativeObject(*m_GraphicsQueue);
-
-                nri::QueueFamilyD3D12Desc queueFamily = {};
-                queueFamily.d3d12Queues = &queue;
-                queueFamily.queueType = nri::QueueType::GRAPHICS;
-                queueFamily.queueNum = 1;
-
-                nri::DeviceCreationD3D12Desc deviceCreationD3D12Desc = {};
-                deviceCreationD3D12Desc.d3d12Device = (ID3D12Device*)NRI.GetDeviceNativeObject(*m_Device);
-                deviceCreationD3D12Desc.queueFamilies = &queueFamily;
-                deviceCreationD3D12Desc.queueFamilyNum = 1;
-                deviceCreationD3D12Desc.enableNRIValidation = m_DebugNRI;
-
-                if (m_NRD.RecreateD3D12(desc, instanceCreationDesc, deviceCreationD3D12Desc) != nrd::Result::SUCCESS)
-                    return false;
-            } else {
-                nri::WrapperVKInterface iWrapperVK = {};
-                NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::WrapperVKInterface), &iWrapperVK));
-
-                nri::QueueFamilyVKDesc queueFamily = {};
-                queueFamily.familyIndex = iWrapperVK.GetQueueFamilyIndexVK(*m_GraphicsQueue);
-                queueFamily.queueType = nri::QueueType::GRAPHICS;
-                queueFamily.queueNum = 1;
-
-                nri::DeviceCreationVKDesc deviceCreationVKDesc = {};
-                deviceCreationVKDesc.vkInstance = (VKHandle)iWrapperVK.GetInstanceVK(*m_Device);
-                deviceCreationVKDesc.vkPhysicalDevice = (VKHandle)iWrapperVK.GetPhysicalDeviceVK(*m_Device);
-                deviceCreationVKDesc.vkDevice = (VKHandle)NRI.GetDeviceNativeObject(*m_Device);
-                deviceCreationVKDesc.minorVersion = 3;
-                deviceCreationVKDesc.queueFamilies = &queueFamily;
-                deviceCreationVKDesc.queueFamilyNum = 1;
-                deviceCreationVKDesc.enableNRIValidation = m_DebugNRI;
-
-                if (m_NRD.RecreateVK(desc, instanceCreationDesc, deviceCreationVKDesc) != nrd::Result::SUCCESS)
-                    return false;
-            }
-        } else {
-            if (m_NRD.Recreate(desc, instanceCreationDesc, m_Device) != nrd::Result::SUCCESS)
-                return false;
-        }
+        if (m_NRD.Recreate(desc, instanceCreationDesc, m_Device) != nrd::Result::SUCCESS)
+            return false;
 
         nri::VideoMemoryInfo videoMemoryInfo2 = {};
         NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo2);
@@ -2600,19 +2500,13 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
     const uint32_t textureNum = helper::GetCountOf(m_Scene.materials) * TEXTURES_PER_MATERIAL;
     nri::DescriptorRangeDesc descriptorRanges2[] = {
         {0, 2, nri::DescriptorType::ACCELERATION_STRUCTURE, nri::StageBits::COMPUTE_SHADER},
-        {2, 3, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
-        {5, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
+        {2, 2, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
+        {4, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
     };
 
     // SET_SHARC
     const nri::DescriptorRangeDesc descriptorRanges3[] = {
         {0, 4, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
-    };
-
-    // SET_MORPH
-    const nri::DescriptorRangeDesc descriptorRanges4[] = {
-        {0, 3, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
-        {0, 2, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
     };
 
     nri::DynamicConstantBufferDesc dynamicConstantBuffer = {0, nri::StageBits::COMPUTE_SHADER};
@@ -2622,7 +2516,6 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         {SET_OTHER, descriptorRanges1, helper::GetCountOf(descriptorRanges1), nullptr, 0},
         {SET_RAY_TRACING, descriptorRanges2, helper::GetCountOf(descriptorRanges2)},
         {SET_SHARC, descriptorRanges3, helper::GetCountOf(descriptorRanges3)},
-        {SET_MORPH, descriptorRanges4, helper::GetCountOf(descriptorRanges4), &dynamicConstantBuffer, 1},
     };
 
     { // Pipeline layout
@@ -2642,7 +2535,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         descriptorPoolDesc.dynamicConstantBufferMaxNum += descriptorSetDescs[SET_GLOBAL].dynamicConstantBufferNum * setNum;
         descriptorPoolDesc.samplerMaxNum += descriptorSetDescs[SET_GLOBAL].ranges[0].descriptorNum * GetQueuedFrameNum() * setNum;
 
-        setNum = (uint32_t)DescriptorSet::MAX_NUM - 6; // exclude non-SET_OTHER sets
+        setNum = (uint32_t)DescriptorSet::MAX_NUM - 4; // exclude non-SET_OTHER sets
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
         descriptorPoolDesc.textureMaxNum += descriptorSetDescs[SET_OTHER].ranges[0].descriptorNum * setNum;
         descriptorPoolDesc.storageTextureMaxNum += descriptorSetDescs[SET_OTHER].ranges[1].descriptorNum * setNum;
@@ -2656,12 +2549,6 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         setNum = 2;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
         descriptorPoolDesc.storageStructuredBufferMaxNum += descriptorSetDescs[SET_SHARC].ranges[0].descriptorNum * setNum;
-
-        setNum = 2;
-        descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.dynamicConstantBufferMaxNum += descriptorSetDescs[SET_MORPH].dynamicConstantBufferNum * setNum;
-        descriptorPoolDesc.structuredBufferMaxNum += descriptorSetDescs[SET_MORPH].ranges[0].descriptorNum * setNum;
-        descriptorPoolDesc.storageStructuredBufferMaxNum += descriptorSetDescs[SET_MORPH].ranges[1].descriptorNum * setNum;
 
         NRI_ABORT_ON_FAILURE(NRI.CreateDescriptorPool(*m_Device, descriptorPoolDesc, m_DescriptorPool));
     }
@@ -2685,20 +2572,6 @@ void Sample::CreatePipelines() {
 
     nri::Pipeline* pipeline = nullptr;
     const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
-
-    { // Pipeline::MorphMeshUpdateVertices
-        pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "MorphMeshUpdateVertices.cs", shaderCodeStorage);
-
-        NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, pipeline));
-        m_Pipelines.push_back(pipeline);
-    }
-
-    { // Pipeline::MorphMeshUpdatePrimitives
-        pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "MorphMeshUpdatePrimitives.cs", shaderCodeStorage);
-
-        NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, pipeline));
-        m_Pipelines.push_back(pipeline);
-    }
 
     { // Pipeline::SharcUpdate
         pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcUpdate.cs", shaderCodeStorage);
@@ -2818,7 +2691,7 @@ void Sample::CreateAccelerationStructures() {
         const utils::MeshInstance& meshInstance = m_Scene.meshInstances[instance.meshInstanceIndex];
         const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
 
-        uint16_t vertexStride = mesh.HasMorphTargets() ? sizeof(float16_t4) : sizeof(float[3]);
+        uint16_t vertexStride = sizeof(float[3]);
         uint64_t vertexDataSize = mesh.vertexNum * vertexStride;
         uint64_t indexDataSize = helper::Align(mesh.indexNum * sizeof(utils::Index), 4);
         uint64_t transformDataSize = instance.allowUpdate ? 0 : sizeof(nri::TransformMatrix);
@@ -2887,7 +2760,6 @@ void Sample::CreateAccelerationStructures() {
 
     uint64_t primitivesNum = 0;
     std::vector<nri::BuildBottomLevelAccelerationStructureDesc> buildBottomLevelAccelerationStructureDescs;
-    std::vector<bool> isDeformable;
 
     std::vector<nri::BottomLevelGeometryDesc> geometries;
     geometries.reserve(geometryNum); // reallocation is NOT allowed!
@@ -2905,16 +2777,13 @@ void Sample::CreateAccelerationStructures() {
                 meshInstance.blasIndex = (uint32_t)m_AccelerationStructures.size();
 
             // Copy geometry to temp buffer
-            uint16_t vertexStride = mesh.HasMorphTargets() ? sizeof(float16_t4) : sizeof(float[3]);
+            uint16_t vertexStride = sizeof(float[3]);
             uint64_t vertexDataSize = mesh.vertexNum * vertexStride;
             uint64_t indexDataSize = mesh.indexNum * sizeof(utils::Index);
 
             uint8_t* p = uploadData + geometryOffset;
             for (uint32_t v = 0; v < mesh.vertexNum; v++) {
-                if (mesh.HasMorphTargets())
-                    memcpy(p, &m_Scene.morphVertices[mesh.morphTargetVertexOffset + v].pos, vertexStride);
-                else
-                    memcpy(p, m_Scene.vertices[mesh.vertexOffset + v].pos, vertexStride);
+                memcpy(p, m_Scene.vertices[mesh.vertexOffset + v].pos, vertexStride);
                 p += vertexStride;
             }
 
@@ -2954,7 +2823,7 @@ void Sample::CreateAccelerationStructures() {
             bottomLevelGeometry.triangles.vertexOffset = geometryOffset;
             bottomLevelGeometry.triangles.vertexNum = mesh.vertexNum;
             bottomLevelGeometry.triangles.vertexStride = vertexStride;
-            bottomLevelGeometry.triangles.vertexFormat = mesh.HasMorphTargets() ? nri::Format::RGBA16_SFLOAT : nri::Format::RGB32_SFLOAT;
+            bottomLevelGeometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
             bottomLevelGeometry.triangles.indexBuffer = uploadBuffer;
             bottomLevelGeometry.triangles.indexOffset = geometryOffset + vertexDataSize;
             bottomLevelGeometry.triangles.indexNum = mesh.indexNum;
@@ -2967,7 +2836,7 @@ void Sample::CreateAccelerationStructures() {
                 // Create BLAS
                 nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
                 allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
-                allocateAccelerationStructureDesc.desc.flags = mesh.HasMorphTargets() ? BLAS_DEFORMABLE_MESH_BUILD_BITS : BLAS_RIGID_MESH_BUILD_BITS;
+                allocateAccelerationStructureDesc.desc.flags = BLAS_RIGID_MESH_BUILD_BITS;
                 allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = 1;
                 allocateAccelerationStructureDesc.desc.geometries = &bottomLevelGeometry;
                 allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
@@ -2985,16 +2854,10 @@ void Sample::CreateAccelerationStructures() {
                 buildBottomLevelAccelerationStructureDesc.geometries = &geometries[geometries.size() - 1];
                 buildBottomLevelAccelerationStructureDesc.scratchBuffer = nullptr;
                 buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchSize;
-                isDeformable.push_back(mesh.HasMorphTargets());
 
                 // Update scratch
                 uint64_t buildSize = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
                 scratchSize += helper::Align(buildSize, deviceDesc.memoryAlignment.scratchBufferOffset);
-
-                if (mesh.HasMorphTargets()) {
-                    uint64_t updateSize = NRI.GetAccelerationStructureUpdateScratchBufferSize(*accelerationStructure);
-                    m_MorphMeshScratchSize += helper::Align(max(buildSize, updateSize), deviceDesc.memoryAlignment.scratchBufferOffset);
-                }
             }
 
             // Update geometry offset
@@ -3026,7 +2889,6 @@ void Sample::CreateAccelerationStructures() {
                 buildBottomLevelAccelerationStructureDesc.geometries = &geometries[geometryObjectBase];
                 buildBottomLevelAccelerationStructureDesc.scratchBuffer = nullptr;
                 buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchSize;
-                isDeformable.push_back(false);
 
                 // Update scratch
                 uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
@@ -3147,7 +3009,7 @@ void Sample::CreateAccelerationStructures() {
                 nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
                 allocateAccelerationStructureDesc.desc.optimizedSize = sizes[i];
                 allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
-                allocateAccelerationStructureDesc.desc.flags = isDeformable[i] ? BLAS_DEFORMABLE_MESH_BUILD_BITS : BLAS_RIGID_MESH_BUILD_BITS;
+                allocateAccelerationStructureDesc.desc.flags = BLAS_RIGID_MESH_BUILD_BITS;
                 allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = blasBuildDesc.geometryNum;
                 allocateAccelerationStructureDesc.desc.geometries = blasBuildDesc.geometries;
                 allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
@@ -3314,18 +3176,8 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     // Buffers (DEVICE, read-only)
     CreateBuffer(descriptorDescs, "Buffer::InstanceData", nri::Format::UNKNOWN, instanceDataSize / sizeof(InstanceData), sizeof(InstanceData),
         nri::BufferUsageBits::SHADER_RESOURCE);
-    CreateBuffer(descriptorDescs, "Buffer::MorphMeshIndices", nri::Format::UNKNOWN, m_Scene.morphMeshTotalIndicesNum, sizeof(utils::Index),
-        nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
-    CreateBuffer(descriptorDescs, "Buffer::MorphMeshVertices", nri::Format::UNKNOWN, m_Scene.morphVertices.size(), sizeof(utils::MorphVertex),
-        nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
 
     // Buffers (DEVICE)
-    CreateBuffer(descriptorDescs, "Buffer::MorphedPositions", nri::Format::UNKNOWN, m_Scene.morphedVerticesNum * MAX_ANIMATION_HISTORY_FRAME_NUM, sizeof(float16_t4),
-        nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
-    CreateBuffer(descriptorDescs, "Buffer::MorphedAttributes", nri::Format::UNKNOWN, m_Scene.morphedVerticesNum, sizeof(MorphedAttributes),
-        nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-    CreateBuffer(descriptorDescs, "Buffer::MorphedPrimitivePrevPositions", nri::Format::UNKNOWN, m_Scene.morphedPrimitivesNum, sizeof(MorphedPrimitivePrevPositions),
-        nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(descriptorDescs, "Buffer::PrimitiveData", nri::Format::UNKNOWN, m_Scene.totalInstancedPrimitivesNum, sizeof(PrimitiveData),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(descriptorDescs, "Buffer::SharcHashEntries", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint64_t),
@@ -3339,8 +3191,6 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     CreateBuffer(descriptorDescs, "Buffer::WorldScratch", nri::Format::UNKNOWN, worldScratchBufferSize, 1,
         nri::BufferUsageBits::SCRATCH_BUFFER);
     CreateBuffer(descriptorDescs, "Buffer::LightScratch", nri::Format::UNKNOWN, lightScratchBufferSize, 1,
-        nri::BufferUsageBits::SCRATCH_BUFFER);
-    CreateBuffer(descriptorDescs, "Buffer::MorphMeshScratch", nri::Format::UNKNOWN, m_MorphMeshScratchSize, 1,
         nri::BufferUsageBits::SCRATCH_BUFFER);
 
     // Textures (DEVICE)
@@ -3426,14 +3276,6 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
         constantBufferViewDesc.buffer = NRI.GetStreamerConstantBuffer(*m_Streamer);
 
         constantBufferViewDesc.size = helper::Align(sizeof(GlobalConstants), deviceDesc.memoryAlignment.constantBufferOffset);
-        NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
-        m_Descriptors.push_back(descriptor);
-
-        constantBufferViewDesc.size = helper::Align(sizeof(MorphMeshUpdateVerticesConstants), deviceDesc.memoryAlignment.constantBufferOffset);
-        NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
-        m_Descriptors.push_back(descriptor);
-
-        constantBufferViewDesc.size = helper::Align(sizeof(MorphMeshUpdatePrimitivesConstants), deviceDesc.memoryAlignment.constantBufferOffset);
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
         m_Descriptors.push_back(descriptor);
     }
@@ -3699,12 +3541,12 @@ void Sample::CreateDescriptorSets() {
     { // DescriptorSet::RayTracing2
         const nri::Descriptor* accelerationStructures[] = {
             Get(Descriptor::World_AccelerationStructure),
-            Get(Descriptor::Light_AccelerationStructure)};
+            Get(Descriptor::Light_AccelerationStructure),
+        };
 
         const nri::Descriptor* structuredBuffers[] = {
             Get(Descriptor::InstanceData_Buffer),
             Get(Descriptor::PrimitiveData_Buffer),
-            Get(Descriptor::MorphedPrimitivePrevData_Buffer),
         };
 
         std::vector<nri::Descriptor*> textures(m_Scene.materials.size() * TEXTURES_PER_MATERIAL);
@@ -3764,51 +3606,6 @@ void Sample::CreateDescriptorSets() {
         };
 
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-    }
-
-    { // DescriptorSet::MorphTargetPose4
-        const nri::Descriptor* resources[] = {
-            Get(Descriptor::MorphMeshVertices_Buffer)};
-
-        const nri::Descriptor* storageResources[] = {
-            Get(Descriptor::MorphedPositions_StorageBuffer),
-            Get(Descriptor::MorphedAttributes_StorageBuffer),
-        };
-
-        NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_MORPH, &descriptorSet, 1, 0));
-        m_DescriptorSets.push_back(descriptorSet);
-
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)}};
-
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-
-        nri::Descriptor* constantBuffer = Get(Descriptor::MorphTargetPose_ConstantBuffer);
-        NRI.UpdateDynamicConstantBuffers(*descriptorSet, 0, 1, &constantBuffer);
-    }
-
-    { // DescriptorSet::MorphTargetUpdatePrimitives4
-        const nri::Descriptor* resources[] = {
-            Get(Descriptor::MorphMeshIndices_Buffer),
-            Get(Descriptor::MorphedPositions_Buffer),
-            Get(Descriptor::MorphedAttributes_Buffer)};
-
-        const nri::Descriptor* storageResources[] = {
-            Get(Descriptor::PrimitiveData_StorageBuffer),
-            Get(Descriptor::MorphedPrimitivePrevData_StorageBuffer)};
-
-        NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_MORPH, &descriptorSet, 1, 0));
-        m_DescriptorSets.push_back(descriptorSet);
-
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)}};
-
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-
-        nri::Descriptor* constantBuffer = Get(Descriptor::MorphTargetUpdatePrimitives_ConstantBuffer);
-        NRI.UpdateDynamicConstantBuffers(*descriptorSet, 0, 1, &constantBuffer);
     }
 }
 
@@ -3942,21 +3739,10 @@ void Sample::UploadStaticData() {
         textureUploadDescs.push_back(desc);
     }
 
-    std::vector<utils::Index> morphMeshIndices(m_Scene.morphMeshTotalIndicesNum);
-    uint32_t morphMeshIndexOffset = 0;
-
-    // Compact static base pose data
-    for (uint32_t morphMeshIndex : m_Scene.morphMeshes) {
-        const utils::Mesh& mesh = m_Scene.meshes[morphMeshIndex];
-        memcpy(morphMeshIndices.data() + morphMeshIndexOffset, &m_Scene.indices[mesh.indexOffset], mesh.indexNum * sizeof(m_Scene.indices[mesh.indexOffset]));
-        morphMeshIndexOffset += mesh.indexNum;
-    }
-
     // Buffer data
     nri::BufferUploadDesc bufferUploadDescs[] = {
         {primitiveData.data(), Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE}},
-        {morphMeshIndices.data(), Get(Buffer::MorphMeshIndices), {nri::AccessBits::SHADER_RESOURCE}},
-        {m_Scene.morphVertices.data(), Get(Buffer::MorphMeshVertices), {nri::AccessBits::SHADER_RESOURCE}}};
+    };
 
     // Upload data and apply states
     NRI_ABORT_ON_FAILURE(NRI.UploadData(*m_GraphicsQueue, textureUploadDescs.data(), helper::GetCountOf(textureUploadDescs), bufferUploadDescs, helper::GetCountOf(bufferUploadDescs)));
@@ -4078,17 +3864,13 @@ void Sample::GatherInstanceData() {
                 mObjectToWorld.AddTranslation(m_Camera.GetRelative(instance.position));
                 mObjectToWorldPrev.AddTranslation(m_Camera.GetRelative(instance.positionPrev));
 
-                if (mesh.HasMorphTargets())
-                    mOverloadedMatrix = mObjectToWorldPrev;
-                else {
-                    // World to world (previous state) transform
-                    // FP64 used to avoid imprecision problems on close up views (InvertOrtho can't be used due to scaling factors)
-                    double4x4 dmWorldToObject = double4x4(mObjectToWorld);
-                    dmWorldToObject.Invert();
+                // World to world (previous state) transform
+                // FP64 used to avoid imprecision problems on close up views (InvertOrtho can't be used due to scaling factors)
+                double4x4 dmWorldToObject = double4x4(mObjectToWorld);
+                dmWorldToObject.Invert();
 
-                    double4x4 dmObjectToWorldPrev = double4x4(mObjectToWorldPrev);
-                    mOverloadedMatrix = float4x4(dmObjectToWorldPrev * dmWorldToObject);
-                }
+                double4x4 dmObjectToWorldPrev = double4x4(mObjectToWorldPrev);
+                mOverloadedMatrix = float4x4(dmObjectToWorldPrev * dmWorldToObject);
 
                 // Update previous state
                 instance.positionPrev = instance.position;
@@ -4114,8 +3896,6 @@ void Sample::GatherInstanceData() {
             uint32_t flags = 0;
             if (!instance.allowUpdate)
                 flags |= FLAG_STATIC;
-            if (meshInstance.morphedVertexOffset != utils::InvalidIndex)
-                flags |= FLAG_DEFORMABLE;
             if (material.isHair)
                 flags |= FLAG_HAIR;
             if (material.isLeaf)
@@ -4141,7 +3921,6 @@ void Sample::GatherInstanceData() {
             instanceData.emissionAndRoughnessScale = material.emissiveAndRoughnessScale;
             instanceData.textureOffsetAndFlags = baseTextureIndex | (flags << FLAG_FIRST_BIT);
             instanceData.primitiveOffset = meshInstance.primitiveOffset;
-            instanceData.morphedPrimitiveOffset = meshInstance.morphedPrimitiveOffset;
             instanceData.scale = (isLeftHanded ? -1.0f : 1.0f) * max(scale.x, max(scale.y, scale.z));
 
             // Add dynamic geometry
@@ -4480,164 +4259,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     NRI.CmdSetPipelineLayout(commandBuffer, *m_PipelineLayout);
 
     NRI.CmdSetDescriptorSet(commandBuffer, SET_GLOBAL, *Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset);
-
-    // Update morph animation
-    if (m_Settings.activeAnimation < m_Scene.animations.size() && m_Scene.animations[m_Settings.activeAnimation].morphMeshInstances.size() && (!m_Settings.pauseAnimation || !m_SettingsPrev.pauseAnimation || frameIndex == 0)) {
-        const utils::Animation& animation = m_Scene.animations[m_Settings.activeAnimation];
-        uint32_t animCurrBufferIndex = frameIndex & 0x1;
-        uint32_t animPrevBufferIndex = frameIndex == 0 ? animCurrBufferIndex : 1 - animCurrBufferIndex;
-
-        { // Update vertices
-            helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: update vertices");
-
-            { // Transitions
-                const nri::BufferBarrierDesc bufferTransitions[] = {
-                    // Output
-                    {Get(Buffer::MorphedPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                    {Get(Buffer::MorphedAttributes), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                };
-
-                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
-                NRI.CmdBarrier(commandBuffer, transitionBarriers);
-            }
-
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::MorphMeshUpdateVertices));
-
-            for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
-                const utils::WeightsAnimationTrack& weightsTrack = animation.weightTracks[weightTrackMeshInstance.weightTrackIndex];
-                const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
-                const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
-
-                uint32_t numShaderMorphTargets = min((uint32_t)(weightsTrack.activeValues.size()), MORPH_MAX_ACTIVE_TARGETS_NUM);
-                float totalWeight = 0.f;
-                for (uint32_t i = 0; i < numShaderMorphTargets; i++)
-                    totalWeight += weightsTrack.activeValues[i].second;
-                float renormalizeScale = 1.0f / totalWeight;
-
-                MorphMeshUpdateVerticesConstants constants = {};
-                {
-                    for (uint32_t i = 0; i < numShaderMorphTargets; i++) {
-                        uint32_t morphTargetIndex = weightsTrack.activeValues[i].first;
-                        uint32_t morphTargetVertexOffset = mesh.morphTargetVertexOffset + morphTargetIndex * mesh.vertexNum;
-
-                        constants.gIndices[i / MORPH_ELEMENTS_PER_ROW_NUM].a[i % MORPH_ELEMENTS_PER_ROW_NUM] = morphTargetVertexOffset;
-                        constants.gWeights[i / MORPH_ELEMENTS_PER_ROW_NUM].a[i % MORPH_ELEMENTS_PER_ROW_NUM] = renormalizeScale * weightsTrack.activeValues[i].second;
-                    }
-                    constants.gNumWeights = numShaderMorphTargets;
-                    constants.gNumVertices = mesh.vertexNum;
-                    constants.gPositionCurrFrameOffset = m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset;
-                    constants.gAttributesOutputOffset = meshInstance.morphedVertexOffset;
-                }
-
-                uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
-                NRI.CmdSetDescriptorSet(commandBuffer, SET_MORPH, *Get(DescriptorSet::MorphTargetPose4), &dynamicConstantBufferOffset);
-
-                NRI.CmdDispatch(commandBuffer, {(mesh.vertexNum + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
-            }
-
-            { // Transitions
-                const nri::BufferBarrierDesc bufferTransitions[] = {
-                    // Input
-                    {Get(Buffer::MorphedPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                    {Get(Buffer::MorphedAttributes), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-
-                    // Output
-                    {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                    {Get(Buffer::MorphedPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                };
-
-                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
-                NRI.CmdBarrier(commandBuffer, transitionBarriers);
-            }
-        }
-
-        { // Update primitives
-            helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: update primitives");
-
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::MorphMeshUpdatePrimitives));
-
-            for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
-                const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
-                const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
-                uint32_t numPrimitives = mesh.indexNum / 3;
-
-                MorphMeshUpdatePrimitivesConstants constants = {};
-                {
-                    constants.gPositionFrameOffsets.x = m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset;
-                    constants.gPositionFrameOffsets.y = m_Scene.morphedVerticesNum * animPrevBufferIndex + meshInstance.morphedVertexOffset;
-                    constants.gNumPrimitives = numPrimitives;
-                    constants.gIndexOffset = mesh.morphMeshIndexOffset;
-                    constants.gAttributesOffset = meshInstance.morphedVertexOffset;
-                    constants.gPrimitiveOffset = meshInstance.primitiveOffset;
-                    constants.gMorphedPrimitiveOffset = meshInstance.morphedPrimitiveOffset;
-                }
-
-                uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
-                NRI.CmdSetDescriptorSet(commandBuffer, SET_MORPH, *Get(DescriptorSet::MorphTargetUpdatePrimitives4), &dynamicConstantBufferOffset);
-
-                NRI.CmdDispatch(commandBuffer, {(numPrimitives + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
-            }
-        }
-
-        { // Update BLAS
-            helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: BLAS");
-
-            const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
-
-            // Do build if the animation gets paused
-            bool doBuild = m_Settings.pauseAnimation && !m_SettingsPrev.pauseAnimation;
-
-            size_t scratchOffset = 0;
-            for (const utils::WeightTrackMorphMeshIndex& weightTrackMeshInstance : animation.morphMeshInstances) {
-                const utils::MeshInstance& meshInstance = m_Scene.meshInstances[weightTrackMeshInstance.meshInstanceIndex];
-                const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
-
-                nri::AccelerationStructure* accelerationStructure = m_AccelerationStructures[meshInstance.blasIndex];
-
-                nri::BottomLevelGeometryDesc bottomLevelGeometry = {};
-                bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
-                bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY; // TODO: naively assumed
-                bottomLevelGeometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
-                bottomLevelGeometry.triangles.vertexStride = sizeof(float16_t4);
-                bottomLevelGeometry.triangles.vertexOffset = bottomLevelGeometry.triangles.vertexStride * (m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset);
-                bottomLevelGeometry.triangles.vertexNum = mesh.vertexNum;
-                bottomLevelGeometry.triangles.vertexFormat = nri::Format::RGBA16_SFLOAT;
-                bottomLevelGeometry.triangles.indexBuffer = Get(Buffer::MorphMeshIndices);
-                bottomLevelGeometry.triangles.indexOffset = mesh.morphMeshIndexOffset * sizeof(utils::Index);
-                bottomLevelGeometry.triangles.indexNum = mesh.indexNum;
-                bottomLevelGeometry.triangles.indexType = sizeof(utils::Index) == 2 ? nri::IndexType::UINT16 : nri::IndexType::UINT32;
-
-                nri::BuildBottomLevelAccelerationStructureDesc buildBottomLevelAccelerationStructureDesc = {};
-                buildBottomLevelAccelerationStructureDesc.dst = accelerationStructure;
-                buildBottomLevelAccelerationStructureDesc.geometryNum = 1;
-                buildBottomLevelAccelerationStructureDesc.geometries = &bottomLevelGeometry;
-                buildBottomLevelAccelerationStructureDesc.scratchBuffer = Get(Buffer::MorphMeshScratch);
-                buildBottomLevelAccelerationStructureDesc.scratchOffset = scratchOffset;
-
-                if (doBuild) {
-                    uint64_t size = NRI.GetAccelerationStructureBuildScratchBufferSize(*accelerationStructure);
-                    scratchOffset += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);
-                } else {
-                    buildBottomLevelAccelerationStructureDesc.src = accelerationStructure;
-
-                    uint64_t size = NRI.GetAccelerationStructureUpdateScratchBufferSize(*accelerationStructure);
-                    scratchOffset += helper::Align(size, deviceDesc.memoryAlignment.scratchBufferOffset);
-                }
-
-                NRI.CmdBuildBottomLevelAccelerationStructures(commandBuffer, &buildBottomLevelAccelerationStructureDesc, 1);
-            }
-
-            { // Transitions
-                const nri::BufferBarrierDesc bufferTransitions[] = {
-                    {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                    {Get(Buffer::MorphedPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                };
-
-                nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
-                NRI.CmdBarrier(commandBuffer, transitionBarriers);
-            }
-        }
-    }
 
     { // TLAS
         helper::Annotation annotation(NRI, commandBuffer, "TLAS");

@@ -100,7 +100,6 @@
 #define SET_OTHER                           1
 #define SET_RAY_TRACING                     2
 #define SET_SHARC                           3
-#define SET_MORPH                           4
 
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001
@@ -154,7 +153,6 @@
 #define FLAG_TRANSPARENT                    0x02 // geometry flag: transparent
 #define FLAG_FORCED_EMISSION                0x04 // animated emissive cube
 #define FLAG_STATIC                         0x08 // no velocity
-#define FLAG_DEFORMABLE                     0x10 // local animation
 #define FLAG_HAIR                           0x20 // hair
 #define FLAG_LEAF                           0x40 // leaf
 
@@ -164,26 +162,6 @@
 // STRUCTS
 //===============================================================
 // IMPORTANT: sizeof( float3 ) == 16 in C++ code!
-
-struct MorphVertex // same as utils::MorphVertex
-{
-    float16_t4 pos;
-    float16_t2 N;
-    float16_t2 T;
-};
-
-struct MorphedAttributes
-{
-    float16_t2 N;
-    float16_t2 T;
-};
-
-struct MorphedPrimitivePrevPositions
-{
-    float16_t4 pos0;
-    float16_t4 pos1;
-    float16_t4 pos2;
-};
 
 struct PrimitiveData
 {
@@ -217,7 +195,7 @@ struct InstanceData
 
     uint32_t textureOffsetAndFlags;
     uint32_t primitiveOffset;
-    uint32_t morphedPrimitiveOffset;
+    uint32_t unused;
 
     // TODO: handling object scale embedded into the transformation matrix (assuming uniform scale)
     // TODO: sign represents triangle winding
@@ -298,28 +276,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     uint32_t gSR;
     uint32_t gRR;
     uint32_t gIsSrgb;
-};
-
-NRI_RESOURCE( cbuffer, MorphMeshUpdateVerticesConstants, b, 0, SET_MORPH )
-{
-    uint4 gIndices[ MORPH_ROWS_NUM ];
-    float4 gWeights[ MORPH_ROWS_NUM ];
-
-    uint32_t gNumWeights;
-    uint32_t gNumVertices;
-    uint32_t gPositionCurrFrameOffset;
-    uint32_t gAttributesOutputOffset;
-};
-
-NRI_RESOURCE( cbuffer, MorphMeshUpdatePrimitivesConstants, b, 0, SET_MORPH )
-{
-    uint2 gPositionFrameOffsets;
-    uint32_t gNumPrimitives;
-    uint32_t gIndexOffset;
-
-    uint32_t gAttributesOffset;
-    uint32_t gPrimitiveOffset;
-    uint32_t gMorphedPrimitiveOffset;
 };
 
 #if( !defined( __cplusplus ) )

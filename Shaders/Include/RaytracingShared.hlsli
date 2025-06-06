@@ -3,8 +3,7 @@ NRI_RESOURCE( RaytracingAccelerationStructure, gWorldTlas, t, 0, SET_RAY_TRACING
 NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_RAY_TRACING );
 NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_RAY_TRACING );
 NRI_RESOURCE( StructuredBuffer<PrimitiveData>, gIn_PrimitiveData, t, 3, SET_RAY_TRACING );
-NRI_RESOURCE( StructuredBuffer<MorphedPrimitivePrevPositions>, gIn_MorphedPrimitivePrevPositions, t, 4, SET_RAY_TRACING );
-NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 5, SET_RAY_TRACING );
+NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 4, SET_RAY_TRACING );
 
 NRI_RESOURCE( RWStructuredBuffer<uint64_t>, gInOut_SharcHashEntriesBuffer, u, 0, SET_SHARC );
 NRI_RESOURCE( RWStructuredBuffer<uint>, gInOut_SharcHashCopyOffsetBuffer, u, 1, SET_SHARC );
@@ -317,14 +316,7 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
         props.T = float4( T, primitiveData.bitangentSign_unused.x );
 
         props.X = origin + direction * props.hitT;
-        if( props.Has( FLAG_DEFORMABLE ) )
-        {
-            MorphedPrimitivePrevPositions prev = gIn_MorphedPrimitivePrevPositions[ instanceData.morphedPrimitiveOffset + rayQuery.CommittedPrimitiveIndex( ) ];
-
-            float3 XprevLocal = barycentrics.x * prev.pos0.xyz + barycentrics.y * prev.pos1.xyz + barycentrics.z * prev.pos2.xyz;
-            props.Xprev = Geometry::AffineTransform( mOverloaded, XprevLocal );
-        }
-        else if( !props.Has( FLAG_STATIC ) )
+        if( !props.Has( FLAG_STATIC ) )
             props.Xprev = Geometry::AffineTransform( mOverloaded, props.X );
         else
             props.Xprev = props.X;
