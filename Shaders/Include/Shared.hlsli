@@ -45,26 +45,6 @@
 #define DENOISER_RELAX                      1
 #define DENOISER_REFERENCE                  2
 
-// What is on screen?
-#define SHOW_FINAL                          0
-#define SHOW_DENOISED_DIFFUSE               1
-#define SHOW_DENOISED_SPECULAR              2
-#define SHOW_AMBIENT_OCCLUSION              3
-#define SHOW_SPECULAR_OCCLUSION             4
-#define SHOW_SHADOW                         5
-#define SHOW_BASE_COLOR                     6
-#define SHOW_NORMAL                         7
-#define SHOW_ROUGHNESS                      8
-#define SHOW_METALNESS                      9
-#define SHOW_MATERIAL_ID                    10
-#define SHOW_PSR_THROUGHPUT                 11
-#define SHOW_WORLD_UNITS                    12
-#define SHOW_INSTANCE_INDEX                 13
-#define SHOW_UV                             14
-#define SHOW_CURVATURE                      15
-#define SHOW_MIP_PRIMARY                    16
-#define SHOW_MIP_SPECULAR                   17
-
 // Predefined material override
 #define MATERIAL_GYPSUM                     1
 #define MATERIAL_COBALT                     2
@@ -98,6 +78,7 @@
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
 #define PT_GLASS_MIN_F                      0.05 // adds a bit of stability and bias
 #define PT_DELTA_BOUNCES_NUM                8
+#define PT_PSR_BOUNCES_NUM                  2
 
 // Spatial HAsh-ased Radiance Cache ( SHARC )
 #define SHARC_CAPACITY                      ( 1 << 22 )
