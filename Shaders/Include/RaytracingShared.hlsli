@@ -586,7 +586,7 @@ float3 GetShadowedLighting( GeometryProps geometryProps, MaterialProps materialP
     if( ( flags & SKIP_EMISSIVE ) == 0 )
         L += materialProps.Lemi;
 
-    return NRD_MODE < OCCLUSION ? L : 0.0;
+    return L;
 }
 
 float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps materialProps, bool useMagicBoost = false )
@@ -686,7 +686,7 @@ float ReprojectIrradiance(
 
     // Avoid NANs
     [flatten]
-    if( any( isnan( Ldiff ) | isinf( Ldiff ) | isnan( Lspec ) | isinf( Lspec ) ) || NRD_MODE >= OCCLUSION )
+    if( any( isnan( Ldiff ) | isinf( Ldiff ) | isnan( Lspec ) | isinf( Lspec ) ) ) // TODO: needed?
     {
         Ldiff = 0;
         Lspec = 0;

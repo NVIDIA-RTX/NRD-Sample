@@ -134,36 +134,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
         // ( Optional ) AO / SO
         diff.w = diffSg.normHitDist;
         spec.w = specSg.normHitDist;
-    // Decode OCCLUSION mode outputs
-    #elif( NRD_MODE == OCCLUSION )
-        diff.w = diff.x;
-        spec.w = spec.x;
-    // Decode DIRECTIONAL_OCCLUSION mode outputs
-    #elif( NRD_MODE == DIRECTIONAL_OCCLUSION )
-        NRD_SG sg = REBLUR_BackEnd_UnpackDirectionalOcclusion( diff );
-
-        if( gResolve )
-        {
-            // Regain macro-details
-            diff.w = NRD_SG_ResolveDiffuse( sg, N ).x; // or NRD_SH_ResolveDiffuse( sg, N ).x
-
-            // Regain micro-details // TODO: preload N and Z into SMEM
-            float3 Ne = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( 1, 0 ) ] ).xyz;
-            float3 Nw = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( -1, 0 ) ] ).xyz;
-            float3 Nn = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( 0, 1 ) ] ).xyz;
-            float3 Ns = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( 0, -1 ) ] ).xyz;
-
-            float Ze = gIn_ViewZ[ pixelPos + int2(  1,  0 ) ];
-            float Zw = gIn_ViewZ[ pixelPos + int2( -1,  0 ) ];
-            float Zn = gIn_ViewZ[ pixelPos + int2(  0,  1 ) ];
-            float Zs = gIn_ViewZ[ pixelPos + int2(  0, -1 ) ];
-
-            float scale = NRD_SG_ReJitter( sg, sg, 0.0, V, 0.0, viewZ, Ze, Zw, Zn, Zs, N, Ne, Nw, Nn, Ns ).x;
-
-            diff.w *= scale;
-        }
-        else
-            diff.w = NRD_SG_ExtractColor( sg ).x;
     // Decode NORMAL mode outputs
     #else
         if( gDenoiserType == DENOISER_RELAX )
@@ -245,55 +215,53 @@ void main( int2 pixelPos : SV_DispatchThreadId )
         Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? spec.xyz : Ldirect.xyz;
 
     // SHARC debug
-    #if( NRD_MODE < OCCLUSION )
-        HashGridParameters hashGridParams;
-        hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-        hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-        hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-        hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+    HashGridParameters hashGridParams;
+    hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
+    hashGridParams.sceneScale = SHARC_SCENE_SCALE;
+    hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+    hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
 
-        #if( USE_SHARC_DEBUG == 1 )
-            float3 Xglobal = GetGlobalPos( X );
+    #if( USE_SHARC_DEBUG == 1 )
+        float3 Xglobal = GetGlobalPos( X );
 
-            // Dithered output
-            #if 0
-                Rng::Hash::Initialize( pixelPos, gFrameIndex );
+        // Dithered output
+        #if 0
+            Rng::Hash::Initialize( pixelPos, gFrameIndex );
 
-                uint level = HashGridGetLevel( Xglobal, hashGridParams );
-                float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
-                float3x3 mBasis = Geometry::GetBasis( N );
-                float2 rnd = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
-                Xglobal += mBasis[ 0 ] * rnd.x + mBasis[ 1 ] * rnd.y;
-            #endif
-
-            SharcHitData sharcHitData;
-            sharcHitData.positionWorld = Xglobal;
-            sharcHitData.normalWorld = N;
-            sharcHitData.emissive = Lemi;
-
-            HashMapData hashMapData;
-            hashMapData.capacity = SHARC_CAPACITY;
-            hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-            SharcParameters sharcParams;
-            sharcParams.gridParameters = hashGridParams;
-            sharcParams.hashMapData = hashMapData;
-            sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-            sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-            sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
-
-            bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, Ldiff, true );
-
-            // Highlight invalid cells
-            #if 0
-                Ldiff = isValid ? Ldiff : float3( 1.0, 0.0, 0.0 );
-            #endif
-        #elif( USE_SHARC_DEBUG == 2 )
-            Ldiff = HashGridDebugColoredHash( GetGlobalPos( X ), hashGridParams );
+            uint level = HashGridGetLevel( Xglobal, hashGridParams );
+            float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
+            float3x3 mBasis = Geometry::GetBasis( N );
+            float2 rnd = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
+            Xglobal += mBasis[ 0 ] * rnd.x + mBasis[ 1 ] * rnd.y;
         #endif
 
-        Lspec *= float( USE_SHARC_DEBUG == 0 );
+        SharcHitData sharcHitData;
+        sharcHitData.positionWorld = Xglobal;
+        sharcHitData.normalWorld = N;
+        sharcHitData.emissive = Lemi;
+
+        HashMapData hashMapData;
+        hashMapData.capacity = SHARC_CAPACITY;
+        hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+
+        SharcParameters sharcParams;
+        sharcParams.gridParameters = hashGridParams;
+        sharcParams.hashMapData = hashMapData;
+        sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
+        sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
+        sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+
+        bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, Ldiff, true );
+
+        // Highlight invalid cells
+        #if 0
+            Ldiff = isValid ? Ldiff : float3( 1.0, 0.0, 0.0 );
+        #endif
+    #elif( USE_SHARC_DEBUG == 2 )
+        Ldiff = HashGridDebugColoredHash( GetGlobalPos( X ), hashGridParams );
     #endif
+
+    Lspec *= float( USE_SHARC_DEBUG == 0 );
 
     // Output
     gOut_ComposedDiff[ pixelPos ] = Ldiff;

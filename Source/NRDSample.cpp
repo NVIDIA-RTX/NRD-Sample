@@ -336,9 +336,9 @@ struct Settings {
     uint32_t activeAnimation = 0;
     int32_t motionMode = 0;
     int32_t denoiser = DENOISER_REBLUR;
-    int32_t rpp = 1;
+    int32_t unused2 = 0;
     int32_t bounceNum = 1;
-    int32_t tracingMode = RESOLUTION_HALF;
+    int32_t unused = 0;
     int32_t mvType = MV_25D;
 
     bool cameraJitter = true;
@@ -359,7 +359,7 @@ struct Settings {
     bool linearMotion = true;
     bool emissiveObjects = false;
     bool importanceSampling = true;
-    bool specularLobeTrimming = true;
+    bool unused3 = true;
     bool ortho = false;
     bool adaptiveAccumulation = true;
     bool usePrevFrame = true;
@@ -489,12 +489,6 @@ public:
             resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST, GetNrdResource(Texture::Diff));
 
-            // Diffuse occlusion
-#if (NRD_MODE == OCCLUSION)
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
-            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_HITDIST, GetNrdResource(Texture::Diff));
-#endif
-
             // Diffuse SH
 #if (NRD_MODE == SH)
             resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_SH0, GetNrdResource(Texture::Unfiltered_Diff));
@@ -503,21 +497,9 @@ public:
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_SH1, GetNrdResource(Texture::DiffSh));
 #endif
 
-            // Diffuse directional occlusion
-#if (NRD_MODE == DIRECTIONAL_OCCLUSION)
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
-            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Diff));
-#endif
-
             // Specular
             resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST, GetNrdResource(Texture::Unfiltered_Spec));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST, GetNrdResource(Texture::Spec));
-
-            // Specular occlusion
-#if (NRD_MODE == OCCLUSION)
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_HITDIST, GetNrdResource(Texture::Unfiltered_Spec));
-            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_HITDIST, GetNrdResource(Texture::Spec));
-#endif
 
             // Specular SH
 #if (NRD_MODE == SH)
@@ -562,29 +544,26 @@ public:
 
     inline nrd::RelaxSettings GetDefaultRelaxSettings() const {
         nrd::RelaxSettings defaults = {};
-        // Helps to mitigate fireflies emphasized by DLSS
+        defaults.checkerboardMode = nrd::CheckerboardMode::OFF;
+        defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
+        defaults.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
+        defaults.minMaterialForSpecular = MATERIAL_ID_METAL;
 
-#if (NRD_MODE < OCCLUSION)
+        // Helps to mitigate fireflies emphasized by DLSS
         // defaults.enableAntiFirefly = m_DlssQuality != -1 && IsDlssEnabled(); // TODO: currently doesn't help in this case, but makes the image darker
-#endif
 
         return defaults;
     }
 
     inline nrd::ReblurSettings GetDefaultReblurSettings() const {
         nrd::ReblurSettings defaults = {};
+        defaults.checkerboardMode = nrd::CheckerboardMode::OFF;
+        defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
+        defaults.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
+        defaults.minMaterialForSpecular = MATERIAL_ID_METAL;
 
-#if (NRD_MODE < OCCLUSION)
         // Helps to mitigate fireflies emphasized by DLSS
         defaults.enableAntiFirefly = m_DlssQuality != -1 && IsDlssEnabled();
-#else
-        // Occlusion signal is cleaner by the definition
-        defaults.historyFixFrameNum = 2;
-
-        // TODO: experimental, but works well so far
-        defaults.minBlurRadius = 5.0f;
-        defaults.lobeAngleFraction = 0.5f;
-#endif
 
         return defaults;
     }
@@ -798,7 +777,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
 
     if (m_DlssQuality != -1) {
         nri::UpscalerBits upscalerFlags = nri::UpscalerBits::DEPTH_INFINITE;
-        upscalerFlags |= NRD_MODE < OCCLUSION ? nri::UpscalerBits::HDR : nri::UpscalerBits::NONE;
+        upscalerFlags |= nri::UpscalerBits::HDR;
         upscalerFlags |= m_ReversedZ ? nri::UpscalerBits::DEPTH_INVERTED : nri::UpscalerBits::NONE;
 
         nri::UpscalerMode mode = nri::UpscalerMode::NATIVE;
@@ -865,52 +844,21 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
     {
         const nrd::DenoiserDesc denoisersDescs[] = {
         // REBLUR
-#if (NRD_MODE == OCCLUSION)
-#    if (NRD_COMBINED == 1)
-            {NRD_ID(REBLUR_DIFFUSE_SPECULAR_OCCLUSION), nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR_OCCLUSION},
-#    else
-            {NRD_ID(REBLUR_DIFFUSE_OCCLUSION), nrd::Denoiser::REBLUR_DIFFUSE_OCCLUSION},
-            {NRD_ID(REBLUR_SPECULAR_OCCLUSION), nrd::Denoiser::REBLUR_SPECULAR_OCCLUSION},
-#    endif
-#elif (NRD_MODE == SH)
-#    if (NRD_COMBINED == 1)
+#if (NRD_MODE == SH)
             {NRD_ID(REBLUR_DIFFUSE_SPECULAR_SH), nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR_SH},
-#    else
-            {NRD_ID(REBLUR_DIFFUSE_SH), nrd::Denoiser::REBLUR_DIFFUSE_SH},
-            {NRD_ID(REBLUR_SPECULAR_SH), nrd::Denoiser::REBLUR_SPECULAR_SH},
-#    endif
-#elif (NRD_MODE == DIRECTIONAL_OCCLUSION)
-            {NRD_ID(REBLUR_DIFFUSE_DIRECTIONAL_OCCLUSION), nrd::Denoiser::REBLUR_DIFFUSE_DIRECTIONAL_OCCLUSION},
 #else
-#    if (NRD_COMBINED == 1)
             {NRD_ID(REBLUR_DIFFUSE_SPECULAR), nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR},
-#    else
-            {NRD_ID(REBLUR_DIFFUSE), nrd::Denoiser::REBLUR_DIFFUSE},
-            {NRD_ID(REBLUR_SPECULAR), nrd::Denoiser::REBLUR_SPECULAR},
-#    endif
 #endif
 
         // RELAX
 #if (NRD_MODE == SH)
-#    if (NRD_COMBINED == 1)
             {NRD_ID(RELAX_DIFFUSE_SPECULAR_SH), nrd::Denoiser::RELAX_DIFFUSE_SPECULAR_SH},
-#    else
-            {NRD_ID(RELAX_DIFFUSE_SH), nrd::Denoiser::RELAX_DIFFUSE_SH},
-            {NRD_ID(RELAX_SPECULAR_SH), nrd::Denoiser::RELAX_SPECULAR_SH},
-#    endif
 #else
-#    if (NRD_COMBINED == 1)
             {NRD_ID(RELAX_DIFFUSE_SPECULAR), nrd::Denoiser::RELAX_DIFFUSE_SPECULAR},
-#    else
-            {NRD_ID(RELAX_DIFFUSE), nrd::Denoiser::RELAX_DIFFUSE},
-            {NRD_ID(RELAX_SPECULAR), nrd::Denoiser::RELAX_SPECULAR},
-#    endif
 #endif
 
-        // SIGMA
-#if (NRD_MODE < OCCLUSION)
+            // SIGMA
             {NRD_ID(SIGMA_SHADOW), SIGMA_VARIANT},
-#endif
 
             // REFERENCE
             {NRD_ID(REFERENCE), nrd::Denoiser::REFERENCE},
@@ -1068,12 +1016,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     ImGui::NewFrame();
     if (!IsKeyPressed(Key::LAlt) && m_ShowUi) {
         static const char* onScreenModes[] = {
-#if (NRD_MODE == OCCLUSION)
-            "Diffuse occlusion",
-            "Specular occlusion",
-#elif (NRD_MODE == DIRECTIONAL_OCCLUSION)
-            "Diffuse occlusion",
-#else
             "Final",
             "Denoised diffuse",
             "Denoised specular",
@@ -1092,14 +1034,12 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
             "Curvature",
             "Mip level (primary)",
             "Mip level (specular)",
-#endif
         };
 
-        static std::array<const char*, 4> nrdModes = {
+        static std::array<const char*, 2> nrdModes = {
             "NORMAL",
             "SH",
-            "OCCLUSION"
-            "DIRECTIONAL_OCCLUSION"};
+        };
 
         const nrd::LibraryDesc& nrdLibraryDesc = nrd::GetLibraryDesc();
 
@@ -1340,31 +1280,14 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                     if (isUnfolded) {
                         const float sceneRadiusInMeters = m_Scene.aabb.GetRadius() / m_Settings.meterToUnitsMultiplier;
 
-                        static const char* resolution[] = {
-                            "Full",
-                            "Full (probabilistic)",
-                            "Half",
-                        };
-
-#if (NRD_MODE < OCCLUSION)
-                        ImGui::SliderInt2("Samples / Bounces", &m_Settings.rpp, 1, 8);
-#else
-                        ImGui::SliderInt("Samples", &m_Settings.rpp, 1, 8);
-#endif
                         ImGui::SliderFloat("AO / SO range (m)", &m_Settings.hitDistScale, 0.01f, sceneRadiusInMeters, "%.2f");
-                        ImGui::PushStyleColor(ImGuiCol_Text, (m_Settings.denoiser == DENOISER_REFERENCE && m_Settings.tracingMode > RESOLUTION_FULL_PROBABILISTIC) ? UI_YELLOW : UI_DEFAULT);
-                        ImGui::Combo("Resolution", &m_Settings.tracingMode, resolution, helper::GetCountOf(resolution));
-                        ImGui::PopStyleColor();
 
                         ImGui::Checkbox("Diff", &m_Settings.indirectDiffuse);
                         ImGui::SameLine();
                         ImGui::Checkbox("Spec", &m_Settings.indirectSpecular);
                         ImGui::SameLine();
-                        ImGui::Checkbox("Trim lobe", &m_Settings.specularLobeTrimming);
-                        ImGui::SameLine();
                         ImGui::Checkbox("Normal map", &m_Settings.normalMap);
 
-#if (NRD_MODE < OCCLUSION)
                         const float3& sunDirection = GetSunDirection();
                         ImGui::SameLine();
                         ImGui::PushStyleColor(ImGuiCol_Text, sunDirection.z > 0.0f ? UI_DEFAULT : (m_Settings.importanceSampling ? UI_GREEN : UI_YELLOW));
@@ -1376,27 +1299,18 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.SHARC ? UI_GREEN : UI_YELLOW);
                         ImGui::Checkbox("L2 (SHARC)", &m_Settings.SHARC);
                         ImGui::PopStyleColor();
-#endif
-                        if (m_Settings.tracingMode != RESOLUTION_HALF) {
-                            ImGui::SameLine();
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.PSR ? UI_GREEN : UI_YELLOW);
-                            ImGui::Checkbox("PSR", &m_Settings.PSR);
-                            ImGui::PopStyleColor();
-                        }
+                        ImGui::SameLine();
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.PSR ? UI_GREEN : UI_YELLOW);
+                        ImGui::Checkbox("PSR", &m_Settings.PSR);
+                        ImGui::PopStyleColor();
                     }
                     ImGui::PopID();
 
                     // "NRD" section
                     static const char* denoiser[] = {
-#if (NRD_MODE == OCCLUSION)
-                        "REBLUR_OCCLUSION",
-                        "(unsupported)",
-#elif (NRD_MODE == SH)
+#if (NRD_MODE == SH)
                         "REBLUR_SH",
                         "RELAX_SH",
-#elif (NRD_MODE == DIRECTIONAL_OCCLUSION)
-                        "REBLUR_DIRECTIONAL_OCCLUSION",
-                        "(unsupported)",
 #else
                         "REBLUR",
                         "RELAX",
@@ -1415,12 +1329,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                     if (m_Settings.RR)
                         ImGui::Text("Pass-through mode...");
                     else if (isUnfolded) {
-                        static const char* hitDistanceReconstructionMode[] = {
-                            "Off",
-                            "3x3",
-                            "5x5",
-                        };
-
                         if (m_DebugNRD) {
                             ImGui::PushStyleColor(ImGuiCol_Text, m_ShowValidationOverlay ? UI_YELLOW : UI_DEFAULT);
                             ImGui::Checkbox("Validation overlay", &m_ShowValidationOverlay);
@@ -1445,11 +1353,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
                         if (m_Settings.denoiser == DENOISER_REBLUR) {
                             nrd::ReblurSettings defaults = GetDefaultReblurSettings();
-
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-                                defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-                                defaults.diffusePrepassBlurRadius = defaults.specularPrepassBlurRadius;
-                            }
 
                             bool isSame = true;
                             if (m_ReblurSettings.antilagSettings.luminanceSigmaScale != defaults.antilagSettings.luminanceSigmaScale)
@@ -1477,8 +1380,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             else if (m_ReblurSettings.responsiveAccumulationRoughnessThreshold != defaults.responsiveAccumulationRoughnessThreshold)
                                 isSame = false;
                             else if (m_ReblurSettings.planeDistanceSensitivity != defaults.planeDistanceSensitivity)
-                                isSame = false;
-                            else if (m_ReblurSettings.hitDistanceReconstructionMode != defaults.hitDistanceReconstructionMode)
                                 isSame = false;
                             else if (m_ReblurSettings.enableAntiFirefly != defaults.enableAntiFirefly)
                                 isSame = false;
@@ -1531,7 +1432,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             if (m_Settings.SHARC && m_Settings.adaptiveAccumulation)
                                 ImGui::Checkbox("SHARC boost", &m_Settings.boost);
 
-#if (NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION)
+#if (NRD_MODE == SH)
                             ImGui::SameLine();
                             ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
                             ImGui::Checkbox("Resolve", &m_Resolve);
@@ -1540,28 +1441,10 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
                             ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
                             ImGui::SliderInt2("Accumulation (frames)", &m_Settings.maxAccumulatedFrameNum, 0, MAX_HISTORY_FRAME_NUM, "%d");
-#if (NRD_MODE != OCCLUSION)
                             ImGui::SliderInt("Stabilization (frames)", (int32_t*)&m_ReblurSettings.maxStabilizedFrameNum, 0, m_Settings.maxAccumulatedFrameNum, "%d");
-#endif
                             ImGui::EndDisabled();
 
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-                                ImGui::PushStyleColor(ImGuiCol_Text, m_ReblurSettings.hitDistanceReconstructionMode != nrd::HitDistanceReconstructionMode::OFF ? UI_GREEN : UI_RED);
-                                {
-                                    int32_t v = (int32_t)m_ReblurSettings.hitDistanceReconstructionMode;
-                                    ImGui::Combo("HitT reconstruction", &v, hitDistanceReconstructionMode, helper::GetCountOf(hitDistanceReconstructionMode));
-                                    m_ReblurSettings.hitDistanceReconstructionMode = (nrd::HitDistanceReconstructionMode)v;
-                                }
-                                ImGui::PopStyleColor();
-                            }
-
-#if (NRD_MODE < OCCLUSION)
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC)
-                                ImGui::PushStyleColor(ImGuiCol_Text, m_ReblurSettings.diffusePrepassBlurRadius != 0.0f && m_ReblurSettings.specularPrepassBlurRadius != 0.0f ? UI_GREEN : UI_RED);
                             ImGui::SliderFloat2("Pre-pass radius (px)", &m_ReblurSettings.diffusePrepassBlurRadius, 0.0f, 75.0f, "%.1f");
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC)
-                                ImGui::PopStyleColor();
-#endif
 
                             ImGui::PushStyleColor(ImGuiCol_Text, m_ReblurSettings.minBlurRadius < 0.5f ? UI_RED : UI_DEFAULT);
                             ImGui::SliderFloat("Min blur radius (px)", &m_ReblurSettings.minBlurRadius, 0.0f, 10.0f, "%.1f");
@@ -1583,11 +1466,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             }
                         } else if (m_Settings.denoiser == DENOISER_RELAX) {
                             nrd::RelaxSettings defaults = GetDefaultRelaxSettings();
-
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-                                defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-                                defaults.diffusePrepassBlurRadius = defaults.specularPrepassBlurRadius;
-                            }
 
                             bool isSame = true;
                             if (m_RelaxSettings.antilagSettings.accelerationAmount != defaults.antilagSettings.accelerationAmount)
@@ -1645,8 +1523,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             else if (m_RelaxSettings.normalEdgeStoppingRelaxation != defaults.normalEdgeStoppingRelaxation)
                                 isSame = false;
                             else if (m_RelaxSettings.roughnessEdgeStoppingRelaxation != defaults.roughnessEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.hitDistanceReconstructionMode != defaults.hitDistanceReconstructionMode)
                                 isSame = false;
                             else if (m_RelaxSettings.enableAntiFirefly != defaults.enableAntiFirefly)
                                 isSame = false;
@@ -1712,23 +1588,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             ImGui::SliderInt2("Accumulation (frames)", &m_Settings.maxAccumulatedFrameNum, 0, MAX_HISTORY_FRAME_NUM, "%d");
                             ImGui::EndDisabled();
 
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-                                ImGui::PushStyleColor(ImGuiCol_Text, m_RelaxSettings.hitDistanceReconstructionMode != nrd::HitDistanceReconstructionMode::OFF ? UI_GREEN : UI_RED);
-                                {
-                                    int32_t v = (int32_t)m_RelaxSettings.hitDistanceReconstructionMode;
-                                    ImGui::Combo("HitT reconstruction", &v, hitDistanceReconstructionMode, helper::GetCountOf(hitDistanceReconstructionMode));
-                                    m_RelaxSettings.hitDistanceReconstructionMode = (nrd::HitDistanceReconstructionMode)v;
-                                }
-                                ImGui::PopStyleColor();
-                            }
-
-#if (NRD_MODE < OCCLUSION)
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC)
-                                ImGui::PushStyleColor(ImGuiCol_Text, m_RelaxSettings.diffusePrepassBlurRadius != 0.0f && m_RelaxSettings.specularPrepassBlurRadius != 0.0f ? UI_GREEN : UI_RED);
                             ImGui::SliderFloat2("Pre-pass radius (px)", &m_RelaxSettings.diffusePrepassBlurRadius, 0.0f, 75.0f, "%.1f");
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC)
-                                ImGui::PopStyleColor();
-#endif
 
                             ImGui::SliderInt("A-trous iterations", (int32_t*)&m_RelaxSettings.atrousIterationNum, 2, 8);
                             ImGui::SliderFloat2("Diff-Spec luma weight", &m_RelaxSettings.diffusePhiLuminance, 0.0f, 10.0f, "%.1f");
@@ -2201,54 +2061,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         }
     }
 
-    // Adjust settings if tracing mode has been changed to / from "probabilistic sampling"
-    if (m_Settings.tracingMode != m_SettingsPrev.tracingMode && (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC || m_SettingsPrev.tracingMode == RESOLUTION_FULL_PROBABILISTIC)) {
-        nrd::ReblurSettings reblurDefaults = {};
-        nrd::ReblurSettings relaxDefaults = {};
-
-        if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-            m_ReblurSettings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-            m_ReblurSettings.diffusePrepassBlurRadius = reblurDefaults.specularPrepassBlurRadius;
-            m_ReblurSettings.specularPrepassBlurRadius = reblurDefaults.specularPrepassBlurRadius;
-
-            m_RelaxSettings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-            m_RelaxSettings.diffusePrepassBlurRadius = relaxDefaults.specularPrepassBlurRadius;
-            m_RelaxSettings.specularPrepassBlurRadius = relaxDefaults.specularPrepassBlurRadius;
-        } else {
-            m_ReblurSettings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::OFF;
-            m_ReblurSettings.diffusePrepassBlurRadius = reblurDefaults.diffusePrepassBlurRadius;
-            m_ReblurSettings.specularPrepassBlurRadius = reblurDefaults.specularPrepassBlurRadius;
-
-            m_RelaxSettings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::OFF;
-            m_RelaxSettings.diffusePrepassBlurRadius = relaxDefaults.diffusePrepassBlurRadius;
-            m_RelaxSettings.specularPrepassBlurRadius = relaxDefaults.specularPrepassBlurRadius;
-        }
-    }
-
-    // Print out information
-    if (m_SettingsPrev.resolutionScale != m_Settings.resolutionScale || m_SettingsPrev.tracingMode != m_Settings.tracingMode || m_SettingsPrev.rpp != m_Settings.rpp || frameIndex == 0) {
-        std::array<uint32_t, 4> rppScale = {2, 1, 2, 2};
-        std::array<float, 4> wScale = {1.0f, 1.0f, 0.5f, 0.5f};
-        std::array<float, 4> hScale = {1.0f, 1.0f, 1.0f, 0.5f};
-
-        uint32_t pw = uint32_t(m_RenderResolution.x * m_Settings.resolutionScale + 0.5f);
-        uint32_t ph = uint32_t(m_RenderResolution.y * m_Settings.resolutionScale + 0.5f);
-        uint32_t iw = uint32_t(m_RenderResolution.x * m_Settings.resolutionScale * wScale[m_Settings.tracingMode] + 0.5f);
-        uint32_t ih = uint32_t(m_RenderResolution.y * m_Settings.resolutionScale * hScale[m_Settings.tracingMode] + 0.5f);
-        uint32_t rayNum = m_Settings.rpp * rppScale[m_Settings.tracingMode];
-        float rpp = float(iw * ih * rayNum) / float(pw * ph);
-
-        printf(
-            "Output          : %ux%u\n"
-            "  Primary rays  : %ux%u\n"
-            "  Indirect rays : %ux%u x %u ray(s)\n"
-            "  Indirect rpp  : %.2f\n",
-            GetOutputResolution().x, GetOutputResolution().y,
-            pw, ph,
-            iw, ih, rayNum,
-            rpp);
-    }
-
     if (m_SettingsPrev.denoiser != m_Settings.denoiser || m_SettingsPrev.RR != m_Settings.RR || frameIndex == 0) {
         m_checkMeTests = nullptr;
         m_improveMeTests = nullptr;
@@ -2268,8 +2080,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     // Global history reset
     if (m_SettingsPrev.denoiser != m_Settings.denoiser)
-        m_ForceHistoryReset = true;
-    if (m_SettingsPrev.denoiser == DENOISER_REFERENCE && m_SettingsPrev.tracingMode != m_Settings.tracingMode)
         m_ForceHistoryReset = true;
     if (m_SettingsPrev.ortho != m_Settings.ortho)
         m_ForceHistoryReset = true;
@@ -2320,17 +2130,11 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     m_ReblurSettings.maxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_ReblurSettings.maxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
-    m_ReblurSettings.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
-    m_ReblurSettings.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
-    m_ReblurSettings.minMaterialForSpecular = MATERIAL_ID_METAL;
 
     m_RelaxSettings.diffuseMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
     m_RelaxSettings.specularMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.specularMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
-    m_RelaxSettings.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
-    m_RelaxSettings.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
-    m_RelaxSettings.minMaterialForSpecular = MATERIAL_ID_METAL;
 
     UpdateConstantBuffer(frameIndex, resetHistoryFactor);
     GatherInstanceData();
@@ -3135,13 +2939,7 @@ inline nri::Format ConvertFormatToTextureStorageCompatible(nri::Format format) {
 
 void Sample::CreateResources(nri::Format swapChainFormat) {
     // TODO: DLSS doesn't support R16 UNORM/SNORM
-#if (NRD_MODE == OCCLUSION)
-    const nri::Format dataFormat = m_DlssQuality != -1 ? nri::Format::R16_SFLOAT : nri::Format::R16_UNORM;
-#elif (NRD_MODE == DIRECTIONAL_OCCLUSION)
-    const nri::Format dataFormat = m_DlssQuality != -1 ? nri::Format::RGBA16_SFLOAT : nri::Format::RGBA16_SNORM;
-#else
     const nri::Format dataFormat = nri::Format::RGBA16_SFLOAT;
-#endif
 
 #if (NRD_NORMAL_ENCODING == 0)
     const nri::Format normalFormat = nri::Format::RGBA8_UNORM;
@@ -4020,7 +3818,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     float baseMipBias = ((m_Settings.TAA || IsDlssEnabled()) ? -0.5f : 0.0f) + log2f(m_Settings.resolutionScale);
     float mipBias = baseMipBias + log2f(renderSize.x / outputSize.x);
 
-    uint32_t onScreen = m_Settings.onScreen + (NRD_MODE >= OCCLUSION ? SHOW_AMBIENT_OCCLUSION : 0); // preserve original mapping
+    uint32_t onScreen = m_Settings.onScreen;
 
     float fps = 1000.0f / m_Timer.GetSmoothedFrameTime();
     fps = min(fps, 121.0f);
@@ -4034,21 +3832,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
 
     nrd::HitDistanceParameters hitDistanceParameters = {};
     hitDistanceParameters.A = m_Settings.hitDistScale * m_Settings.meterToUnitsMultiplier;
-
-    float minProbability = 0.0f;
-    if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-        nrd::HitDistanceReconstructionMode mode = nrd::HitDistanceReconstructionMode::OFF;
-        if (m_Settings.denoiser == DENOISER_REBLUR)
-            mode = m_ReblurSettings.hitDistanceReconstructionMode;
-        else if (m_Settings.denoiser == DENOISER_RELAX)
-            mode = m_RelaxSettings.hitDistanceReconstructionMode;
-
-        // Min / max allowed probability to guarantee a sample in 3x3 or 5x5 area - https://godbolt.org/z/YGYo1rjnM
-        if (mode == nrd::HitDistanceReconstructionMode::AREA_3X3)
-            minProbability = 1.0f / 4.0f;
-        else if (mode == nrd::HitDistanceReconstructionMode::AREA_5X5)
-            minProbability = 1.0f / 16.0f;
-    }
 
     float project[3];
     float4 frustum;
@@ -4100,8 +3883,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gTanSunAngularRadius = tan(radians(m_Settings.sunAngularDiameter * 0.5f));
         constants.gTanPixelAngularRadius = tan(0.5f * radians(m_Settings.camFov) / rectSize.x);
         constants.gDebug = m_Settings.debug;
-        constants.gPrevFrameConfidence = (m_Settings.usePrevFrame && NRD_MODE < OCCLUSION && !m_Settings.RR) ? prevFrameMaxAccumulatedFrameNum / (1.0f + prevFrameMaxAccumulatedFrameNum) : 0.0f;
-        constants.gMinProbability = minProbability;
+        constants.gPrevFrameConfidence = (m_Settings.usePrevFrame && !m_Settings.RR) ? prevFrameMaxAccumulatedFrameNum / (1.0f + prevFrameMaxAccumulatedFrameNum) : 0.0f;
         constants.gUnproject = 1.0f / (0.5f * rectH * project[1]);
         constants.gAperture = m_DofAperture * 0.01f;
         constants.gFocalDistance = m_DofFocalDistance;
@@ -4113,19 +3895,16 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gOrthoMode = orthoMode;
         constants.gSharcMaxAccumulatedFrameNum = sharcMaxAccumulatedFrameNum;
         constants.gDenoiserType = (uint32_t)m_Settings.denoiser;
-        constants.gDisableShadowsAndEnableImportanceSampling = (sunDirection.z < 0.0f && m_Settings.importanceSampling && NRD_MODE < OCCLUSION) ? 1 : 0;
+        constants.gDisableShadowsAndEnableImportanceSampling = (sunDirection.z < 0.0f && m_Settings.importanceSampling) ? 1 : 0;
         constants.gOnScreen = onScreen;
         constants.gFrameIndex = frameIndex;
         constants.gForcedMaterial = m_Settings.forcedMaterial;
         constants.gUseNormalMap = m_Settings.normalMap ? 1 : 0;
-        constants.gTracingMode = m_Settings.RR ? RESOLUTION_FULL_PROBABILISTIC : m_Settings.tracingMode;
-        constants.gSampleNum = m_Settings.rpp;
         constants.gBounceNum = m_Settings.bounceNum;
         constants.gResolve = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR) ? false : m_Resolve;
-        constants.gPSR = m_Settings.PSR && m_Settings.tracingMode != RESOLUTION_HALF;
+        constants.gPSR = m_Settings.PSR;
         constants.gSHARC = m_Settings.SHARC;
         constants.gValidation = m_ShowValidationOverlay && m_Settings.denoiser != DENOISER_REFERENCE && m_Settings.separator != 1.0f;
-        constants.gTrimLobe = m_Settings.specularLobeTrimming ? 1 : 0;
         constants.gSR = (m_Settings.SR && !m_Settings.RR) ? 1 : 0;
         constants.gRR = m_Settings.RR ? 1 : 0;
         constants.gIsSrgb = (m_IsSrgb && (onScreen == SHOW_FINAL || onScreen == SHOW_BASE_COLOR)) ? 1 : 0;
@@ -4303,7 +4082,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
     // SHARC
     nri::Buffer* sharcBufferToClear = isEven ? Get(Buffer::SharcVoxelDataPong) : Get(Buffer::SharcVoxelDataPing);
-    if (m_Settings.SHARC && NRD_MODE < OCCLUSION) {
+    if (m_Settings.SHARC) {
         helper::Annotation sharc(NRI, commandBuffer, "Radiance cache");
 
         const nri::BufferBarrierDesc transitions[] = {
@@ -4386,7 +4165,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         NRI.CmdDispatch(commandBuffer, {rectGridWmod, rectGridHmod, 1});
     }
 
-#if (NRD_MODE < OCCLUSION)
     { // Shadow denoising
         helper::Annotation annotation(NRI, commandBuffer, "Shadow denoising");
 
@@ -4401,7 +4179,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         m_NRD.SetDenoiserSettings(denoiser, &m_SigmaSettings);
         Denoise(&denoiser, 1, commandBuffer);
     }
-#endif
 
     { // Opaque Denoising
         helper::Annotation annotation(NRI, commandBuffer, "Opaque denoising");
@@ -4412,32 +4189,16 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             m_ReblurSettings.hitDistanceParameters = hitDistanceParameters;
 
             nrd::ReblurSettings settings = m_ReblurSettings;
-#if (NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION)
+#if (NRD_MODE == SH)
             // High quality SG resolve allows to use more relaxed normal weights
             if (m_Resolve)
                 settings.lobeAngleFraction *= 1.333f;
 #endif
 
-#if (NRD_MODE == OCCLUSION)
-#    if (NRD_COMBINED == 1)
-            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR_OCCLUSION)};
-#    else
-            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_OCCLUSION), NRD_ID(REBLUR_SPECULAR_OCCLUSION)};
-#    endif
-#elif (NRD_MODE == SH)
-#    if (NRD_COMBINED == 1)
+#if (NRD_MODE == SH)
             const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR_SH)};
-#    else
-            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SH), NRD_ID(REBLUR_SPECULAR_SH)};
-#    endif
-#elif (NRD_MODE == DIRECTIONAL_OCCLUSION)
-            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_DIRECTIONAL_OCCLUSION)};
 #else
-#    if (NRD_COMBINED == 1)
             const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE_SPECULAR)};
-#    else
-            const nrd::Identifier denoisers[] = {NRD_ID(REBLUR_DIFFUSE), NRD_ID(REBLUR_SPECULAR)};
-#    endif
 #endif
 
             for (uint32_t i = 0; i < helper::GetCountOf(denoisers); i++)
@@ -4446,24 +4207,16 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             Denoise(denoisers, helper::GetCountOf(denoisers), commandBuffer);
         } else if (m_Settings.denoiser == DENOISER_RELAX) {
             nrd::RelaxSettings settings = m_RelaxSettings;
-#if (NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION)
+#if (NRD_MODE == SH)
             // High quality SG resolve allows to use more relaxed normal weights
             if (m_Resolve)
                 settings.lobeAngleFraction *= 1.333f;
 #endif
 
-#if (NRD_COMBINED == 1)
-#    if (NRD_MODE == SH)
+#if (NRD_MODE == SH)
             const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SPECULAR_SH)};
-#    else
-            const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SPECULAR)};
-#    endif
 #else
-#    if (NRD_MODE == SH)
-            const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SH), NRD_ID(RELAX_SPECULAR_SH)};
-#    else
-            const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE), NRD_ID(RELAX_SPECULAR)};
-#    endif
+            const nrd::Identifier denoisers[] = {NRD_ID(RELAX_DIFFUSE_SPECULAR)};
 #endif
 
             for (uint32_t i = 0; i < helper::GetCountOf(denoisers); i++)
@@ -4707,7 +4460,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     }
 
     // SHARC clear (for the next frame)
-    if (m_Settings.SHARC && NRD_MODE < OCCLUSION) {
+    if (m_Settings.SHARC) {
         helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
 
         NRI.CmdZeroBuffer(commandBuffer, *sharcBufferToClear, 0, SHARC_CAPACITY * sizeof(uint32_t) * 4);

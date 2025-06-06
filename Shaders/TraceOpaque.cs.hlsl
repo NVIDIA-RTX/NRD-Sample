@@ -29,14 +29,13 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Spec, u, 10, 1 );
     NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, 1 );
 #endif
 
-float2 GetBlueNoise( uint2 pixelPos, bool isCheckerboard, uint seed = 0 )
+float2 GetBlueNoise( uint2 pixelPos, uint seed = 0 )
 {
     // https://eheitzresearch.wordpress.com/772-2/
     // https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html
 
     // Sample index
-    uint frameIndex = isCheckerboard ? ( gFrameIndex >> 1 ) : gFrameIndex;
-    uint sampleIndex = ( frameIndex + seed ) & ( BLUE_NOISE_TEMPORAL_DIM - 1 );
+    uint sampleIndex = ( gFrameIndex + seed ) & ( BLUE_NOISE_TEMPORAL_DIM - 1 );
 
     // The algorithm
     uint3 A = gIn_ScramblingRanking[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
@@ -51,7 +50,7 @@ float2 GetBlueNoise( uint2 pixelPos, bool isCheckerboard, uint seed = 0 )
 
     // Don't use blue noise in these cases
     [flatten]
-    if( gDenoiserType == DENOISER_REFERENCE || gRR || gTracingMode == RESOLUTION_FULL_PROBABILISTIC )
+    if( gDenoiserType == DENOISER_REFERENCE || gRR )
         blue.xy = Rng::Hash::GetFloat2( );
 
     return saturate( blue.xy );
@@ -75,7 +74,7 @@ float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps 
     prevFrameWeight *= lerp( diffuseProbabilityBiased, 1.0, ( a + NRD_EPS ) / ( a + b + NRD_EPS ) );
 
     // Avoid really bad reprojection
-    return NRD_MODE < OCCLUSION ? float4( prevLsum * saturate( prevFrameWeight / 0.001 ), prevFrameWeight ) : 0.0;
+    return float4( prevLsum * saturate( prevFrameWeight / 0.001 ), prevFrameWeight );
 }
 
 float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
@@ -91,8 +90,7 @@ float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
 //========================================================================================
 
 /*
-"TraceOpaque" traces "pathNum" paths, doing up to "bounceNum" bounces. The function
-has not been designed to trace primary hits. But still can be used to trace
+The function has not been designed to trace primary hits. But still can be used to trace
 direct and indirect lighting.
 
 Prerequisites:
@@ -122,9 +120,6 @@ struct TraceOpaqueDesc
     // Checkerboard
     uint checkerboard;
 
-    // Number of paths to trace
-    uint pathNum;
-
     // Number of bounces to trace ( up to )
     uint bounceNum;
 
@@ -143,7 +138,7 @@ struct TraceOpaqueResult
     float3 specRadiance;
     float specHitDist;
 
-    #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+    #if( NRD_MODE == SH )
         float3 diffDirection;
         float3 specDirection;
     #endif
@@ -151,8 +146,6 @@ struct TraceOpaqueResult
 
 TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
 {
-    // TODO: for RESOLUTION_FULL_PROBABILISTIC with 1 path per pixel the tracer can be significantly simplified
-
     //=====================================================================================================================================================================
     // Primary surface replacement ( PSR )
     //=====================================================================================================================================================================
@@ -189,15 +182,13 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 float3 ray = reflect( -geometryProps.V, materialProps.N );
 
                 // Update throughput
-                #if( NRD_MODE < OCCLUSION )
-                    float3 albedo, Rf0;
-                    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+                float3 albedo, Rf0;
+                BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
 
-                    float NoV = abs( dot( materialProps.N, geometryProps.V ) );
-                    float3 Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
+                float NoV = abs( dot( materialProps.N, geometryProps.V ) );
+                float3 Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
 
-                    psrThroughput *= Fenv;
-                #endif
+                psrThroughput *= Fenv;
 
                 // Abort if expected contribution of the current bounce is low
                 if( PT_PSR_THROUGHPUT_THRESHOLD != 0.0 && Color::Luminance( psrThroughput ) < PT_PSR_THROUGHPUT_THRESHOLD )
@@ -265,7 +256,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
                 sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
 
-                bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
+                bool isSharcAllowed = gSHARC; // trivial
                 isSharcAllowed &= Rng::Hash::GetFloat( ) > Lpsr.w; // probabilistically estimate the need
                 isSharcAllowed &= geometryProps.hitT > voxelSize; // voxel angular size is acceptable
                 isSharcAllowed &= desc.bounceNum == 0; // allow only for the last bounce for PSR
@@ -317,16 +308,10 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
     //=====================================================================================================================================================================
 
     TraceOpaqueResult result = ( TraceOpaqueResult )0;
+    result.specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
 
-    #if( NRD_MODE < OCCLUSION )
-        result.specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
-    #endif
-
-    uint pathNum = desc.pathNum << ( gTracingMode == RESOLUTION_FULL ? 1 : 0 );
     uint diffPathNum = 0;
 
-    [loop]
-    for( uint path = 0; path < pathNum; path++ )
     {
         GeometryProps geometryProps = desc.geometryProps;
         MaterialProps materialProps = desc.materialProps;
@@ -335,11 +320,10 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         float accumulatedDiffuseLikeMotion = 0;
         float accumulatedCurvature = 0;
 
-        bool isDiffusePath = gTracingMode == RESOLUTION_HALF ? desc.checkerboard : ( path & 0x1 );
-        uint2 blueNoisePos = desc.pixelPos + uint2( Sequence::Weyl2D( 0.0, path ) * ( BLUE_NOISE_SPATIAL_DIM - 1 ) );
+        bool isDiffusePath = false;
 
         float diffProb0 = EstimateDiffuseProbability( geometryProps, materialProps ) * float( !geometryProps.Has( FLAG_HAIR ) );
-        float3 Lsum = Lpsr.xyz * ( gTracingMode == RESOLUTION_FULL ? ( isDiffusePath ? diffProb0 : ( 1.0 - diffProb0 ) ) : 1.0 );
+        float3 Lsum = Lpsr.xyz;
         float3 pathThroughput = 1.0 - Lpsr.w;
 
         [loop]
@@ -356,21 +340,18 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
 
                 // Clamp probability to a sane range to guarantee a sample in 3x3 ( or 5x5 ) area ( see NRD docs )
                 float rnd = Rng::Hash::GetFloat( );
-                if( gTracingMode == RESOLUTION_FULL_PROBABILISTIC && bounce == 1 && !gRR )
+                if( bounce == 1 && !gRR )
                 {
-                    diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, gMinProbability, 1.0 - gMinProbability );
+                    diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
                     rnd = Sequence::Bayer4x4( desc.pixelPos, gFrameIndex ) + rnd / 16.0;
                 }
 
                 // Diffuse or specular path?
-                if( gTracingMode == RESOLUTION_FULL_PROBABILISTIC || bounce > 1 )
-                {
-                    isDiffuse = rnd < diffuseProbability; // TODO: if "diffuseProbability" is clamped, "pathThroughput" should be adjusted too
-                    pathThroughput /= abs( float( !isDiffuse ) - diffuseProbability );
+                isDiffuse = rnd < diffuseProbability; // TODO: if "diffuseProbability" is clamped, "pathThroughput" should be adjusted too
+                pathThroughput /= abs( float( !isDiffuse ) - diffuseProbability );
 
-                    if( bounce == 1 )
-                        isDiffusePath = isDiffuse;
-                }
+                if( bounce == 1 )
+                    isDiffusePath = isDiffuse;
 
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
 
@@ -384,11 +365,11 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 // If IS is enabled, generate up to PT_IMPORTANCE_SAMPLES_NUM rays depending on roughness
                 // If IS is disabled, there is no need to generate up to PT_IMPORTANCE_SAMPLES_NUM rays for specular because VNDF v3 doesn't produce rays pointing inside the surface
                 uint maxSamplesNum = 0;
-                if( bounce == 1 && gDisableShadowsAndEnableImportanceSampling && NRD_MODE < OCCLUSION ) // TODO: use IS in each bounce?
+                if( bounce == 1 && gDisableShadowsAndEnableImportanceSampling ) // TODO: use IS in each bounce?
                     maxSamplesNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : materialProps.roughness );
                 maxSamplesNum = max( maxSamplesNum, 1 );
 
-                if( geometryProps.Has( FLAG_HAIR ) && NRD_MODE < OCCLUSION )
+                if( geometryProps.Has( FLAG_HAIR ) )
                 {
                     if( isDiffuse )
                         break;
@@ -417,11 +398,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 {
                     for( uint sampleIndex = 0; sampleIndex < maxSamplesNum; sampleIndex++ )
                     {
-                        #if( NRD_MODE < OCCLUSION )
-                            float2 rnd = Rng::Hash::GetFloat2( );
-                        #else
-                            float2 rnd = GetBlueNoise( blueNoisePos, gTracingMode == RESOLUTION_HALF );
-                        #endif
+                        float2 rnd = Rng::Hash::GetFloat2( ); // TODO: blue noise?
 
                         // Generate a ray in local space
                         float3 r;
@@ -429,7 +406,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                             r = ImportanceSampling::Cosine::GetRay( rnd );
                         else
                         {
-                            float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, gTrimLobe ? PT_SPEC_LOBE_ENERGY : 1.0 );
+                            float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, PT_SPEC_LOBE_ENERGY );
                             r = reflect( -Vlocal, Hlocal );
                         }
 
@@ -481,7 +458,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 }
 
                 // ( Optional ) Save sampling direction for the 1st bounce
-                #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+                #if( NRD_MODE == SH )
                     if( bounce == 1 )
                     {
                         float3 psrRay = ray;
@@ -497,77 +474,53 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 #endif
 
                 // Update path throughput
-                #if( NRD_MODE < OCCLUSION )
-                    if( !geometryProps.Has( FLAG_HAIR ) )
+                if( !geometryProps.Has( FLAG_HAIR ) )
+                {
+                    float3 albedo, Rf0;
+                    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+
+                    float3 H = normalize( geometryProps.V + ray );
+                    float VoH = abs( dot( geometryProps.V, H ) );
+                    float NoL = saturate( dot( materialProps.N, ray ) );
+
+                    if( isDiffuse )
                     {
-                        float3 albedo, Rf0;
-                        BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+                        float NoV = abs( dot( materialProps.N, geometryProps.V ) );
+                        pathThroughput *= saturate( albedo * Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ) );
+                    }
+                    else
+                    {
+                        float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
+                        pathThroughput *= F;
 
-                        float3 H = normalize( geometryProps.V + ray );
-                        float VoH = abs( dot( geometryProps.V, H ) );
-                        float NoL = saturate( dot( materialProps.N, ray ) );
+                        // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
+                        pathThroughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
+                    }
 
-                        if( isDiffuse )
+                    // Translucency
+                    if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
+                    {
+                        if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
                         {
-                            float NoV = abs( dot( materialProps.N, geometryProps.V ) );
-                            pathThroughput *= saturate( albedo * Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ) );
+                            ray = -ray;
+                            geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
+                            pathThroughput /= LEAF_TRANSLUCENCY;
                         }
                         else
-                        {
-                            float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
-                            pathThroughput *= F;
-
-                            // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
-                            pathThroughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
-                        }
-
-                        // Translucency
-                        if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
-                        {
-                            if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
-                            {
-                                ray = -ray;
-                                geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
-                                pathThroughput /= LEAF_TRANSLUCENCY;
-                            }
-                            else
-                                pathThroughput /= 1.0 - LEAF_TRANSLUCENCY;
-                        }
+                            pathThroughput /= 1.0 - LEAF_TRANSLUCENCY;
                     }
-                #endif
+                }
 
                 // Abort if expected contribution of the current bounce is low
-                #if( USE_RUSSIAN_ROULETTE == 1 )
-                    /*
-                    BAD PRACTICE:
-                    Russian Roulette approach is here to demonstrate that it's a bad practice for real time denoising for the following reasons:
-                    - increases entropy of the signal
-                    - transforms radiance into non-radiance, which is strictly speaking not allowed to be processed spatially (who wants to get a high energy firefly
-                    redistributed around surrounding pixels?)
-                    - not necessarily converges to the right image, because we do assumptions about the future and approximate the tail of the path via a scaling factor
-                    - this approach breaks denoising, especially REBLUR, which has been designed to work with pure radiance
-                    */
+                /*
+                GOOD PRACTICE:
+                - terminate path if "pathThroughput" is smaller than some threshold
+                - approximate ambient at the end of the path
+                - re-use data from the previous frame
+                */
 
-                    // Nevertheless, RR can be used with caution: the code below tuned for good IQ / PERF tradeoff
-                    float russianRouletteProbability = Color::Luminance( pathThroughput );
-                    russianRouletteProbability = Math::Pow01( russianRouletteProbability, 0.25 );
-                    russianRouletteProbability = max( russianRouletteProbability, 0.01 );
-
-                    if( Rng::Hash::GetFloat( ) > russianRouletteProbability )
-                        break;
-
-                    pathThroughput /= russianRouletteProbability;
-                #else
-                    /*
-                    GOOD PRACTICE:
-                    - terminate path if "pathThroughput" is smaller than some threshold
-                    - approximate ambient at the end of the path
-                    - re-use data from the previous frame
-                    */
-
-                    if( PT_THROUGHPUT_THRESHOLD != 0.0 && Color::Luminance( pathThroughput ) < PT_THROUGHPUT_THRESHOLD )
-                        break;
-                #endif
+                if( PT_THROUGHPUT_THRESHOLD != 0.0 && Color::Luminance( pathThroughput ) < PT_THROUGHPUT_THRESHOLD )
+                    break;
 
                 //=========================================================================================================================================================
                 // Trace to the next hit
@@ -625,7 +578,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                     sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
 
                     float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == desc.bounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
-                    bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
+                    bool isSharcAllowed = gSHARC; // trivial
                     isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
                     isSharcAllowed &= footprint > voxelSize; // voxel angular size is acceptable
 
@@ -702,12 +655,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
             else
             {
                 result.specRadiance += Lsum;
-
-                #if( NRD_MODE < OCCLUSION )
-                    NRD_FrontEnd_SpecHitDistAveraging_Add( result.specHitDist, normHitDist );
-                #else
-                    result.specHitDist += normHitDist;
-                #endif
+                NRD_FrontEnd_SpecHitDistAveraging_Add( result.specHitDist, normHitDist );
             }
         }
     }
@@ -733,27 +681,18 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         }
     }
 
-    // Radiance is already divided by sampling probability, we need to average across all paths
-    float radianceNorm = 1.0 / float( desc.pathNum );
-    result.diffRadiance *= radianceNorm;
-    result.specRadiance *= radianceNorm;
-
     // Others are not divided by sampling probability, we need to average across diffuse / specular only paths
     float diffNorm = diffPathNum == 0 ? 0.0 : 1.0 / float( diffPathNum );
-    #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+    #if( NRD_MODE == SH )
         result.diffDirection *= diffNorm;
     #endif
     result.diffHitDist *= diffNorm;
 
-    float specNorm = pathNum == diffPathNum ? 0.0 : 1.0 / float( pathNum - diffPathNum );
-    #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+    float specNorm = 1 == diffPathNum ? 0.0 : 1.0 / float( 1 - diffPathNum );
+    #if( NRD_MODE == SH )
         result.specDirection *= specNorm;
     #endif
-    #if( NRD_MODE < OCCLUSION )
-        NRD_FrontEnd_SpecHitDistAveraging_End( result.specHitDist );
-    #else
-        result.specHitDist *= specNorm;
-    #endif
+    NRD_FrontEnd_SpecHitDistAveraging_End( result.specHitDist );
 
     return result;
 }
@@ -764,32 +703,12 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
 
 void WriteResult( uint checkerboard, uint2 outPixelPos, float4 diff, float4 spec, float4 diffSh, float4 specSh )
 {
-    if( gTracingMode == RESOLUTION_HALF )
-    {
-        if( checkerboard )
-        {
-            gOut_Diff[ outPixelPos ] = diff;
-            #if( NRD_MODE == SH )
-                gOut_DiffSh[ outPixelPos ] = diffSh;
-            #endif
-        }
-        else
-        {
-            gOut_Spec[ outPixelPos ] = spec;
-            #if( NRD_MODE == SH )
-                gOut_SpecSh[ outPixelPos ] = specSh;
-            #endif
-        }
-    }
-    else
-    {
-        gOut_Diff[ outPixelPos ] = diff;
-        gOut_Spec[ outPixelPos ] = spec;
-        #if( NRD_MODE == SH )
-            gOut_DiffSh[ outPixelPos ] = diffSh;
-            gOut_SpecSh[ outPixelPos ] = specSh;
-        #endif
-    }
+    gOut_Diff[ outPixelPos ] = diff;
+    gOut_Spec[ outPixelPos ] = spec;
+    #if( NRD_MODE == SH )
+        gOut_DiffSh[ outPixelPos ] = diffSh;
+        gOut_SpecSh[ outPixelPos ] = specSh;
+    #endif
 }
 
 [numthreads( 16, 16, 1 )]
@@ -800,17 +719,13 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     float2 sampleUv = pixelUv + gJitter;
 
     // Checkerboard
-    uint2 outPixelPos = pixelPos;
-    if( gTracingMode == RESOLUTION_HALF )
-        outPixelPos.x >>= 1;
-
     uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
 
     // Do not generate NANs for unused threads
     if( pixelUv.x > 1.0 || pixelUv.y > 1.0 )
     {
         #if( USE_DRS_STRESS_TEST == 1 )
-            WriteResult( checkerboard, outPixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+            WriteResult( checkerboard, pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
         #endif
 
         return;
@@ -851,7 +766,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         gOut_DirectEmission[ pixelPos ] = materialProps0.Lemi;
 
         #if( USE_INF_STRESS_TEST == 1 )
-            WriteResult( checkerboard, outPixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+            WriteResult( checkerboard, pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
         #endif
 
         return;
@@ -918,7 +833,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     desc.materialProps = materialProps0;
     desc.pixelPos = pixelPos;
     desc.checkerboard = checkerboard;
-    desc.pathNum = gSampleNum;
     desc.bounceNum = gBounceNum;
     desc.instanceInclusionMask = FLAG_NON_TRANSPARENT; // TODO: glass should affect non-glass surfaces
     desc.rayFlags = 0;
@@ -945,7 +859,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Sun shadow ( after potential PSR )
     //================================================================================================================================================================================
 
-    float2 rnd = GetBlueNoise( pixelPos, false );
+    float2 rnd = GetBlueNoise( pixelPos );
     rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
     rnd *= gTanSunAngularRadius;
 
@@ -1002,19 +916,14 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     }
     else
     {
-    #if( NRD_MODE == OCCLUSION )
-        outDiff = result.diffHitDist;
-        outSpec = result.specHitDist;
-    #elif( NRD_MODE == SH )
+    #if( NRD_MODE == SH )
         outDiff = REBLUR_FrontEnd_PackSh( result.diffRadiance, result.diffHitDist, result.diffDirection, outDiffSh, USE_SANITIZATION );
         outSpec = REBLUR_FrontEnd_PackSh( result.specRadiance, result.specHitDist, result.specDirection, outSpecSh, USE_SANITIZATION );
-    #elif( NRD_MODE == DIRECTIONAL_OCCLUSION )
-        outDiff = REBLUR_FrontEnd_PackDirectionalOcclusion( result.diffDirection, result.diffHitDist, USE_SANITIZATION );
     #else
         outDiff = REBLUR_FrontEnd_PackRadianceAndNormHitDist( result.diffRadiance, result.diffHitDist, USE_SANITIZATION );
         outSpec = REBLUR_FrontEnd_PackRadianceAndNormHitDist( result.specRadiance, result.specHitDist, USE_SANITIZATION );
     #endif
     }
 
-    WriteResult( checkerboard, outPixelPos, outDiff, outSpec, outDiffSh, outSpecSh );
+    WriteResult( checkerboard, pixelPos, outDiff, outSpec, outDiffSh, outSpecSh );
 }

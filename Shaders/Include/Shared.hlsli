@@ -4,16 +4,9 @@
 // SETTINGS
 //=============================================================================================
 
-// Fused or separate denoising selection
-// 0 - DIFFUSE and SPECULAR
-// 1 - DIFFUSE_SPECULAR
-#define NRD_COMBINED                        1
-
 // NORMAL - common (non specialized) denoisers
 // SH - SH (spherical harmonics or spherical gaussian) denoisers
-// OCCLUSION - OCCLUSION (ambient or specular occlusion only) denoisers
-// DIRECTIONAL_OCCLUSION - DIRECTIONAL_OCCLUSION (ambient occlusion in SH mode) denoisers
-#define NRD_MODE                            NORMAL // NORMAL, SH, OCCLUSION, DIRECTIONAL_OCCLUSION
+#define NRD_MODE                            NORMAL // NORMAL, SH
 #define SIGMA_TRANSLUCENT                   1
 
 // Default = 1
@@ -29,7 +22,6 @@
 #define USE_SIMULATED_MATERIAL_ID_TEST      0 // "material ID" debugging
 #define USE_SIMULATED_FIREFLY_TEST          0 // "anti-firefly" debugging
 #define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
-#define USE_RUSSIAN_ROULETTE                0 // bad practice for real-time denoising
 #define USE_DRS_STRESS_TEST                 0 // NRD must not touch GARBAGE data outside of DRS rectangle
 #define USE_INF_STRESS_TEST                 0 // NRD must not touch GARBAGE data outside of denoising range
 #define USE_ANOTHER_COBALT                  0 // another cobalt variant
@@ -47,18 +39,11 @@
 // NRD variant
 #define NORMAL                              0
 #define SH                                  1 // NORMAL + SH (SG) resolve
-#define OCCLUSION                           2
-#define DIRECTIONAL_OCCLUSION               3 // diffuse OCCLUSION + SH (SG) resolve
 
 // Denoiser
 #define DENOISER_REBLUR                     0
 #define DENOISER_RELAX                      1
 #define DENOISER_REFERENCE                  2
-
-// Resolution
-#define RESOLUTION_FULL                     0
-#define RESOLUTION_FULL_PROBABILISTIC       1
-#define RESOLUTION_HALF                     2
 
 // What is on screen?
 #define SHOW_FINAL                          0
@@ -248,7 +233,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     float gTanPixelAngularRadius;
     float gDebug;
     float gPrevFrameConfidence;
-    float gMinProbability;
     float gUnproject;
     float gAperture;
     float gFocalDistance;
@@ -265,14 +249,11 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     uint32_t gFrameIndex;
     uint32_t gForcedMaterial;
     uint32_t gUseNormalMap;
-    uint32_t gTracingMode;
-    uint32_t gSampleNum;
     uint32_t gBounceNum;
     uint32_t gResolve;
     uint32_t gPSR;
     uint32_t gSHARC;
     uint32_t gValidation;
-    uint32_t gTrimLobe;
     uint32_t gSR;
     uint32_t gRR;
     uint32_t gIsSrgb;
@@ -343,12 +324,8 @@ float3 ApplyExposure( float3 Lsum )
 
 float3 ApplyTonemap( float3 Lsum )
 {
-    #if( NRD_MODE < OCCLUSION )
-        if( gOnScreen == SHOW_FINAL )
-            Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
-    #else
-        Lsum = Lsum.xxx;
-    #endif
+    if( gOnScreen == SHOW_FINAL )
+        Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
 
     return Lsum;
 }

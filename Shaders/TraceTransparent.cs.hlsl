@@ -137,7 +137,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
         sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
 
-        bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
+        bool isSharcAllowed = gSHARC; // trivial
         isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
         isSharcAllowed &= geometryProps.hitT > voxelSize; // voxel angular size is acceptable // TODO: can be skipped to get flat ambient in some cases
 
