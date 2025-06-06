@@ -106,24 +106,6 @@ Derivation:
         ...
 */
 
-struct TraceOpaqueDesc
-{
-    // Geometry properties
-    GeometryProps geometryProps;
-
-    // Material properties
-    MaterialProps materialProps;
-
-    // Pixel position
-    uint2 pixelPos;
-
-    // Instance inclusion mask ( DXR )
-    uint instanceInclusionMask;
-
-    // Ray flags ( DXR )
-    uint rayFlags;
-};
-
 struct TraceOpaqueResult
 {
     float3 diffRadiance;
@@ -138,13 +120,15 @@ struct TraceOpaqueResult
     #endif
 };
 
-TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
+TraceOpaqueResult TraceOpaque( inout GeometryProps geometryProps0, inout MaterialProps materialProps0, uint2 pixelPos )
 {
+    const uint rayFlags = 0;
+
     //=====================================================================================================================================================================
     // Primary surface replacement ( PSR )
     //=====================================================================================================================================================================
 
-    float viewZ = Geometry::AffineTransform( gWorldToView, desc.geometryProps.X ).z;
+    float viewZ = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
     float4 Lpsr = 0;
     float3x3 mirrorMatrix = Geometry::GetMirrorMatrix( 0 ); // identity
 
@@ -152,8 +136,8 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
     {
         float3 psrThroughput = 1.0;
 
-        GeometryProps geometryProps = desc.geometryProps;
-        MaterialProps materialProps = desc.materialProps;
+        GeometryProps geometryProps = geometryProps0;
+        MaterialProps materialProps = materialProps0;
 
         float accumulatedHitDist = 0.0;
         float accumulatedCurvature = 0.0;
@@ -191,7 +175,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
 
                 // Trace to the next hit
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, materialProps.roughness );
-                geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, desc.instanceInclusionMask, desc.rayFlags );
+                geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, rayFlags );
                 materialProps = GetMaterialProps( geometryProps );
             }
 
@@ -214,10 +198,10 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
             {
                 psrNormal = Geometry::RotateVectorInverse( mirrorMatrix, materialProps.N );
 
-                gOut_BaseColor_Metalness[ desc.pixelPos ] = float4( Color::ToSrgb( materialProps.baseColor ), materialProps.metalness );
+                gOut_BaseColor_Metalness[ pixelPos ] = float4( Color::ToSrgb( materialProps.baseColor ), materialProps.metalness );
 
                 // L1 cache - reproject previous frame, carefully treating specular
-                Lpsr = GetRadianceFromPreviousFrame( geometryProps, materialProps, desc.pixelPos, false );
+                Lpsr = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos, false );
 
                 // Subtract direct lighting, process it separately
                 float3 L = GetShadowedLighting( geometryProps, materialProps );
@@ -225,31 +209,31 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 Lpsr.xyz *= Lpsr.w;
                 Lpsr.xyz = max( Lpsr.xyz - L, 0.0 );
 
-                gOut_DirectLighting[ desc.pixelPos ] = materialProps.Ldirect * psrThroughput;
+                gOut_DirectLighting[ pixelPos ] = materialProps.Ldirect * psrThroughput;
             }
 
-            gOut_DirectEmission[ desc.pixelPos ] = materialProps.Lemi * psrThroughput;
-            gOut_Normal_Roughness[ desc.pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( psrNormal, materialProps.roughness, materialID );
+            gOut_DirectEmission[ pixelPos ] = materialProps.Lemi * psrThroughput;
+            gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( psrNormal, materialProps.roughness, materialID );
 
             // PSR - Update motion
-            float3 Xvirtual = desc.geometryProps.X - desc.geometryProps.V * accumulatedHitDist;
+            float3 Xvirtual = geometryProps0.X - geometryProps0.V * accumulatedHitDist;
             float3 XvirtualPrev = Xvirtual + geometryProps.Xprev - geometryProps.X;
             float3 motion = GetMotion( Xvirtual, XvirtualPrev );
 
-            gOut_Mv[ desc.pixelPos ].xyz = motion; // IMPORTANT: keep viewZ before PSR ( needed for glass )
+            gOut_Mv[ pixelPos ].xyz = motion; // IMPORTANT: keep viewZ before PSR ( needed for glass )
 
             // PSR - Update viewZ
             viewZ = Geometry::AffineTransform( gWorldToView, Xvirtual ).z;
             viewZ = geometryProps.IsSky( ) ? Math::Sign( viewZ ) * INF : viewZ;
 
-            gOut_ViewZ[ desc.pixelPos ] = viewZ;
+            gOut_ViewZ[ pixelPos ] = viewZ;
 
             // PSR - Replace primary surface props with the replacement props
-            desc.geometryProps = geometryProps;
-            desc.materialProps = materialProps;
+            geometryProps0 = geometryProps;
+            materialProps0 = materialProps;
         }
 
-        gOut_PsrThroughput[ desc.pixelPos ] = psrThroughput;
+        gOut_PsrThroughput[ pixelPos ] = psrThroughput;
     }
     #endif
 
@@ -262,8 +246,8 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
 
     bool isDiffusePath = false;
     {
-        GeometryProps geometryProps = desc.geometryProps;
-        MaterialProps materialProps = desc.materialProps;
+        GeometryProps geometryProps = geometryProps0;
+        MaterialProps materialProps = materialProps0;
 
         float accumulatedHitDist = 0;
         float accumulatedDiffuseLikeMotion = 0;
@@ -289,7 +273,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 if( bounce == 1 && !gRR )
                 {
                     diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
-                    rnd = Sequence::Bayer4x4( desc.pixelPos, gFrameIndex ) + rnd / 16.0;
+                    rnd = Sequence::Bayer4x4( pixelPos, gFrameIndex ) + rnd / 16.0;
                 }
 
                 // Diffuse or specular path?
@@ -367,7 +351,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                         //   1. If IS enabled, check the ray in LightBVH
                         bool isMiss = false;
                         if( gDisableShadowsAndEnableImportanceSampling && maxSamplesNum != 1 )
-                            isMiss = CastVisibilityRay_AnyHit( geometryProps.GetXoffset( geometryProps.N ), r, 0.0, INF, mipAndCone, gLightTlas, desc.instanceInclusionMask, desc.rayFlags );
+                            isMiss = CastVisibilityRay_AnyHit( geometryProps.GetXoffset( geometryProps.N ), r, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, rayFlags );
 
                         //   2. Count rays hitting emissive surfaces
                         if( !isMiss )
@@ -472,7 +456,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 // Trace to the next hit
                 //=========================================================================================================================================================
 
-                geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, desc.instanceInclusionMask, desc.rayFlags );
+                geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, rayFlags );
                 materialProps = GetMaterialProps( geometryProps ); // TODO: try to read metrials only if L1- and L2- lighting caches failed
             }
 
@@ -489,7 +473,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 if( !geometryProps.IsSky( ) )
                 {
                     // L1 cache - reproject previous frame, carefully treating specular
-                    Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, desc.pixelPos, false );
+                    Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos, false );
 
                     // L2 cache - SHARC
                     HashGridParameters hashGridParams;
@@ -567,10 +551,10 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 #if( USE_CAMERA_ATTACHED_REFLECTION_TEST == 1 && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
                     // IMPORTANT: lazy ( no checkerboard support ) implementation of reflections masking for objects attached to the camera
                     // TODO: better find a generic solution for tracking of reflections for objects attached to the camera
-                    if( bounce == 1 && !isDiffuse && desc.materialProps.roughness < 0.01 )
+                    if( bounce == 1 && !isDiffuse && materialProps0.roughness < 0.01 )
                     {
                         if( !geometryProps.IsSky( ) && !geometryProps.Has( FLAG_STATIC ) )
-                            gOut_Normal_Roughness[ desc.pixelPos ].w = MATERIAL_ID_SELF_REFLECTION;
+                            gOut_Normal_Roughness[ pixelPos ].w = MATERIAL_ID_SELF_REFLECTION;
                     }
                 #endif
             }
@@ -579,7 +563,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         // Normalize hit distances for REBLUR and REFERENCE ( needed only for AO ) before averaging
         float normHitDist = accumulatedHitDist;
         if( gDenoiserType != DENOISER_RELAX )
-            normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ, gHitDistParams, isDiffusePath ? 1.0 : desc.materialProps.roughness );
+            normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ, gHitDistParams, isDiffusePath ? 1.0 : materialProps0.roughness );
 
         // Accumulate diffuse and specular separately for denoising
         if( !USE_SANITIZATION || NRD_IsValidRadiance( Lsum ) )
@@ -599,13 +583,13 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
 
     { // Material de-modulation ( convert irradiance into radiance )
         float3 albedo, Rf0;
-        BRDF::ConvertBaseColorMetalnessToAlbedoRf0( desc.materialProps.baseColor, desc.materialProps.metalness, albedo, Rf0 );
+        BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
 
         float3 diffFactor, specFactor;
-        NRD_MaterialFactors( desc.materialProps.N, desc.geometryProps.V, albedo, Rf0, desc.materialProps.roughness, diffFactor, specFactor );
+        NRD_MaterialFactors( materialProps0.N, geometryProps0.V, albedo, Rf0, materialProps0.roughness, diffFactor, specFactor );
 
         // We can combine radiance ( for everything ) and irradiance ( for hair ) in denoising if material ID test is enabled
-        if( desc.geometryProps.Has( FLAG_HAIR ) && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
+        if( geometryProps0.Has( FLAG_HAIR ) && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
         {
             diffFactor = 1.0;
             specFactor = 1.0;
@@ -727,19 +711,12 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Secondary rays ( indirect and direct lighting from local light sources ) + potential PSR
     //================================================================================================================================================================================
 
-    TraceOpaqueDesc desc = ( TraceOpaqueDesc )0;
-    desc.geometryProps = geometryProps0;
-    desc.materialProps = materialProps0;
-    desc.pixelPos = pixelPos;
-    desc.instanceInclusionMask = FLAG_NON_TRANSPARENT; // TODO: glass should affect non-glass surfaces
-    desc.rayFlags = 0;
-
-    TraceOpaqueResult result = TraceOpaque( desc );
+    TraceOpaqueResult result = TraceOpaque( geometryProps0, materialProps0, pixelPos );
 
     #if( USE_MOVING_EMISSION_FIX == 1 )
         // Or emissives ( not having lighting in diffuse and specular ) can use a different material ID
-        result.diffRadiance += desc.materialProps.Lemi / Math::Pi( 2.0 );
-        result.specRadiance += desc.materialProps.Lemi / Math::Pi( 2.0 );
+        result.diffRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
+        result.specRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
     #endif
 
     #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
@@ -761,10 +738,10 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     rnd *= gTanSunAngularRadius;
 
     float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
-    float3 Xoffset = desc.geometryProps.GetXoffset( sunDirection, PT_SHADOW_RAY_OFFSET );
-    float2 mipAndCone = GetConeAngleFromAngularRadius( desc.geometryProps.mip, gTanSunAngularRadius );
+    float3 Xoffset = geometryProps0.GetXoffset( sunDirection, PT_SHADOW_RAY_OFFSET );
+    float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps0.mip, gTanSunAngularRadius );
 
-    float shadowTranslucency = ( Color::Luminance( desc.materialProps.Ldirect ) != 0.0 && !gDisableShadowsAndEnableImportanceSampling ) ? 1.0 : 0.0;
+    float shadowTranslucency = ( Color::Luminance( materialProps0.Ldirect ) != 0.0 && !gDisableShadowsAndEnableImportanceSampling ) ? 1.0 : 0.0;
     float shadowHitDist = 0.0;
 
     while( shadowTranslucency > 0.01 )
