@@ -117,12 +117,6 @@ struct TraceOpaqueDesc
     // Pixel position
     uint2 pixelPos;
 
-    // Checkerboard
-    uint checkerboard;
-
-    // Number of bounces to trace ( up to )
-    uint bounceNum;
-
     // Instance inclusion mask ( DXR )
     uint instanceInclusionMask;
 
@@ -163,10 +157,11 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
 
         float accumulatedHitDist = 0.0;
         float accumulatedCurvature = 0.0;
+        uint bounceNum = PT_DELTA_BOUNCES_NUM; // TODO: separate setting?
         bool isPSR = false;
 
         [loop]
-        while( desc.bounceNum && !geometryProps.IsSky( ) && IsDelta( materialProps ) )
+        while( bounceNum && !geometryProps.IsSky( ) && IsDelta( materialProps ) )
         {
             isPSR = true;
 
@@ -206,7 +201,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, accumulatedCurvature ) ;
             }
 
-            desc.bounceNum--;
+            bounceNum--;
         }
 
         if( isPSR )
@@ -224,54 +219,10 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                 // L1 cache - reproject previous frame, carefully treating specular
                 Lpsr = GetRadianceFromPreviousFrame( geometryProps, materialProps, desc.pixelPos, false );
 
-                // L2 cache - SHARC
-                HashGridParameters hashGridParams;
-                hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-                hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-                hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-                hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
-
-                float3 Xglobal = GetGlobalPos( geometryProps.X );
-                uint level = HashGridGetLevel( Xglobal, hashGridParams );
-                float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
-                float smc = GetSpecMagicCurve( materialProps.roughness );
-
-                float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-                float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
-                Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
-
-                SharcHitData sharcHitData;
-                sharcHitData.positionWorld = Xglobal;
-                sharcHitData.normalWorld = geometryProps.N;
-                sharcHitData.emissive = materialProps.Lemi;
-
-                HashMapData hashMapData;
-                hashMapData.capacity = SHARC_CAPACITY;
-                hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-                SharcParameters sharcParams;
-                sharcParams.gridParameters = hashGridParams;
-                sharcParams.hashMapData = hashMapData;
-                sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-                sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-                sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
-
-                bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lpsr.w; // probabilistically estimate the need
-                isSharcAllowed &= geometryProps.hitT > voxelSize; // voxel angular size is acceptable
-                isSharcAllowed &= desc.bounceNum == 0; // allow only for the last bounce for PSR
-
-                float3 sharcRadiance;
-                if (isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false))
-                    Lpsr = float4( sharcRadiance, 1.0 );
-
-                // TODO: add a macro switch for old mode ( with coupled direct lighting )
-
                 // Subtract direct lighting, process it separately
                 float3 L = GetShadowedLighting( geometryProps, materialProps );
 
-                if( desc.bounceNum != 0 )
-                    Lpsr.xyz *= Lpsr.w;
-
+                Lpsr.xyz *= Lpsr.w;
                 Lpsr.xyz = max( Lpsr.xyz - L, 0.0 );
 
                 gOut_DirectLighting[ desc.pixelPos ] = materialProps.Ldirect * psrThroughput;
@@ -322,7 +273,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
         float3 pathThroughput = 1.0 - Lpsr.w;
 
         [loop]
-        for( uint bounce = 1; bounce <= desc.bounceNum && !geometryProps.IsSky( ); bounce++ )
+        for( uint bounce = 1; bounce <= gBounceNum && !geometryProps.IsSky( ); bounce++ )
         {
             //=============================================================================================================================================================
             // Origin point
@@ -572,7 +523,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                     sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
                     sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
 
-                    float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == desc.bounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
+                    float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
                     bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
                     isSharcAllowed &= footprint > voxelSize; // voxel angular size is acceptable
 
@@ -584,7 +535,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
                     if( Rng::Hash::GetFloat( ) > Lcached.w )
                     {
                         float3 L = GetShadowedLighting( geometryProps, materialProps );
-                        Lcached.xyz = bounce < desc.bounceNum ? L : max( Lcached.xyz, L );
+                        Lcached.xyz = bounce < gBounceNum ? L : max( Lcached.xyz, L );
                     }
                 }
 
@@ -673,7 +624,7 @@ TraceOpaqueResult TraceOpaque( inout TraceOpaqueDesc desc )
 // MAIN
 //========================================================================================
 
-void WriteResult( uint checkerboard, uint2 outPixelPos, float4 diff, float4 spec, float4 diffSh, float4 specSh )
+void WriteResult( uint2 outPixelPos, float4 diff, float4 spec, float4 diffSh, float4 specSh )
 {
     gOut_Diff[ outPixelPos ] = diff;
     gOut_Spec[ outPixelPos ] = spec;
@@ -690,14 +641,11 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
     float2 sampleUv = pixelUv + gJitter;
 
-    // Checkerboard
-    uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
-
     // Do not generate NANs for unused threads
     if( pixelUv.x > 1.0 || pixelUv.y > 1.0 )
     {
         #if( USE_DRS_STRESS_TEST == 1 )
-            WriteResult( checkerboard, pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+            WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
         #endif
 
         return;
@@ -738,7 +686,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         gOut_DirectEmission[ pixelPos ] = materialProps0.Lemi;
 
         #if( USE_INF_STRESS_TEST == 1 )
-            WriteResult( checkerboard, pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+            WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
         #endif
 
         return;
@@ -783,8 +731,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     desc.geometryProps = geometryProps0;
     desc.materialProps = materialProps0;
     desc.pixelPos = pixelPos;
-    desc.checkerboard = checkerboard;
-    desc.bounceNum = gBounceNum;
     desc.instanceInclusionMask = FLAG_NON_TRANSPARENT; // TODO: glass should affect non-glass surfaces
     desc.rayFlags = 0;
 
@@ -876,5 +822,5 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     #endif
     }
 
-    WriteResult( checkerboard, pixelPos, outDiff, outSpec, outDiffSh, outSpecSh );
+    WriteResult( pixelPos, outDiff, outSpec, outDiffSh, outSpecSh );
 }
