@@ -1011,8 +1011,10 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                     ImGui::PushStyleColor(ImGuiCol_Text, (!m_Settings.cameraJitter && (m_Settings.TAA || IsDlssEnabled())) ? UI_RED : UI_DEFAULT);
                     ImGui::Checkbox("Jitter", &m_Settings.cameraJitter);
                     ImGui::PopStyleColor();
-
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetCursorPosX() + ImGui::GetStyle().ItemSpacing.x);
                     ImGui::SliderFloat("FOV (deg)", &m_Settings.camFov, 1.0f, 160.0f, "%.1f");
+
                     ImGui::SliderFloat("Exposure", &m_Settings.exposure, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 
                     if (m_DLRR) {
@@ -1161,16 +1163,17 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                 ImGui::PushID("PATH TRACER");
                 if (isUnfolded) {
                     const float sceneRadiusInMeters = m_Scene.aabb.GetRadius() / m_Settings.meterToUnitsMultiplier;
-
-                    ImGui::SliderFloat("AO / SO range (m)", &m_Settings.hitDistScale, 0.01f, sceneRadiusInMeters, "%.2f");
-                    ImGui::Checkbox("Normal map", &m_Settings.normalMap);
-
                     const float3& sunDirection = GetSunDirection();
+
+                    ImGui::SliderInt("Bounces", &m_Settings.bounceNum, 1, 8);
+                    ImGui::SliderFloat("AO / SO range (m)", &m_Settings.hitDistScale, 0.01f, sceneRadiusInMeters, "%.2f");
+
+                    ImGui::Checkbox("Normal map", &m_Settings.normalMap);
                     ImGui::SameLine();
                     ImGui::PushStyleColor(ImGuiCol_Text, sunDirection.z > 0.0f ? UI_DEFAULT : (m_Settings.importanceSampling ? UI_GREEN : UI_YELLOW));
                     ImGui::Checkbox("IS", &m_Settings.importanceSampling);
                     ImGui::PopStyleColor();
-
+                    ImGui::SameLine();
                     ImGui::Checkbox("L1 (prev frame)", &m_Settings.usePrevFrame);
                 }
                 ImGui::PopID();
@@ -1252,13 +1255,15 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::PopStyleColor();
 
                         ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.adaptiveAccumulation ? UI_GREEN : UI_YELLOW);
-                        ImGui::Checkbox("Adaptive accumulation", &m_Settings.adaptiveAccumulation);
+                        ImGui::Checkbox("Adaptive accum", &m_Settings.adaptiveAccumulation);
                         ImGui::PopStyleColor();
                         ImGui::SameLine();
                         ImGui::Checkbox("Anti-firefly", &m_ReblurSettings.enableAntiFirefly);
 
-                        if (m_Settings.adaptiveAccumulation)
+                        if (m_Settings.adaptiveAccumulation) {
+                            ImGui::SameLine();
                             ImGui::Checkbox("SHARC boost", &m_Settings.boost);
+                        }
 
 #if (NRD_MODE == SH)
                         ImGui::SameLine();
