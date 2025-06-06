@@ -170,14 +170,10 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     float3 Lspec = spec.xyz * specFactor;
 
     // Apply PSR throughput ( primary surface material before replacement )
-    #if( USE_PSR == 1 )
-        float3 psrThroughput = gIn_PsrThroughput[ pixelPos ];
-        Ldiff *= psrThroughput;
-        Lspec *= psrThroughput;
-        Ldirect *= psrThroughput;
-    #else
-        float3 psrThroughput = 1.0;
-    #endif
+    float3 psrThroughput = gIn_PsrThroughput[ pixelPos ];
+    Ldiff *= psrThroughput;
+    Lspec *= psrThroughput;
+    Ldirect *= psrThroughput;
 
     // IMPORTANT: we store diffuse and specular separately to be able to use the reprojection trick. Let's assume that direct lighting can always be reprojected as diffuse
     Ldiff += Ldirect;

@@ -556,7 +556,7 @@ float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float et
 
 bool IsDelta( MaterialProps materialProps )
 {
-    return materialProps.roughness < 0.044 && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 ); // TODO: tweaked for some content?
+    return materialProps.roughness < 0.011 && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 ); // TODO: tweaked for some content?
 }
 
 #define SKIP_SOFT_SHADOWS 0x1

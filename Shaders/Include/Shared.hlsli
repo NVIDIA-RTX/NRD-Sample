@@ -11,7 +11,6 @@
 
 // Default = 1
 #define USE_IMPORTANCE_SAMPLING             1
-#define USE_PSR                             1 // allow primary surface replacement
 #define USE_SHARC_DITHERING                 1 // must be in [0; 1] range
 #define USE_TRANSLUCENCY                    1 // translucent foliage
 #define USE_SHARC_V_DEPENDENT               1 // needed to get a full match with prev frame data // TODO: improve multi-bounce low-roughness case
@@ -68,7 +67,6 @@
 
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001
-#define PT_PSR_THROUGHPUT_THRESHOLD         0.0 // TODO: even small throughput can produce a bright spot if incoming radiance is huge
 #define PT_IMPORTANCE_SAMPLES_NUM           16
 #define PT_SPEC_LOBE_ENERGY                 0.95 // trimmed to 95%
 #define PT_SHADOW_RAY_OFFSET                1.0 // pixels
@@ -79,6 +77,7 @@
 #define PT_GLASS_MIN_F                      0.05 // adds a bit of stability and bias
 #define PT_DELTA_BOUNCES_NUM                8
 #define PT_PSR_BOUNCES_NUM                  2
+#define PT_RAY_FLAGS                        0
 
 // Spatial HAsh-ased Radiance Cache ( SHARC )
 #define SHARC_CAPACITY                      ( 1 << 22 )
@@ -106,10 +105,6 @@
 #define TAA_HISTORY_SHARPNESS               0.66 // sharper ( was 0.5 )
 #define TAA_SIGMA_SCALE                     2.0 // allow nano ghosting ( was 1.0 ) // TODO: can negatively affect moving shadows
 #define GARBAGE                             sqrt( -1.0 ) // sqrt( -1.0 ) or -log( 0.0 ) or 32768.0
-
-#define MORPH_MAX_ACTIVE_TARGETS_NUM        8u
-#define MORPH_ELEMENTS_PER_ROW_NUM          4
-#define MORPH_ROWS_NUM                      ( MORPH_MAX_ACTIVE_TARGETS_NUM / MORPH_ELEMENTS_PER_ROW_NUM )
 
 // Instance flags
 #define FLAG_FIRST_BIT                      25 // this + number of flags must be <= 32
