@@ -99,8 +99,8 @@
 #define SET_GLOBAL                          0
 #define SET_OTHER                           1
 #define SET_RAY_TRACING                     2
-#define SET_MORPH                           3
-#define SET_SHARC                           4
+#define SET_SHARC                           3
+#define SET_MORPH                           4
 
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001
@@ -300,7 +300,7 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     uint32_t gIsSrgb;
 };
 
-NRI_RESOURCE( cbuffer, MorphMeshUpdateVerticesConstants, b, 0, 3 )
+NRI_RESOURCE( cbuffer, MorphMeshUpdateVerticesConstants, b, 0, SET_MORPH )
 {
     uint4 gIndices[ MORPH_ROWS_NUM ];
     float4 gWeights[ MORPH_ROWS_NUM ];
@@ -311,7 +311,7 @@ NRI_RESOURCE( cbuffer, MorphMeshUpdateVerticesConstants, b, 0, 3 )
     uint32_t gAttributesOutputOffset;
 };
 
-NRI_RESOURCE( cbuffer, MorphMeshUpdatePrimitivesConstants, b, 0, 3 )
+NRI_RESOURCE( cbuffer, MorphMeshUpdatePrimitivesConstants, b, 0, SET_MORPH )
 {
     uint2 gPositionFrameOffsets;
     uint32_t gNumPrimitives;
