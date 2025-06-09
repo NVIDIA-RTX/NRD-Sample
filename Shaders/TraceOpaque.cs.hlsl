@@ -531,7 +531,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     MaterialProps materialProps0 = GetMaterialProps( geometryProps0 );
 
     //================================================================================================================================================================================
-    // Primary surface replacement ( aka jump through mirrors ) // TODO: disable PSR on extremely curved surfaces
+    // Primary surface replacement ( aka jump through mirrors )
     //================================================================================================================================================================================
 
     float3 psrThroughput = 1.0;
