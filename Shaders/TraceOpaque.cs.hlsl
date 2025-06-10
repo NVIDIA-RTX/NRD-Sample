@@ -441,16 +441,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, accumulatedCurvature ) * Math::SmoothStep( 0.2, 0.0, accumulatedDiffuseLikeMotion );
                 accumulatedDiffuseLikeMotion += 1.0 - importance * ( 1.0 - diffuseLikeMotion );
                 accumulatedCurvature += materialProps.curvature; // yes, after hit
-
-                #if( USE_CAMERA_ATTACHED_REFLECTION_TEST == 1 && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
-                    // IMPORTANT: lazy ( no checkerboard support ) implementation of reflections masking for objects attached to the camera
-                    // TODO: better find a generic solution for tracking of reflections for objects attached to the camera
-                    if( bounce == 1 && !isDiffuse && roughness0 < 0.01 )
-                    {
-                        if( !geometryProps.IsSky( ) && !geometryProps.Has( FLAG_STATIC ) )
-                            gOut_Normal_Roughness[ pixelPos ].w = MATERIAL_ID_SELF_REFLECTION;
-                    }
-                #endif
             }
         }
 

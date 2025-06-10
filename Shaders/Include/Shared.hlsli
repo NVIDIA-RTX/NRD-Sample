@@ -20,7 +20,6 @@
 #define USE_SANITIZATION                    0 // NRD sample is NAN/INF free
 #define USE_SIMULATED_MATERIAL_ID_TEST      0 // "material ID" debugging
 #define USE_SIMULATED_FIREFLY_TEST          0 // "anti-firefly" debugging
-#define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
 #define USE_DRS_STRESS_TEST                 0 // NRD must not touch GARBAGE data outside of DRS rectangle
 #define USE_INF_STRESS_TEST                 0 // NRD must not touch GARBAGE data outside of denoising range
 #define USE_ANOTHER_COBALT                  0 // another cobalt variant

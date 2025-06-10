@@ -1729,29 +1729,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
         float3 basePos = float3(m_Camera.state.globalPosition);
 
-#if (USE_CAMERA_ATTACHED_REFLECTION_TEST == 1)
-        m_Settings.animatedObjectNum = 3;
-
-        for (int32_t i = -1; i <= 1; i++) {
-            const uint32_t index = i + 1;
-
-            float x = float(i) * 3.0f;
-            float y = (i == 0) ? -1.5f : 0.0f;
-            float z = (i == 0) ? 1.0f : 3.0f;
-
-            x *= scale;
-            y *= scale;
-            z *= m_PositiveZ ? scale : -scale;
-
-            float3 pos = basePos + vRight * x + vTop * y + vForward * z;
-
-            utils::Instance& instance = m_Scene.instances[m_AnimatedInstances[index].instanceID];
-            instance.position = double3(pos);
-            instance.rotation = m_Camera.state.mViewToWorld;
-            instance.rotation.SetTranslation(float3::Zero());
-            instance.rotation.AddScale(scale);
-        }
-#else
         m_Settings.animatedObjectNum = 9;
 
         for (int32_t i = -1; i <= 1; i++) {
@@ -1771,7 +1748,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                 instance.rotation.AddScale(scale);
             }
         }
-#endif
     } else if (m_Settings.animatedObjects) {
         for (int32_t i = 0; i < m_Settings.animatedObjectNum; i++) {
             float3 position;
@@ -2792,8 +2768,8 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
         nri::BufferViewDesc constantBufferViewDesc = {};
         constantBufferViewDesc.viewType = nri::BufferViewType::CONSTANT;
         constantBufferViewDesc.buffer = NRI.GetStreamerConstantBuffer(*m_Streamer);
-
         constantBufferViewDesc.size = helper::Align(sizeof(GlobalConstants), deviceDesc.memoryAlignment.constantBufferOffset);
+
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
         m_Descriptors.push_back(descriptor);
     }
@@ -3658,7 +3634,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
     std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM> optimizedTransitions = {};
 
-    bool wantPrintf = IsButtonPressed(Button::Middle) || IsKeyToggled(Key::P);
     bool isEven = !(frameIndex & 0x1);
 
     uint32_t queuedFrameIndex = frameIndex % GetQueuedFrameNum();
@@ -3701,8 +3676,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.disocclusionThreshold = 0.01f;
     commonSettings.disocclusionThresholdAlternate = 0.05f;
     commonSettings.splitScreen = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR) ? 1.0f : m_Settings.separator;
-    commonSettings.printfAt[0] = wantPrintf ? (uint16_t)ImGui::GetIO().MousePos.x : 9999;
-    commonSettings.printfAt[1] = wantPrintf ? (uint16_t)ImGui::GetIO().MousePos.y : 9999;
     commonSettings.debug = m_Settings.debug;
     commonSettings.frameIndex = frameIndex;
     commonSettings.accumulationMode = m_ForceHistoryReset ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
@@ -3713,10 +3686,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 #if (NRD_NORMAL_ENCODING == 2)
     commonSettings.strandMaterialID = MATERIAL_ID_HAIR;
     commonSettings.strandThickness = STRAND_THICKNESS;
-
-#    if (USE_CAMERA_ATTACHED_REFLECTION_TEST == 1)
-    commonSettings.cameraAttachedReflectionMaterialID = MATERIAL_ID_SELF_REFLECTION;
-#    endif
 #endif
 
     m_NRD.NewFrame();
