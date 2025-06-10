@@ -766,6 +766,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         nri::UpscalerDesc upscalerDesc = {};
         upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
         upscalerDesc.type = nri::UpscalerType::NIS;
+        upscalerDesc.flags = ALLOW_HDR ? nri::UpscalerBits::HDR : nri::UpscalerBits::NONE;
         NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS));
     }
 
@@ -773,8 +774,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
     m_RenderResolution = GetOutputResolution();
 
     if (m_DlssQuality != -1) {
-        nri::UpscalerBits upscalerFlags = nri::UpscalerBits::DEPTH_INFINITE;
-        upscalerFlags |= nri::UpscalerBits::HDR;
+        const nri::UpscalerBits upscalerFlags = nri::UpscalerBits::DEPTH_INFINITE | nri::UpscalerBits::HDR;
 
         nri::UpscalerMode mode = nri::UpscalerMode::NATIVE;
         if (m_DlssQuality == 0)
