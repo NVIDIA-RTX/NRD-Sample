@@ -80,10 +80,8 @@
 
 // Spatial HAsh-ased Radiance Cache ( SHARC )
 #define SHARC_CAPACITY                      ( 1 << 22 )
-#define SHARC_SCENE_SCALE                   50.0
+#define SHARC_SCENE_SCALE                   45.0
 #define SHARC_DOWNSCALE                     5
-#define SHARC_NORMAL_DITHER                 0.003
-#define SHARC_POS_DITHER                    0.001
 #define SHARC_ANTI_FIREFLY                  true
 #define SHARC_STALE_FRAME_NUM_MIN           32 // new version uses 8 by default, old value offers more stability in voxels with low number of samples ( critical for glass )
 #define SHARC_SEPARATE_EMISSIVE             1

@@ -122,6 +122,9 @@ struct TraceOpaqueResult
 
 TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos, float3x3 mirrorMatrix, float4 Lpsr )
 {
+    TraceOpaqueResult result = ( TraceOpaqueResult )0;
+    result.specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
+
     float viewZ0 = Geometry::AffineTransform( gWorldToView, geometryProps.X ).z;
     float roughness0 = materialProps.roughness;
 
@@ -141,8 +144,44 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         }
     }
 
-    TraceOpaqueResult result = ( TraceOpaqueResult )0;
-    result.specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
+    #if( USE_SHARC_DEBUG != 0 )
+    {
+        HashGridParameters hashGridParams;
+        hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
+        hashGridParams.sceneScale = SHARC_SCENE_SCALE;
+        hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+        hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+
+        SharcHitData sharcHitData;
+        sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
+        sharcHitData.normalWorld = geometryProps.N;
+        sharcHitData.emissive = materialProps.Lemi;
+
+        HashMapData hashMapData;
+        hashMapData.capacity = SHARC_CAPACITY;
+        hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+
+        SharcParameters sharcParams;
+        sharcParams.gridParameters = hashGridParams;
+        sharcParams.hashMapData = hashMapData;
+        sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
+        sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
+        sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+
+        #if( USE_SHARC_DEBUG == 2 )
+            result.diffRadiance = HashGridDebugColoredHash( sharcHitData.positionWorld, hashGridParams );
+        #else
+            bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, result.diffRadiance, true );
+
+            // Highlight invalid cells
+            // result.diffRadiance = isValid ?  result.diffRadiance : float3( 1.0, 0.0, 0.0 );
+        #endif
+
+        result.diffRadiance /= diffFactor0;
+
+        return result;
+    }
+    #endif
 
     bool isDiffusePath = false;
     {
@@ -617,9 +656,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
         N = normalize( lerp( n, N, f ) );
     }
-    #if( USE_SHARC_DEBUG == 1 )
-        N = geometryProps0.N;
-    #endif
 
     float materialID = GetMaterialID( geometryProps0, materialProps0 );
     #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
@@ -639,7 +675,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
     // Lighting at PSR hit, if found
     float4 Lpsr = 0;
-    if( bounceNum < PT_PSR_BOUNCES_NUM )
+    if( !geometryProps0.IsSky( ) && bounceNum != PT_PSR_BOUNCES_NUM )
     {
         // L1 cache - reproject previous frame, carefully treating specular
         Lpsr = GetRadianceFromPreviousFrame( geometryProps0, materialProps0, pixelPos, false );

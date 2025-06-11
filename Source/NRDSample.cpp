@@ -24,14 +24,14 @@
 constexpr uint32_t MAX_ANIMATED_INSTANCE_NUM = 512;
 constexpr auto BLAS_RIGID_MESH_BUILD_BITS = nri::AccelerationStructureBits::PREFER_FAST_TRACE | nri::AccelerationStructureBits::ALLOW_COMPACTION;
 constexpr auto TLAS_BUILD_BITS = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
-constexpr float ACCUMULATION_TIME = 0.5f;      // seconds
-constexpr float NEAR_Z = 0.001f;               // m
-constexpr float GLASS_THICKNESS = 0.002f;      // m
-constexpr float CAMERA_BACKWARD_OFFSET = 0.0f; // m, 3rd person camera offset
+constexpr float ACCUMULATION_TIME = 1.0f / 3.0f; // seconds
+constexpr float NEAR_Z = 0.001f;                 // m
+constexpr float GLASS_THICKNESS = 0.002f;        // m
+constexpr float CAMERA_BACKWARD_OFFSET = 0.0f;   // m, 3rd person camera offset
 constexpr float NIS_SHARPNESS = 0.2f;
 constexpr bool CAMERA_RELATIVE = true;
 constexpr bool ALLOW_BLAS_MERGING = true;
-constexpr bool ALLOW_HDR = false;                   // use "WIN + ALT + B" to switch HDR mode
+constexpr bool ALLOW_HDR = true;                    // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true; // saves a bit of memory and performance
 constexpr bool USE_DLSS_TNN = false;                // replace CNN (legacy) with TNN (better)
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
@@ -356,7 +356,7 @@ struct Settings {
     bool adaptiveAccumulation = true;
     bool usePrevFrame = true;
     bool windowAlignment = true;
-    bool boost = false;
+    bool unused10 = false;
     bool SR = false;
     bool RR = false;
 };
@@ -613,7 +613,6 @@ private:
     utils::Scene m_Scene;
     nri::Device* m_Device = nullptr;
     nri::Streamer* m_Streamer = nullptr;
-    nri::Upscaler* m_NIS = nullptr;
     nri::Upscaler* m_DLSR = nullptr;
     nri::Upscaler* m_DLRR = nullptr;
     nri::SwapChain* m_SwapChain = nullptr;
@@ -621,6 +620,7 @@ private:
     nri::Fence* m_FrameFence = nullptr;
     nri::DescriptorPool* m_DescriptorPool = nullptr;
     nri::PipelineLayout* m_PipelineLayout = nullptr;
+    std::array<nri::Upscaler*, 2> m_NIS = {};
     std::vector<QueuedFrame> m_QueuedFrames = {};
     std::vector<nri::Texture*> m_Textures;
     std::vector<nri::TextureBarrierDesc> m_TextureStates;
@@ -676,7 +676,8 @@ Sample::~Sample() {
         NRI.WaitForIdle(*m_GraphicsQueue);
 
     if (NRI.HasUpscaler()) {
-        NRI.DestroyUpscaler(*m_NIS);
+        NRI.DestroyUpscaler(*m_NIS[0]);
+        NRI.DestroyUpscaler(*m_NIS[1]);
         NRI.DestroyUpscaler(*m_DLSR);
         NRI.DestroyUpscaler(*m_DLRR);
     }
@@ -766,8 +767,12 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         nri::UpscalerDesc upscalerDesc = {};
         upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
         upscalerDesc.type = nri::UpscalerType::NIS;
-        upscalerDesc.flags = ALLOW_HDR ? nri::UpscalerBits::HDR : nri::UpscalerBits::NONE;
-        NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS));
+        
+        upscalerDesc.flags = nri::UpscalerBits::NONE;
+        NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS[0]));
+
+        upscalerDesc.flags = nri::UpscalerBits::HDR;
+        NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS[1]));
     }
 
     // Create upscalers: DLSR and DLRR
@@ -1260,11 +1265,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::SameLine();
                         ImGui::Checkbox("Anti-firefly", &m_ReblurSettings.enableAntiFirefly);
 
-                        if (m_Settings.adaptiveAccumulation) {
-                            ImGui::SameLine();
-                            ImGui::Checkbox("SHARC boost", &m_Settings.boost);
-                        }
-
 #if (NRD_MODE == SH)
                         ImGui::SameLine();
                         ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
@@ -1337,8 +1337,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::Checkbox("Anti-firefly", &m_RelaxSettings.enableAntiFirefly);
 
                         ImGui::Checkbox("Roughness edge stopping", &m_RelaxSettings.enableRoughnessEdgeStopping);
-                        ImGui::SameLine();
-                        ImGui::Checkbox("SHARC boost", &m_Settings.boost);
 #if (NRD_MODE == SH)
                         ImGui::SameLine();
                         ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
@@ -1807,8 +1805,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         fps = min(fps, 121.0f);
 
         // REBLUR / RELAX
-        float accumulationTime = nrd::REBLUR_DEFAULT_ACCUMULATION_TIME * (m_Settings.boost ? 0.667f : 1.0f);
-        int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(accumulationTime, fps), 1u);
+        int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(ACCUMULATION_TIME, fps), 1u);
 
         m_Settings.maxAccumulatedFrameNum = min(maxAccumulatedFrameNum, MAX_HISTORY_FRAME_NUM);
         m_Settings.maxFastAccumulatedFrameNum = isFastHistoryEnabled ? m_Settings.maxAccumulatedFrameNum / 5 : MAX_HISTORY_FRAME_NUM;
@@ -3516,11 +3513,12 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
 
     float fps = 1000.0f / m_Timer.GetSmoothedFrameTime();
     fps = min(fps, 121.0f);
-    float otherMaxAccumulatedFrameNum = fps * ACCUMULATION_TIME;
+
+    float otherMaxAccumulatedFrameNum = (float)nrd::GetMaxAccumulatedFrameNum(ACCUMULATION_TIME, fps);
     otherMaxAccumulatedFrameNum = min(otherMaxAccumulatedFrameNum, float(MAX_HISTORY_FRAME_NUM));
     otherMaxAccumulatedFrameNum *= resetHistoryFactor;
 
-    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum * (m_Settings.boost ? 0.667f : 1.0f) + 0.5f);
+    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum + 0.5f);
     float taaMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.5f;
     float prevFrameMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.3f;
 
@@ -4136,7 +4134,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
         }
 
-        NRI.CmdDispatchUpscale(commandBuffer, *m_NIS, dispatchUpscaleDesc);
+        NRI.CmdDispatchUpscale(commandBuffer, *m_NIS[m_SdrScale > 1.0f ? 1 : 0], dispatchUpscaleDesc);
 
         RestoreBindings(commandBuffer, isEven, false);
     }

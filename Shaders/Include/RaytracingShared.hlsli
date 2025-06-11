@@ -556,7 +556,7 @@ float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float et
 
 bool IsDelta( MaterialProps materialProps )
 {
-    return materialProps.roughness < 0.011
+    return materialProps.roughness < 0.041 // TODO: tweaked for kitchen
         && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 )
         && sqrt( abs( materialProps.curvature ) ) < 2.5;
 }

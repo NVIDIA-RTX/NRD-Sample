@@ -1,10 +1,6 @@
 // © 2022 NVIDIA Corporation
 
 #include "Include/Shared.hlsli"
-#include "Include/RaytracingShared.hlsli"
-
-#define SHARC_QUERY 1
-#include "SharcCommon.h"
 
 // Inputs
 NRI_RESOURCE( Texture2D<float>, gIn_ViewZ, t, 0, 1 );
@@ -177,55 +173,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
 
     // IMPORTANT: we store diffuse and specular separately to be able to use the reprojection trick. Let's assume that direct lighting can always be reprojected as diffuse
     Ldiff += Ldirect;
-
-    // SHARC debug
-    HashGridParameters hashGridParams;
-    hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-    hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-    hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-    hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
-
-    #if( USE_SHARC_DEBUG == 1 )
-        float3 Xglobal = GetGlobalPos( X );
-
-        // Dithered output
-        #if 0
-            Rng::Hash::Initialize( pixelPos, gFrameIndex );
-
-            uint level = HashGridGetLevel( Xglobal, hashGridParams );
-            float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
-            float3x3 mBasis = Geometry::GetBasis( N );
-            float2 rnd = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
-            Xglobal += mBasis[ 0 ] * rnd.x + mBasis[ 1 ] * rnd.y;
-        #endif
-
-        SharcHitData sharcHitData;
-        sharcHitData.positionWorld = Xglobal;
-        sharcHitData.normalWorld = N;
-        sharcHitData.emissive = Lemi;
-
-        HashMapData hashMapData;
-        hashMapData.capacity = SHARC_CAPACITY;
-        hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-        SharcParameters sharcParams;
-        sharcParams.gridParameters = hashGridParams;
-        sharcParams.hashMapData = hashMapData;
-        sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-        sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-        sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
-
-        bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, Ldiff, true );
-
-        // Highlight invalid cells
-        #if 0
-            Ldiff = isValid ? Ldiff : float3( 1.0, 0.0, 0.0 );
-        #endif
-    #elif( USE_SHARC_DEBUG == 2 )
-        Ldiff = HashGridDebugColoredHash( GetGlobalPos( X ), hashGridParams );
-    #endif
-
-    Lspec *= float( USE_SHARC_DEBUG == 0 );
 
     // Output
     gOut_ComposedDiff[ pixelPos ] = Ldiff;
