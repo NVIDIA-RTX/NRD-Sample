@@ -32,7 +32,7 @@ constexpr float CAMERA_BACKWARD_OFFSET = 0.0f; // m, 3rd person camera offset
 constexpr float NIS_SHARPNESS = 0.2f;
 constexpr bool CAMERA_RELATIVE = true;
 constexpr bool ALLOW_BLAS_MERGING = true;
-constexpr bool ALLOW_HDR = true;                    // use "WIN + ALT + B" to switch HDR mode
+constexpr bool ALLOW_HDR = NRD_MODE < OCCLUSION;    // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true; // saves a bit of memory and performance
 constexpr bool USE_DLSS_TNN = false;                // replace CNN (legacy) with TNN (better)
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
@@ -2197,7 +2197,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     }
 
     // Reset settings if tracing mode change
-    if (m_Settings.tracingMode != m_SettingsPrev.tracingMode) {
+    if (m_Settings.tracingMode != m_SettingsPrev.tracingMode || m_Settings.RR != m_SettingsPrev.RR) {
         m_ReblurSettings = GetDefaultReblurSettings();
         m_RelaxSettings = GetDefaultRelaxSettings();
     }
