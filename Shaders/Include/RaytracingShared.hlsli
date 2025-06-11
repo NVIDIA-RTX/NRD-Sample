@@ -564,7 +564,9 @@ float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float et
 
 bool IsDelta( MaterialProps materialProps )
 {
-    return materialProps.roughness < 0.044 && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 ); // TODO: tweaked for some content?
+    return materialProps.roughness < 0.041 // TODO: tweaked for kitchen
+        && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 )
+        && sqrt( abs( materialProps.curvature ) ) < 2.5;
 }
 
 #define SKIP_SOFT_SHADOWS 0x1
@@ -694,7 +696,7 @@ float ReprojectIrradiance(
 
     // Avoid NANs
     [flatten]
-    if( any( isnan( Ldiff ) | isinf( Ldiff ) | isnan( Lspec ) | isinf( Lspec ) ) || NRD_MODE >= OCCLUSION )
+    if( any( isnan( Ldiff ) | isinf( Ldiff ) | isnan( Lspec ) | isinf( Lspec ) ) || NRD_MODE >= OCCLUSION ) // TODO: needed?
     {
         Ldiff = 0;
         Lspec = 0;

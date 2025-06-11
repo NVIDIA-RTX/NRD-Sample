@@ -91,8 +91,7 @@ float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
 //========================================================================================
 
 /*
-"TraceOpaque" traces "pathNum" paths, doing up to "bounceNum" bounces. The function
-has not been designed to trace primary hits. But still can be used to trace
+The function has not been designed to trace primary hits. But still can be used to trace
 direct and indirect lighting.
 
 Prerequisites:
@@ -824,8 +823,8 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     Rng::Hash::Initialize( pixelPos, gFrameIndex );
 
     // Primary ray
-    float3 cameraRayOrigin = ( float3 )0;
-    float3 cameraRayDirection = ( float3 )0;
+    float3 cameraRayOrigin = 0;
+    float3 cameraRayDirection = 0;
     GetCameraRay( cameraRayOrigin, cameraRayDirection, sampleUv );
 
     GeometryProps geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, ( gOnScreen == SHOW_INSTANCE_INDEX || gOnScreen == SHOW_NORMAL ) ? GEOMETRY_ALL : FLAG_NON_TRANSPARENT, 0 );
@@ -942,7 +941,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     #endif
 
     //================================================================================================================================================================================
-    // Sun shadow ( after potential PSR )
+    // Sun shadow
     //================================================================================================================================================================================
 
     float2 rnd = GetBlueNoise( pixelPos, false );

@@ -32,7 +32,7 @@ constexpr float CAMERA_BACKWARD_OFFSET = 0.0f; // m, 3rd person camera offset
 constexpr float NIS_SHARPNESS = 0.2f;
 constexpr bool CAMERA_RELATIVE = true;
 constexpr bool ALLOW_BLAS_MERGING = true;
-constexpr bool ALLOW_HDR = false;                   // use "WIN + ALT + B" to switch HDR mode
+constexpr bool ALLOW_HDR = true;                    // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true; // saves a bit of memory and performance
 constexpr bool USE_DLSS_TNN = false;                // replace CNN (legacy) with TNN (better)
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
@@ -217,7 +217,6 @@ enum class Descriptor : uint32_t {
     MorphedPrimitivePrevData_StorageBuffer,
     PrimitiveData_Buffer,
     PrimitiveData_StorageBuffer,
-
     SharcHashEntries_StorageBuffer,
     SharcHashCopyOffset_StorageBuffer,
     SharcVoxelDataPing_StorageBuffer,
@@ -617,9 +616,17 @@ public:
 
     inline nrd::RelaxSettings GetDefaultRelaxSettings() const {
         nrd::RelaxSettings defaults = {};
-        // Helps to mitigate fireflies emphasized by DLSS
+        defaults.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
+        defaults.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
+        defaults.minMaterialForSpecular = MATERIAL_ID_METAL;
+        defaults.hitDistanceReconstructionMode = m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC ? nrd::HitDistanceReconstructionMode::AREA_3X3 : nrd::HitDistanceReconstructionMode::OFF;
+        defaults.diffuseMaxAccumulatedFrameNum = m_RelaxSettings.diffuseMaxAccumulatedFrameNum;
+        defaults.specularMaxAccumulatedFrameNum = m_RelaxSettings.specularMaxAccumulatedFrameNum;
+        defaults.diffuseMaxFastAccumulatedFrameNum = m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum;
+        defaults.specularMaxFastAccumulatedFrameNum = m_RelaxSettings.specularMaxFastAccumulatedFrameNum;
 
 #if (NRD_MODE < OCCLUSION)
+        // Helps to mitigate fireflies emphasized by DLSS
         // defaults.enableAntiFirefly = m_DlssQuality != -1 && IsDlssEnabled(); // TODO: currently doesn't help in this case, but makes the image darker
 #endif
 
@@ -628,6 +635,13 @@ public:
 
     inline nrd::ReblurSettings GetDefaultReblurSettings() const {
         nrd::ReblurSettings defaults = {};
+        defaults.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
+        defaults.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
+        defaults.minMaterialForSpecular = MATERIAL_ID_METAL;
+        defaults.hitDistanceReconstructionMode = m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC ? nrd::HitDistanceReconstructionMode::AREA_3X3 : nrd::HitDistanceReconstructionMode::OFF;
+        defaults.maxAccumulatedFrameNum = m_ReblurSettings.maxAccumulatedFrameNum;
+        defaults.maxFastAccumulatedFrameNum = m_ReblurSettings.maxFastAccumulatedFrameNum;
+        defaults.maxStabilizedFrameNum = m_ReblurSettings.maxStabilizedFrameNum;
 
 #if (NRD_MODE < OCCLUSION)
         // Helps to mitigate fireflies emphasized by DLSS
@@ -690,7 +704,6 @@ private:
     utils::Scene m_Scene;
     nri::Device* m_Device = nullptr;
     nri::Streamer* m_Streamer = nullptr;
-    nri::Upscaler* m_NIS = nullptr;
     nri::Upscaler* m_DLSR = nullptr;
     nri::Upscaler* m_DLRR = nullptr;
     nri::SwapChain* m_SwapChain = nullptr;
@@ -698,6 +711,7 @@ private:
     nri::Fence* m_FrameFence = nullptr;
     nri::DescriptorPool* m_DescriptorPool = nullptr;
     nri::PipelineLayout* m_PipelineLayout = nullptr;
+    std::array<nri::Upscaler*, 2> m_NIS = {};
     std::vector<QueuedFrame> m_QueuedFrames = {};
     std::vector<nri::Texture*> m_Textures;
     std::vector<nri::TextureBarrierDesc> m_TextureStates;
@@ -734,7 +748,6 @@ private:
     uint32_t m_LastSelectedTest = uint32_t(-1);
     uint32_t m_TestNum = uint32_t(-1);
     int32_t m_DlssQuality = int32_t(-1);
-    float m_SigmaTemporalStabilizationStrength = 1.0f;
     float m_UiWidth = 0.0f;
     float m_MinResolutionScale = 0.5f;
     float m_DofAperture = 0.0f;
@@ -757,7 +770,8 @@ Sample::~Sample() {
         NRI.WaitForIdle(*m_GraphicsQueue);
 
     if (NRI.HasUpscaler()) {
-        NRI.DestroyUpscaler(*m_NIS);
+        NRI.DestroyUpscaler(*m_NIS[0]);
+        NRI.DestroyUpscaler(*m_NIS[1]);
         NRI.DestroyUpscaler(*m_DLSR);
         NRI.DestroyUpscaler(*m_DLRR);
     }
@@ -847,7 +861,12 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
         nri::UpscalerDesc upscalerDesc = {};
         upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
         upscalerDesc.type = nri::UpscalerType::NIS;
-        NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS));
+
+        upscalerDesc.flags = nri::UpscalerBits::NONE;
+        NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS[0]));
+
+        upscalerDesc.flags = nri::UpscalerBits::HDR;
+        NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS[1]));
     }
 
     // Create upscalers: DLSR and DLRR
@@ -1546,50 +1565,11 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         if (m_Settings.denoiser == DENOISER_REBLUR) {
                             nrd::ReblurSettings defaults = GetDefaultReblurSettings();
 
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-                                defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-                                defaults.diffusePrepassBlurRadius = defaults.specularPrepassBlurRadius;
-                            }
-
-                            bool isSame = true;
-                            if (m_ReblurSettings.antilagSettings.luminanceSigmaScale != defaults.antilagSettings.luminanceSigmaScale)
-                                isSame = false;
-                            else if (m_ReblurSettings.antilagSettings.luminanceSensitivity != defaults.antilagSettings.luminanceSensitivity)
-                                isSame = false;
-                            else if (m_ReblurSettings.historyFixFrameNum != defaults.historyFixFrameNum)
-                                isSame = false;
-                            else if (m_ReblurSettings.historyFixBasePixelStride != defaults.historyFixBasePixelStride)
-                                isSame = false;
-                            else if (m_ReblurSettings.minBlurRadius != defaults.minBlurRadius)
-                                isSame = false;
-                            else if (m_ReblurSettings.maxBlurRadius != defaults.maxBlurRadius)
-                                isSame = false;
-                            else if (m_ReblurSettings.diffusePrepassBlurRadius != defaults.diffusePrepassBlurRadius)
-                                isSame = false;
-                            else if (m_ReblurSettings.specularPrepassBlurRadius != defaults.specularPrepassBlurRadius)
-                                isSame = false;
-                            else if (m_ReblurSettings.minHitDistanceWeight != defaults.minHitDistanceWeight)
-                                isSame = false;
-                            else if (m_ReblurSettings.lobeAngleFraction != defaults.lobeAngleFraction)
-                                isSame = false;
-                            else if (m_ReblurSettings.roughnessFraction != defaults.roughnessFraction)
-                                isSame = false;
-                            else if (m_ReblurSettings.responsiveAccumulationRoughnessThreshold != defaults.responsiveAccumulationRoughnessThreshold)
-                                isSame = false;
-                            else if (m_ReblurSettings.planeDistanceSensitivity != defaults.planeDistanceSensitivity)
-                                isSame = false;
-                            else if (m_ReblurSettings.hitDistanceReconstructionMode != defaults.hitDistanceReconstructionMode)
-                                isSame = false;
-                            else if (m_ReblurSettings.enableAntiFirefly != defaults.enableAntiFirefly)
-                                isSame = false;
-                            else if (m_ReblurSettings.usePrepassOnlyForSpecularMotionEstimation != defaults.usePrepassOnlyForSpecularMotionEstimation)
-                                isSame = false;
-                            else if ((int32_t)m_ReblurSettings.maxStabilizedFrameNum < m_Settings.maxAccumulatedFrameNum)
-                                isSame = false;
-
+                            bool isSame = !memcmp(&m_ReblurSettings, &defaults, sizeof(defaults));
                             bool hasSpatial = m_ReblurSettings.minBlurRadius + m_ReblurSettings.maxBlurRadius != 0.0f
                                 || m_ReblurSettings.diffusePrepassBlurRadius != 0.0f
                                 || m_ReblurSettings.specularPrepassBlurRadius != 0.0f;
+
                             ImGui::SameLine();
                             if (ImGui::Button(hasSpatial ? "No spatial" : "Spatial")) {
                                 if (hasSpatial) {
@@ -1603,15 +1583,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                     m_ReblurSettings.diffusePrepassBlurRadius = defaults.diffusePrepassBlurRadius;
                                     m_ReblurSettings.specularPrepassBlurRadius = defaults.specularPrepassBlurRadius;
                                 }
-                            }
-
-                            bool hasFastHistory = m_Settings.maxFastAccumulatedFrameNum < m_Settings.maxAccumulatedFrameNum;
-                            ImGui::SameLine();
-                            if (ImGui::Button(hasFastHistory ? "No fast" : "Fast")) {
-                                if (hasFastHistory)
-                                    m_Settings.maxFastAccumulatedFrameNum = MAX_HISTORY_FRAME_NUM;
-                                else
-                                    m_Settings.maxFastAccumulatedFrameNum = defaults.maxFastAccumulatedFrameNum;
                             }
 
                             ImGui::SameLine();
@@ -1684,80 +1655,13 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         } else if (m_Settings.denoiser == DENOISER_RELAX) {
                             nrd::RelaxSettings defaults = GetDefaultRelaxSettings();
 
-                            if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-                                defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-                                defaults.diffusePrepassBlurRadius = defaults.specularPrepassBlurRadius;
-                            }
-
-                            bool isSame = true;
-                            if (m_RelaxSettings.antilagSettings.accelerationAmount != defaults.antilagSettings.accelerationAmount)
-                                isSame = false;
-                            else if (m_RelaxSettings.antilagSettings.spatialSigmaScale != defaults.antilagSettings.spatialSigmaScale)
-                                isSame = false;
-                            else if (m_RelaxSettings.antilagSettings.temporalSigmaScale != defaults.antilagSettings.temporalSigmaScale)
-                                isSame = false;
-                            else if (m_RelaxSettings.antilagSettings.resetAmount != defaults.antilagSettings.resetAmount)
-                                isSame = false;
-                            else if (m_RelaxSettings.diffusePrepassBlurRadius != defaults.diffusePrepassBlurRadius)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularPrepassBlurRadius != defaults.specularPrepassBlurRadius)
-                                isSame = false;
-                            else if (m_RelaxSettings.minHitDistanceWeight != defaults.minHitDistanceWeight)
-                                isSame = false;
-                            else if (m_RelaxSettings.historyFixFrameNum != defaults.historyFixFrameNum)
-                                isSame = false;
-                            else if (m_RelaxSettings.historyFixBasePixelStride != defaults.historyFixBasePixelStride)
-                                isSame = false;
-                            else if (m_RelaxSettings.historyFixEdgeStoppingNormalPower != defaults.historyFixEdgeStoppingNormalPower)
-                                isSame = false;
-                            else if (m_RelaxSettings.diffusePhiLuminance != defaults.diffusePhiLuminance)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularPhiLuminance != defaults.specularPhiLuminance)
-                                isSame = false;
-                            else if (m_RelaxSettings.lobeAngleFraction != defaults.lobeAngleFraction)
-                                isSame = false;
-                            else if (m_RelaxSettings.roughnessFraction != defaults.roughnessFraction)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularVarianceBoost != defaults.specularVarianceBoost)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularLobeAngleSlack != defaults.specularLobeAngleSlack)
-                                isSame = false;
-                            else if (m_RelaxSettings.historyClampingColorBoxSigmaScale != defaults.historyClampingColorBoxSigmaScale)
-                                isSame = false;
-                            else if (m_RelaxSettings.spatialVarianceEstimationHistoryThreshold != defaults.spatialVarianceEstimationHistoryThreshold)
-                                isSame = false;
-                            else if (m_RelaxSettings.atrousIterationNum != defaults.atrousIterationNum)
-                                isSame = false;
-                            else if (m_RelaxSettings.diffuseMinLuminanceWeight != defaults.diffuseMinLuminanceWeight)
-                                isSame = false;
-                            else if (m_RelaxSettings.specularMinLuminanceWeight != defaults.specularMinLuminanceWeight)
-                                isSame = false;
-                            else if (m_RelaxSettings.depthThreshold != defaults.depthThreshold)
-                                isSame = false;
-                            else if (m_RelaxSettings.confidenceDrivenRelaxationMultiplier != defaults.confidenceDrivenRelaxationMultiplier)
-                                isSame = false;
-                            else if (m_RelaxSettings.confidenceDrivenLuminanceEdgeStoppingRelaxation != defaults.confidenceDrivenLuminanceEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.confidenceDrivenNormalEdgeStoppingRelaxation != defaults.confidenceDrivenNormalEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.luminanceEdgeStoppingRelaxation != defaults.luminanceEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.normalEdgeStoppingRelaxation != defaults.normalEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.roughnessEdgeStoppingRelaxation != defaults.roughnessEdgeStoppingRelaxation)
-                                isSame = false;
-                            else if (m_RelaxSettings.hitDistanceReconstructionMode != defaults.hitDistanceReconstructionMode)
-                                isSame = false;
-                            else if (m_RelaxSettings.enableAntiFirefly != defaults.enableAntiFirefly)
-                                isSame = false;
-                            else if (m_RelaxSettings.enableRoughnessEdgeStopping != defaults.enableRoughnessEdgeStopping)
-                                isSame = false;
-
+                            bool isSame = !memcmp(&m_RelaxSettings, &defaults, sizeof(defaults));
                             bool hasSpatial = m_RelaxSettings.diffusePhiLuminance != 0.0f
                                 || m_RelaxSettings.specularPhiLuminance != 0.0f
                                 || m_RelaxSettings.diffusePrepassBlurRadius != 0.0f
                                 || m_RelaxSettings.specularPrepassBlurRadius != 0.0f
                                 || m_RelaxSettings.spatialVarianceEstimationHistoryThreshold != 0;
+
                             ImGui::SameLine();
                             if (ImGui::Button(hasSpatial ? "No spatial" : "Spatial")) {
                                 if (hasSpatial) {
@@ -1773,15 +1677,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                     m_RelaxSettings.specularPrepassBlurRadius = defaults.specularPrepassBlurRadius;
                                     m_RelaxSettings.spatialVarianceEstimationHistoryThreshold = defaults.spatialVarianceEstimationHistoryThreshold;
                                 }
-                            }
-
-                            bool hasFastHistory = m_Settings.maxFastAccumulatedFrameNum < m_Settings.maxAccumulatedFrameNum;
-                            ImGui::SameLine();
-                            if (ImGui::Button(hasFastHistory ? "No fast" : "Fast")) {
-                                if (hasFastHistory)
-                                    m_Settings.maxFastAccumulatedFrameNum = MAX_HISTORY_FRAME_NUM;
-                                else
-                                    m_Settings.maxFastAccumulatedFrameNum = defaults.diffuseMaxFastAccumulatedFrameNum;
                             }
 
                             ImGui::SameLine();
@@ -2301,28 +2196,10 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         }
     }
 
-    // Adjust settings if tracing mode has been changed to / from "probabilistic sampling"
-    if (m_Settings.tracingMode != m_SettingsPrev.tracingMode && (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC || m_SettingsPrev.tracingMode == RESOLUTION_FULL_PROBABILISTIC)) {
-        nrd::ReblurSettings reblurDefaults = {};
-        nrd::ReblurSettings relaxDefaults = {};
-
-        if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-            m_ReblurSettings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-            m_ReblurSettings.diffusePrepassBlurRadius = reblurDefaults.specularPrepassBlurRadius;
-            m_ReblurSettings.specularPrepassBlurRadius = reblurDefaults.specularPrepassBlurRadius;
-
-            m_RelaxSettings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-            m_RelaxSettings.diffusePrepassBlurRadius = relaxDefaults.specularPrepassBlurRadius;
-            m_RelaxSettings.specularPrepassBlurRadius = relaxDefaults.specularPrepassBlurRadius;
-        } else {
-            m_ReblurSettings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::OFF;
-            m_ReblurSettings.diffusePrepassBlurRadius = reblurDefaults.diffusePrepassBlurRadius;
-            m_ReblurSettings.specularPrepassBlurRadius = reblurDefaults.specularPrepassBlurRadius;
-
-            m_RelaxSettings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::OFF;
-            m_RelaxSettings.diffusePrepassBlurRadius = relaxDefaults.diffusePrepassBlurRadius;
-            m_RelaxSettings.specularPrepassBlurRadius = relaxDefaults.specularPrepassBlurRadius;
-        }
+    // Reset settings if tracing mode change
+    if (m_Settings.tracingMode != m_SettingsPrev.tracingMode) {
+        m_ReblurSettings = GetDefaultReblurSettings();
+        m_RelaxSettings = GetDefaultRelaxSettings();
     }
 
     // Print out information
@@ -2401,7 +2278,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         fps = min(fps, 121.0f);
 
         // REBLUR / RELAX
-        float accumulationTime = nrd::REBLUR_DEFAULT_ACCUMULATION_TIME * ((m_Settings.boost && m_Settings.SHARC) ? 0.667f : 1.0f);
+        float accumulationTime = ACCUMULATION_TIME * ((m_Settings.boost && m_Settings.SHARC) ? 0.667f : 1.0f);
         int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(accumulationTime, fps), 1u);
 
         m_Settings.maxAccumulatedFrameNum = min(maxAccumulatedFrameNum, MAX_HISTORY_FRAME_NUM);
@@ -2420,17 +2297,11 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     m_ReblurSettings.maxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_ReblurSettings.maxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
-    m_ReblurSettings.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
-    m_ReblurSettings.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
-    m_ReblurSettings.minMaterialForSpecular = MATERIAL_ID_METAL;
 
     m_RelaxSettings.diffuseMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
     m_RelaxSettings.specularMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.specularMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
-    m_RelaxSettings.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
-    m_RelaxSettings.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
-    m_RelaxSettings.minMaterialForSpecular = MATERIAL_ID_METAL;
 
     UpdateConstantBuffer(frameIndex, resetHistoryFactor);
     GatherInstanceData();
@@ -5080,7 +4951,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
         }
 
-        NRI.CmdDispatchUpscale(commandBuffer, *m_NIS, dispatchUpscaleDesc);
+        NRI.CmdDispatchUpscale(commandBuffer, *m_NIS[m_SdrScale > 1.0f ? 1 : 0], dispatchUpscaleDesc);
 
         RestoreBindings(commandBuffer, isEven, false);
     }
