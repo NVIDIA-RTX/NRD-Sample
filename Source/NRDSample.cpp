@@ -31,7 +31,7 @@ constexpr float CAMERA_BACKWARD_OFFSET = 0.0f;   // m, 3rd person camera offset
 constexpr float NIS_SHARPNESS = 0.2f;
 constexpr bool CAMERA_RELATIVE = true;
 constexpr bool ALLOW_BLAS_MERGING = true;
-constexpr bool ALLOW_HDR = true;                    // use "WIN + ALT + B" to switch HDR mode
+constexpr bool ALLOW_HDR = NRIF_PLATFORM == NRIF_WINDOWS; // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true; // saves a bit of memory and performance
 constexpr bool USE_DLSS_TNN = false;                // replace CNN (legacy) with TNN (better)
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
@@ -316,29 +316,29 @@ struct Settings {
     float animationProgress = 0.0f;
     float animationSpeed = 0.0f;
     float hitDistScale = 3.0f;
-    float unused = 0.0f;
+    float unused1 = 0.0f;
     float resolutionScale = 1.0f;
     float sharpness = 0.15f;
 
     int32_t maxAccumulatedFrameNum = 31;
     int32_t maxFastAccumulatedFrameNum = 7;
-    int32_t unused1 = 0;
+    int32_t onScreen = 0;
     int32_t forcedMaterial = 0;
     int32_t animatedObjectNum = 5;
     uint32_t activeAnimation = 0;
     int32_t motionMode = 0;
     int32_t denoiser = DENOISER_REBLUR;
-    int32_t unused2 = 0;
+    int32_t rpp = 1;
     int32_t bounceNum = 1;
-    int32_t unused3 = 0;
-    int32_t unused4 = 0;
+    int32_t tracingMode = 0;
+    int32_t mvType = 0;
 
     bool cameraJitter = true;
     bool limitFps = false;
-    bool unused5 = true;
-    bool unused6 = false;
-    bool unused7 = true;
-    bool unused8 = true;
+    bool SHARC = true;
+    bool PSR = false;
+    bool indirectDiffuse = true;
+    bool indirectSpecular = true;
     bool normalMap = true;
     bool TAA = true;
     bool animatedObjects = false;
@@ -351,12 +351,12 @@ struct Settings {
     bool linearMotion = true;
     bool emissiveObjects = false;
     bool importanceSampling = true;
-    bool unused9 = true;
+    bool specularLobeTrimming = true;
     bool ortho = false;
     bool adaptiveAccumulation = true;
     bool usePrevFrame = true;
     bool windowAlignment = true;
-    bool unused10 = false;
+    bool boost = false;
     bool SR = false;
     bool RR = false;
 };
@@ -537,9 +537,9 @@ public:
     inline nrd::RelaxSettings GetDefaultRelaxSettings() const {
         nrd::RelaxSettings defaults = {};
         defaults.checkerboardMode = nrd::CheckerboardMode::OFF;
-        defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
         defaults.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
         defaults.minMaterialForSpecular = MATERIAL_ID_METAL;
+        defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
         defaults.diffuseMaxAccumulatedFrameNum = m_RelaxSettings.diffuseMaxAccumulatedFrameNum;
         defaults.specularMaxAccumulatedFrameNum = m_RelaxSettings.specularMaxAccumulatedFrameNum;
         defaults.diffuseMaxFastAccumulatedFrameNum = m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum;
@@ -554,9 +554,9 @@ public:
     inline nrd::ReblurSettings GetDefaultReblurSettings() const {
         nrd::ReblurSettings defaults = {};
         defaults.checkerboardMode = nrd::CheckerboardMode::OFF;
-        defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
         defaults.minMaterialForDiffuse = MATERIAL_ID_DEFAULT;
         defaults.minMaterialForSpecular = MATERIAL_ID_METAL;
+        defaults.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
         defaults.maxAccumulatedFrameNum = m_ReblurSettings.maxAccumulatedFrameNum;
         defaults.maxFastAccumulatedFrameNum = m_ReblurSettings.maxFastAccumulatedFrameNum;
         defaults.maxStabilizedFrameNum = m_ReblurSettings.maxStabilizedFrameNum;
@@ -4206,9 +4206,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         desc.colors = &swapChainTexture.colorAttachment;
         desc.colorNum = 1;
 
+        CmdCopyImguiData(commandBuffer, *m_Streamer);
+
         NRI.CmdBeginRendering(commandBuffer, desc);
         {
-            RenderImgui(commandBuffer, *m_Streamer, swapChainTexture.attachmentFormat, m_SdrScale, m_IsSrgb);
+            CmdDrawImgui(commandBuffer, swapChainTexture.attachmentFormat, m_SdrScale, m_IsSrgb);
         }
         NRI.CmdEndRendering(commandBuffer);
 
