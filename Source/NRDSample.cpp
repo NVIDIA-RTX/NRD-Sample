@@ -32,9 +32,9 @@ constexpr float CAMERA_BACKWARD_OFFSET = 0.0f; // m, 3rd person camera offset
 constexpr float NIS_SHARPNESS = 0.2f;
 constexpr bool CAMERA_RELATIVE = true;
 constexpr bool ALLOW_BLAS_MERGING = true;
-constexpr bool ALLOW_HDR = NRD_MODE < OCCLUSION;    // use "WIN + ALT + B" to switch HDR mode
-constexpr bool USE_LOW_PRECISION_FP_FORMATS = true; // saves a bit of memory and performance
-constexpr bool USE_DLSS_TNN = false;                // replace CNN (legacy) with TNN (better)
+constexpr bool ALLOW_HDR = NRIF_PLATFORM == NRIF_WINDOWS && NRD_MODE < OCCLUSION; // use "WIN + ALT + B" to switch HDR mode
+constexpr bool USE_LOW_PRECISION_FP_FORMATS = true;                               // saves a bit of memory and performance
+constexpr bool USE_DLSS_TNN = false;                                              // replace CNN (legacy) with TNN (better)
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
 constexpr bool NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING = true;
 constexpr bool NRD_RESTORE_INITIAL_STATE = false;
