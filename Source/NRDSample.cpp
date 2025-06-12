@@ -5024,9 +5024,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         desc.colors = &swapChainTexture.colorAttachment;
         desc.colorNum = 1;
 
+        CmdCopyImguiData(commandBuffer, *m_Streamer);
+
         NRI.CmdBeginRendering(commandBuffer, desc);
         {
-            RenderImgui(commandBuffer, *m_Streamer, swapChainTexture.attachmentFormat, m_SdrScale, m_IsSrgb);
+            CmdDrawImgui(commandBuffer, swapChainTexture.attachmentFormat, m_SdrScale, m_IsSrgb);
         }
         NRI.CmdEndRendering(commandBuffer);
 
