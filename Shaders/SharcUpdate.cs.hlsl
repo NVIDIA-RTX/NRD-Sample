@@ -49,7 +49,7 @@ void Trace( GeometryProps geometryProps )
     SharcState sharcState;
     SharcInit( sharcState );
 
-    MaterialProps materialProps = GetMaterialProps( geometryProps, USE_SHARC_V_DEPENDENT == 0 );
+    MaterialProps materialProps = GetMaterialProps( geometryProps );
 
     // Update SHARC cache ( this is always a hit )
     {
@@ -76,11 +76,8 @@ void Trace( GeometryProps geometryProps )
         float3 throughput = 1.0;
         {
             // Estimate diffuse probability
-            #if( USE_SHARC_V_DEPENDENT == 1 )
-                float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
-            #else
-                float diffuseProbability = 1.0;
-            #endif
+            float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
+            diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
 
             // Diffuse or specular?
             bool isDiffuse = Rng::Hash::GetFloat( ) < diffuseProbability;
@@ -146,49 +143,43 @@ void Trace( GeometryProps geometryProps )
                 throughput *= float( samplesNum ) / float( maxSamplesNum );
 
             // ( Optional ) Helpful insignificant fixes
-            #if( USE_SHARC_V_DEPENDENT == 1 )
-                float a = dot( geometryProps.N, ray );
-                if( a < 0.0 )
-                {
-                    if( isDiffuse )
-                    {
-                        // Terminate diffuse paths pointing inside the surface
-                        throughput = 0.0;
-                    }
-                    else
-                    {
-                        // Patch ray direction to avoid self-intersections: https://arxiv.org/pdf/1705.01263.pdf ( Appendix 3 )
-                        float b = dot( geometryProps.N, materialProps.N );
-                        ray = normalize( ray + materialProps.N * Math::Sqrt01( 1.0 - a * a ) / b );
-                    }
-                }
-            #endif
-
-            // Update path throughput
-            #if( USE_SHARC_V_DEPENDENT == 1 )
-                float3 albedo, Rf0;
-                BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-                float3 H = normalize( geometryProps.V + ray );
-                float VoH = abs( dot( geometryProps.V, H ) );
-                float NoL = saturate( dot( materialProps.N, ray ) );
-
+            float a = dot( geometryProps.N, ray );
+            if( a < 0.0 )
+            {
                 if( isDiffuse )
                 {
-                    float NoV = abs( dot( materialProps.N, geometryProps.V ) );
-                    throughput *= saturate( albedo * Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ) );
+                    // Terminate diffuse paths pointing inside the surface
+                    throughput = 0.0;
                 }
                 else
                 {
-                    float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
-                    throughput *= F;
-
-                    // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
-                    throughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
+                    // Patch ray direction to avoid self-intersections: https://arxiv.org/pdf/1705.01263.pdf ( Appendix 3 )
+                    float b = dot( geometryProps.N, materialProps.N );
+                    ray = normalize( ray + materialProps.N * Math::Sqrt01( 1.0 - a * a ) / b );
                 }
-            #else
-               throughput = GetAmbientBRDF( geometryProps, materialProps );
-            #endif
+            }
+
+            // Update path throughput
+            float3 albedo, Rf0;
+            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+
+            float3 H = normalize( geometryProps.V + ray );
+            float VoH = abs( dot( geometryProps.V, H ) );
+            float NoL = saturate( dot( materialProps.N, ray ) );
+
+            if( isDiffuse )
+            {
+                float NoV = abs( dot( materialProps.N, geometryProps.V ) );
+                throughput *= saturate( albedo * Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ) );
+            }
+            else
+            {
+                float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
+                throughput *= F;
+
+                // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
+                throughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
+            }
 
             // Translucency
             if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
@@ -208,7 +199,7 @@ void Trace( GeometryProps geometryProps )
             //=========================================================================================================================================================
 
             geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
-            materialProps = GetMaterialProps( geometryProps, USE_SHARC_V_DEPENDENT == 0 );
+            materialProps = GetMaterialProps( geometryProps );
         }
 
         { // Update SHARC cache
@@ -260,7 +251,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         uint flags = bounce == PT_DELTA_BOUNCES_NUM ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
 
         geometryProps = CastRay( Xoffset, ray, 0.0, INF, mip, gWorldTlas, flags, 0 );
-        MaterialProps materialProps = GetMaterialProps( geometryProps, USE_SHARC_V_DEPENDENT == 0 );
+        MaterialProps materialProps = GetMaterialProps( geometryProps );
 
         bool isGlass = geometryProps.Has( FLAG_TRANSPARENT );
         bool isDelta = IsDelta( materialProps ); // TODO: verify corner cases

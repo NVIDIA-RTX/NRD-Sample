@@ -118,7 +118,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         float smc = GetSpecMagicCurve( materialProps.roughness );
 
         float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-        float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
+        float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING * float( USE_SHARC_DEBUG == 0 );
         Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
 
         SharcHitData sharcHitData;

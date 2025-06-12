@@ -351,7 +351,7 @@ struct MaterialProps
     float curvature;
 };
 
-MaterialProps GetMaterialProps( GeometryProps geometryProps, bool viewIndependentLightingModel = false )
+MaterialProps GetMaterialProps( GeometryProps geometryProps )
 {
     MaterialProps props = ( MaterialProps )0;
 
@@ -502,22 +502,10 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps, bool viewIndependen
             BRDF::ConvertBaseColorMetalnessToAlbedoRf0( baseColor.xyz, metalness, albedo, Rf0 );
 
             // Apply lighting
-            if( viewIndependentLightingModel )
-            {
-                // Very simple "diffuse-like" model
-                float m = roughness * roughness;
-                float3 C = albedo * Csun + Rf0 * m * Cimp;
-                float Kdiff = NoL / Math::Pi( 1.0 );
+            float3 Cdiff, Cspec;
+            BRDF::DirectLighting( N, gSunDirection.xyz, geometryProps.V, Rf0, roughness, Cdiff, Cspec );
 
-                Ldirect = Kdiff * C;
-            }
-            else
-            {
-                float3 Cdiff, Cspec;
-                BRDF::DirectLighting( N, gSunDirection.xyz, geometryProps.V, Rf0, roughness, Cdiff, Cspec );
-
-                Ldirect = Cdiff * albedo * Csun + Cspec * Cimp;
-            }
+            Ldirect = Cdiff * albedo * Csun + Cspec * Cimp;
         }
 
         Ldirect *= shadow;

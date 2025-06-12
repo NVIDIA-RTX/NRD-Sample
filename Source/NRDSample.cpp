@@ -4183,7 +4183,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gNearZ = nearZ;
         constants.gEmissionIntensity = emissionIntensity;
         constants.gJitter = jitter;
-        constants.gSeparator = m_Settings.separator;
+        constants.gSeparator = USE_SHARC_DEBUG == 0 ? m_Settings.separator : 1.0f;
         constants.gRoughnessOverride = m_Settings.roughnessOverride;
         constants.gMetalnessOverride = m_Settings.metalnessOverride;
         constants.gUnitToMetersMultiplier = 1.0f / m_Settings.meterToUnitsMultiplier;
@@ -4300,7 +4300,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.denoisingRange = GetDenoisingRange();
     commonSettings.disocclusionThreshold = 0.01f;
     commonSettings.disocclusionThresholdAlternate = 0.05f;
-    commonSettings.splitScreen = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR) ? 1.0f : m_Settings.separator;
+    commonSettings.splitScreen = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR || USE_SHARC_DEBUG != 0) ? 1.0f : m_Settings.separator;
     commonSettings.printfAt[0] = wantPrintf ? (uint16_t)ImGui::GetIO().MousePos.x : 9999;
     commonSettings.printfAt[1] = wantPrintf ? (uint16_t)ImGui::GetIO().MousePos.y : 9999;
     commonSettings.debug = m_Settings.debug;
