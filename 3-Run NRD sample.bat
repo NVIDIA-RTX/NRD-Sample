@@ -42,46 +42,29 @@ echo 5 - 1440p (ultra wide)
     if %M%==1 (
         set WIDTH=1920
         set HEIGHT=1080
-        goto VSYNC
+        goto DLSS
     )
     if %M%==2 (
         set WIDTH=2560
         set HEIGHT=1440
-        goto VSYNC
+        goto DLSS
     )
     if %M%==3 (
         set WIDTH=3840
         set HEIGHT=2160
-        goto VSYNC
+        goto DLSS
     )
     if %M%==4 (
         set WIDTH=2560
         set HEIGHT=1080
-        goto VSYNC
+        goto DLSS
     )
     if %M%==5 (
         set WIDTH=3440
         set HEIGHT=1440
-        goto VSYNC
+        goto DLSS
     )
     goto CHOOSE_RESOLUTION
-
-:VSYNC
-set VSYNC=0
-echo.
-echo 1 - off
-echo 2 - on
-:CHOOSE_VSYNC
-    set /P M=Vsync [1-2]:
-    if %M%==1 (
-        set VSYNC=0
-        goto DLSS
-    )
-    if %M%==2 (
-        set VSYNC=1
-        goto DLSS
-    )
-    goto CHOOSE_VSYNC
 
 :DLSS
 set DLSS=-1
@@ -148,6 +131,6 @@ echo 4 - Kitchen
     goto CHOOSE_SCENE
 
 :RUN
-start "NRD sample" "%DIR_BIN%\NRDSample.exe" --width=%WIDTH% --height=%HEIGHT% --api=%API% --vsyncInterval=%VSYNC% --scene=%SCENE% --dlssQuality=%DLSS% --debugNRD
+start "NRD sample" "%DIR_BIN%\NRDSample.exe" --width=%WIDTH% --height=%HEIGHT% --api=%API% --scene=%SCENE% --dlssQuality=%DLSS% --debugNRD
 
 exit /b
