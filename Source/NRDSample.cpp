@@ -4112,7 +4112,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
 
     float fps = 1000.0f / m_Timer.GetSmoothedFrameTime();
     fps = min(fps, 121.0f);
-    float otherMaxAccumulatedFrameNum = fps * ACCUMULATION_TIME;
+    float otherMaxAccumulatedFrameNum = (float)nrd::GetMaxAccumulatedFrameNum(ACCUMULATION_TIME, fps);
     otherMaxAccumulatedFrameNum = min(otherMaxAccumulatedFrameNum, float(MAX_HISTORY_FRAME_NUM));
     otherMaxAccumulatedFrameNum *= resetHistoryFactor;
 
@@ -4241,10 +4241,9 @@ uint16_t Sample::BuildOptimizedTransitions(const TextureState* states, uint32_t 
 void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven) {
     NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
     NRI.CmdSetPipelineLayout(commandBuffer, *m_PipelineLayout);
-
     NRI.CmdSetDescriptorSet(commandBuffer, SET_GLOBAL, *Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset);
 
-    // TODO: ray tracing related resources are not always needed, but absence of root descriptors setting leads to a crash inside VK validation
+    // TODO: ray tracing related resources are not always needed, but absence of root descriptors leads to a silent crash inside VK validation
     NRI.CmdSetDescriptorSet(commandBuffer, SET_RAY_TRACING, *Get(DescriptorSet::RayTracing2), nullptr);
     NRI.CmdSetDescriptorSet(commandBuffer, SET_SHARC, isEven ? *Get(DescriptorSet::SharcPing3) : *Get(DescriptorSet::SharcPong3), nullptr);
 
@@ -4351,7 +4350,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
     // All-in-one pipeline layout
     NRI.CmdSetPipelineLayout(commandBuffer, *m_PipelineLayout);
-
     NRI.CmdSetDescriptorSet(commandBuffer, SET_GLOBAL, *Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset);
 
     // Update morph animation
@@ -4545,6 +4543,10 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         }
     }
 
+    //======================================================================================================================================
+    // Render resolution
+    //======================================================================================================================================
+
     // Must be bound here, after updating "Buffer::InstanceData"
     NRI.CmdSetDescriptorSet(commandBuffer, SET_RAY_TRACING, *Get(DescriptorSet::RayTracing2), nullptr);
     NRI.CmdSetDescriptorSet(commandBuffer, SET_SHARC, isEven ? *Get(DescriptorSet::SharcPing3) : *Get(DescriptorSet::SharcPong3), nullptr);
@@ -4554,10 +4556,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     NRI.CmdSetRootDescriptor(commandBuffer, 2, *Get(Descriptor::InstanceData_Buffer));
     NRI.CmdSetRootDescriptor(commandBuffer, 3, *Get(Descriptor::PrimitiveData_Buffer));
     NRI.CmdSetRootDescriptor(commandBuffer, 4, *Get(Descriptor::MorphedPrimitivePrevData_Buffer));
-
-    //======================================================================================================================================
-    // Render resolution
-    //======================================================================================================================================
 
     // SHARC
     nri::Buffer* sharcBufferToClear = isEven ? Get(Buffer::SharcVoxelDataPong) : Get(Buffer::SharcVoxelDataPing);
@@ -4798,9 +4796,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         m_NRD.SetDenoiserSettings(denoiser, &m_ReferenceSettings);
 
         Denoise(&denoiser, 1, commandBuffer);
-    }
 
-    RestoreBindings(commandBuffer, isEven);
+        RestoreBindings(commandBuffer, isEven);
+    }
 
     //======================================================================================================================================
     // Output resolution
