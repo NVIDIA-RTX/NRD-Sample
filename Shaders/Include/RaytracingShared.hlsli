@@ -1,9 +1,10 @@
 
-NRI_RESOURCE( RaytracingAccelerationStructure, gWorldTlas, t, 0, SET_RAY_TRACING );
-NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_RAY_TRACING );
-NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_RAY_TRACING );
-NRI_RESOURCE( StructuredBuffer<PrimitiveData>, gIn_PrimitiveData, t, 3, SET_RAY_TRACING );
-NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 4, SET_RAY_TRACING );
+NRI_RESOURCE( RaytracingAccelerationStructure, gWorldTlas, t, 0, SET_PUSH );
+NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_PUSH );
+NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_PUSH );
+NRI_RESOURCE( StructuredBuffer<PrimitiveData>, gIn_PrimitiveData, t, 3, SET_PUSH );
+
+NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 0, SET_RAY_TRACING );
 
 NRI_RESOURCE( RWStructuredBuffer<uint64_t>, gInOut_SharcHashEntriesBuffer, u, 0, SET_SHARC );
 NRI_RESOURCE( RWStructuredBuffer<uint>, gInOut_SharcHashCopyOffsetBuffer, u, 1, SET_SHARC );

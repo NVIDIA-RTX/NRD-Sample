@@ -62,6 +62,7 @@
 #define SET_OTHER                           1
 #define SET_RAY_TRACING                     2
 #define SET_SHARC                           3
+#define SET_PUSH                            4
 
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001
