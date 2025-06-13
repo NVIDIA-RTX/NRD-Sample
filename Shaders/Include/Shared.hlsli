@@ -100,6 +100,7 @@
 #define SET_RAY_TRACING                     2
 #define SET_SHARC                           3
 #define SET_MORPH                           4
+#define SET_PUSH                            5
 
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001

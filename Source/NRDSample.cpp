@@ -687,7 +687,7 @@ public:
     void CreateBuffer(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, uint64_t elements, uint32_t stride, nri::BufferUsageBits usage);
     void UploadStaticData();
     void UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor);
-    void RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven, bool needRayTracing = true);
+    void RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven);
     void GatherInstanceData();
     uint16_t BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions);
 
@@ -2470,9 +2470,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
     // SET_RAY_TRACING
     const uint32_t textureNum = helper::GetCountOf(m_Scene.materials) * TEXTURES_PER_MATERIAL;
     nri::DescriptorRangeDesc descriptorRanges2[] = {
-        {0, 2, nri::DescriptorType::ACCELERATION_STRUCTURE, nri::StageBits::COMPUTE_SHADER},
-        {2, 3, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
-        {5, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
+        {0, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
     };
 
     // SET_SHARC
@@ -2486,11 +2484,20 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         {0, 2, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
     };
 
+    // SET_PUSH
+    nri::RootDescriptorDesc rootDescriptors[] = {
+        {0, nri::DescriptorType::ACCELERATION_STRUCTURE, nri::StageBits::COMPUTE_SHADER},
+        {1, nri::DescriptorType::ACCELERATION_STRUCTURE, nri::StageBits::COMPUTE_SHADER},
+        {2, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
+        {3, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
+        {4, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
+    };
+
     nri::DynamicConstantBufferDesc dynamicConstantBuffer = {0, nri::StageBits::COMPUTE_SHADER};
 
     const nri::DescriptorSetDesc descriptorSetDescs[] = {
         {SET_GLOBAL, descriptorRanges0, helper::GetCountOf(descriptorRanges0), &dynamicConstantBuffer, 1},
-        {SET_OTHER, descriptorRanges1, helper::GetCountOf(descriptorRanges1), nullptr, 0},
+        {SET_OTHER, descriptorRanges1, helper::GetCountOf(descriptorRanges1)},
         {SET_RAY_TRACING, descriptorRanges2, helper::GetCountOf(descriptorRanges2)},
         {SET_SHARC, descriptorRanges3, helper::GetCountOf(descriptorRanges3)},
         {SET_MORPH, descriptorRanges4, helper::GetCountOf(descriptorRanges4), &dynamicConstantBuffer, 1},
@@ -2498,6 +2505,9 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
 
     { // Pipeline layout
         nri::PipelineLayoutDesc pipelineLayoutDesc = {};
+        pipelineLayoutDesc.rootRegisterSpace = SET_PUSH;
+        pipelineLayoutDesc.rootDescriptors = rootDescriptors;
+        pipelineLayoutDesc.rootDescriptorNum = helper::GetCountOf(rootDescriptors);
         pipelineLayoutDesc.descriptorSets = descriptorSetDescs;
         pipelineLayoutDesc.descriptorSetNum = helper::GetCountOf(descriptorSetDescs);
         pipelineLayoutDesc.shaderStages = nri::StageBits::COMPUTE_SHADER;
@@ -2520,9 +2530,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
 
         setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.accelerationStructureMaxNum += descriptorSetDescs[SET_RAY_TRACING].ranges[0].descriptorNum * setNum;
-        descriptorPoolDesc.structuredBufferMaxNum += descriptorSetDescs[SET_RAY_TRACING].ranges[1].descriptorNum * setNum;
-        descriptorPoolDesc.textureMaxNum += descriptorSetDescs[SET_RAY_TRACING].ranges[2].descriptorNum * setNum;
+        descriptorPoolDesc.textureMaxNum += descriptorSetDescs[SET_RAY_TRACING].ranges[0].descriptorNum * setNum;
 
         setNum = 2;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
@@ -3568,16 +3576,6 @@ void Sample::CreateDescriptorSets() {
     }
 
     { // DescriptorSet::RayTracing2
-        const nri::Descriptor* accelerationStructures[] = {
-            Get(Descriptor::World_AccelerationStructure),
-            Get(Descriptor::Light_AccelerationStructure)};
-
-        const nri::Descriptor* structuredBuffers[] = {
-            Get(Descriptor::InstanceData_Buffer),
-            Get(Descriptor::PrimitiveData_Buffer),
-            Get(Descriptor::MorphedPrimitivePrevData_Buffer),
-        };
-
         std::vector<nri::Descriptor*> textures(m_Scene.materials.size() * TEXTURES_PER_MATERIAL);
         for (size_t i = 0; i < m_Scene.materials.size(); i++) {
             const size_t index = i * TEXTURES_PER_MATERIAL;
@@ -3593,8 +3591,6 @@ void Sample::CreateDescriptorSets() {
         m_DescriptorSets.push_back(descriptorSet);
 
         const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {accelerationStructures, helper::GetCountOf(accelerationStructures)},
-            {structuredBuffers, helper::GetCountOf(structuredBuffers)},
             {textures.data(), helper::GetCountOf(textures)},
         };
 
@@ -4242,15 +4238,21 @@ uint16_t Sample::BuildOptimizedTransitions(const TextureState* states, uint32_t 
     return (uint16_t)n;
 }
 
-void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven, bool needRayTracing) {
+void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven) {
     NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
     NRI.CmdSetPipelineLayout(commandBuffer, *m_PipelineLayout);
+
     NRI.CmdSetDescriptorSet(commandBuffer, SET_GLOBAL, *Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset);
 
-    if (needRayTracing) {
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_RAY_TRACING, *Get(DescriptorSet::RayTracing2), nullptr);
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_SHARC, isEven ? *Get(DescriptorSet::SharcPing3) : *Get(DescriptorSet::SharcPong3), nullptr);
-    }
+    // TODO: ray tracing related resources are not always needed, but absence of root descriptors setting leads to a crash inside VK validation
+    NRI.CmdSetDescriptorSet(commandBuffer, SET_RAY_TRACING, *Get(DescriptorSet::RayTracing2), nullptr);
+    NRI.CmdSetDescriptorSet(commandBuffer, SET_SHARC, isEven ? *Get(DescriptorSet::SharcPing3) : *Get(DescriptorSet::SharcPong3), nullptr);
+
+    NRI.CmdSetRootDescriptor(commandBuffer, 0, *Get(Descriptor::World_AccelerationStructure));
+    NRI.CmdSetRootDescriptor(commandBuffer, 1, *Get(Descriptor::Light_AccelerationStructure));
+    NRI.CmdSetRootDescriptor(commandBuffer, 2, *Get(Descriptor::InstanceData_Buffer));
+    NRI.CmdSetRootDescriptor(commandBuffer, 3, *Get(Descriptor::PrimitiveData_Buffer));
+    NRI.CmdSetRootDescriptor(commandBuffer, 4, *Get(Descriptor::MorphedPrimitivePrevData_Buffer));
 }
 
 void Sample::RenderFrame(uint32_t frameIndex) {
@@ -4546,6 +4548,12 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     // Must be bound here, after updating "Buffer::InstanceData"
     NRI.CmdSetDescriptorSet(commandBuffer, SET_RAY_TRACING, *Get(DescriptorSet::RayTracing2), nullptr);
     NRI.CmdSetDescriptorSet(commandBuffer, SET_SHARC, isEven ? *Get(DescriptorSet::SharcPing3) : *Get(DescriptorSet::SharcPong3), nullptr);
+
+    NRI.CmdSetRootDescriptor(commandBuffer, 0, *Get(Descriptor::World_AccelerationStructure));
+    NRI.CmdSetRootDescriptor(commandBuffer, 1, *Get(Descriptor::Light_AccelerationStructure));
+    NRI.CmdSetRootDescriptor(commandBuffer, 2, *Get(Descriptor::InstanceData_Buffer));
+    NRI.CmdSetRootDescriptor(commandBuffer, 3, *Get(Descriptor::PrimitiveData_Buffer));
+    NRI.CmdSetRootDescriptor(commandBuffer, 4, *Get(Descriptor::MorphedPrimitivePrevData_Buffer));
 
     //======================================================================================================================================
     // Render resolution
@@ -4883,9 +4891,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
                 NRI.CmdDispatchUpscale(commandBuffer, *m_DLSR, dispatchUpscaleDesc);
             }
-        }
 
-        RestoreBindings(commandBuffer, isEven);
+            RestoreBindings(commandBuffer, isEven);
+        }
 
         { // After DLSS
             helper::Annotation annotation(NRI, commandBuffer, "After Dlss");
@@ -4953,7 +4961,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         NRI.CmdDispatchUpscale(commandBuffer, *m_NIS[m_SdrScale > 1.0f ? 1 : 0], dispatchUpscaleDesc);
 
-        RestoreBindings(commandBuffer, isEven, false);
+        RestoreBindings(commandBuffer, isEven);
     }
 
     // SHARC clear (for the next frame)
