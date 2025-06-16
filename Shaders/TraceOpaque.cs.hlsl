@@ -57,7 +57,7 @@ float2 GetBlueNoise( uint2 pixelPos, uint seed = 0 )
     return saturate( blue.xy );
 }
 
-float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos, bool isDiffuse )
+float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos )
 {
     // Reproject previous frame
     float3 prevLdiff, prevLspec;
@@ -68,7 +68,7 @@ float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps 
     float3 prevLsum = prevLdiff + prevLspec * diffuseProbabilityBiased;
 
     float diffuseLikeMotion = lerp( diffuseProbabilityBiased, 1.0, Math::Sqrt01( materialProps.curvature ) ); // TODO: review
-    prevFrameWeight *= isDiffuse ? 1.0 : diffuseLikeMotion;
+    prevFrameWeight *= diffuseLikeMotion;
 
     float a = Color::Luminance( prevLdiff );
     float b = Color::Luminance( prevLspec );
@@ -405,7 +405,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             if( !geometryProps.IsSky( ) )
             {
                 // L1 cache - reproject previous frame, carefully treating specular
-                Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos, false );
+                Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos );
 
                 // L2 cache - SHARC
                 HashGridParameters hashGridParams;
@@ -676,12 +676,14 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     if( !geometryProps0.IsSky( ) && bounceNum != PT_PSR_BOUNCES_NUM )
     {
         // L1 cache - reproject previous frame, carefully treating specular
-        Lpsr = GetRadianceFromPreviousFrame( geometryProps0, materialProps0, pixelPos, false );
-        Lpsr.xyz *= Lpsr.w;
+        Lpsr = GetRadianceFromPreviousFrame( geometryProps0, materialProps0, pixelPos );
 
         // Subtract direct lighting, process it separately
         float3 L = GetShadowedLighting( geometryProps0, materialProps0 );
         Lpsr.xyz = max( Lpsr.xyz - L, 0.0 );
+
+        // This is important!
+        Lpsr.xyz *= Lpsr.w;
     }
 
     //================================================================================================================================================================================
