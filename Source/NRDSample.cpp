@@ -1218,7 +1218,8 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
             "NORMAL",
             "SH",
             "OCCLUSION"
-            "DIRECTIONAL_OCCLUSION"};
+            "DIRECTIONAL_OCCLUSION",
+        };
 
         const nrd::LibraryDesc& nrdLibraryDesc = nrd::GetLibraryDesc();
 
@@ -1496,12 +1497,10 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::Checkbox("L2 (SHARC)", &m_Settings.SHARC);
                         ImGui::PopStyleColor();
 #endif
-                        if (m_Settings.tracingMode != RESOLUTION_HALF) {
-                            ImGui::SameLine();
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.PSR ? UI_GREEN : UI_YELLOW);
-                            ImGui::Checkbox("PSR", &m_Settings.PSR);
-                            ImGui::PopStyleColor();
-                        }
+                        ImGui::SameLine();
+                        ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.PSR ? UI_GREEN : UI_YELLOW);
+                        ImGui::Checkbox("PSR", &m_Settings.PSR);
+                        ImGui::PopStyleColor();
                     }
                     ImGui::PopID();
 
@@ -4112,6 +4111,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
 
     float fps = 1000.0f / m_Timer.GetSmoothedFrameTime();
     fps = min(fps, 121.0f);
+
     float otherMaxAccumulatedFrameNum = (float)nrd::GetMaxAccumulatedFrameNum(ACCUMULATION_TIME, fps);
     otherMaxAccumulatedFrameNum = min(otherMaxAccumulatedFrameNum, float(MAX_HISTORY_FRAME_NUM));
     otherMaxAccumulatedFrameNum *= resetHistoryFactor;
@@ -4183,13 +4183,10 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gRoughnessOverride = m_Settings.roughnessOverride;
         constants.gMetalnessOverride = m_Settings.metalnessOverride;
         constants.gUnitToMetersMultiplier = 1.0f / m_Settings.meterToUnitsMultiplier;
-        constants.gIndirectDiffuse = m_Settings.indirectDiffuse ? 1.0f : 0.0f;
-        constants.gIndirectSpecular = m_Settings.indirectSpecular ? 1.0f : 0.0f;
         constants.gTanSunAngularRadius = tan(radians(m_Settings.sunAngularDiameter * 0.5f));
         constants.gTanPixelAngularRadius = tan(0.5f * radians(m_Settings.camFov) / rectSize.x);
         constants.gDebug = m_Settings.debug;
         constants.gPrevFrameConfidence = (m_Settings.usePrevFrame && NRD_MODE < OCCLUSION && !m_Settings.RR) ? prevFrameMaxAccumulatedFrameNum / (1.0f + prevFrameMaxAccumulatedFrameNum) : 0.0f;
-        constants.gMinProbability = minProbability;
         constants.gUnproject = 1.0f / (0.5f * rectH * project[1]);
         constants.gAperture = m_DofAperture * 0.01f;
         constants.gFocalDistance = m_DofFocalDistance;
@@ -4199,24 +4196,27 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gExposure = m_Settings.exposure;
         constants.gMipBias = mipBias;
         constants.gOrthoMode = orthoMode;
+        constants.gIndirectDiffuse = m_Settings.indirectDiffuse ? 1.0f : 0.0f;
+        constants.gIndirectSpecular = m_Settings.indirectSpecular ? 1.0f : 0.0f;
+        constants.gMinProbability = minProbability;
         constants.gSharcMaxAccumulatedFrameNum = sharcMaxAccumulatedFrameNum;
         constants.gDenoiserType = (uint32_t)m_Settings.denoiser;
         constants.gDisableShadowsAndEnableImportanceSampling = (sunDirection.z < 0.0f && m_Settings.importanceSampling && NRD_MODE < OCCLUSION) ? 1 : 0;
-        constants.gOnScreen = onScreen;
         constants.gFrameIndex = frameIndex;
         constants.gForcedMaterial = m_Settings.forcedMaterial;
         constants.gUseNormalMap = m_Settings.normalMap ? 1 : 0;
-        constants.gTracingMode = m_Settings.RR ? RESOLUTION_FULL_PROBABILISTIC : m_Settings.tracingMode;
-        constants.gSampleNum = m_Settings.rpp;
         constants.gBounceNum = m_Settings.bounceNum;
         constants.gResolve = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR) ? false : m_Resolve;
-        constants.gPSR = m_Settings.PSR && m_Settings.tracingMode != RESOLUTION_HALF;
-        constants.gSHARC = m_Settings.SHARC;
         constants.gValidation = m_ShowValidationOverlay && m_Settings.denoiser != DENOISER_REFERENCE && m_Settings.separator != 1.0f;
-        constants.gTrimLobe = m_Settings.specularLobeTrimming ? 1 : 0;
         constants.gSR = (m_Settings.SR && !m_Settings.RR) ? 1 : 0;
         constants.gRR = m_Settings.RR ? 1 : 0;
         constants.gIsSrgb = (m_IsSrgb && (onScreen == SHOW_FINAL || onScreen == SHOW_BASE_COLOR)) ? 1 : 0;
+        constants.gOnScreen = onScreen;
+        constants.gTracingMode = m_Settings.RR ? RESOLUTION_FULL_PROBABILISTIC : m_Settings.tracingMode;
+        constants.gSampleNum = m_Settings.rpp;
+        constants.gPSR = m_Settings.PSR;
+        constants.gSHARC = m_Settings.SHARC;
+        constants.gTrimLobe = m_Settings.specularLobeTrimming ? 1 : 0;
     }
 
     m_GlobalConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));

@@ -18,7 +18,6 @@
 
 // Default = 1
 #define USE_IMPORTANCE_SAMPLING             1
-#define USE_PSR                             1 // allow primary surface replacement
 #define USE_SHARC_DITHERING                 1 // must be in [0; 1] range
 #define USE_TRANSLUCENCY                    1 // translucent foliage
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
@@ -104,7 +103,6 @@
 
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001
-#define PT_PSR_THROUGHPUT_THRESHOLD         0.0 // TODO: even small throughput can produce a bright spot if incoming radiance is huge
 #define PT_IMPORTANCE_SAMPLES_NUM           16
 #define PT_SPEC_LOBE_ENERGY                 0.95 // trimmed to 95%
 #define PT_SHADOW_RAY_OFFSET                1.0 // pixels
@@ -114,8 +112,10 @@
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
 #define PT_GLASS_MIN_F                      0.05 // adds a bit of stability and bias
 #define PT_DELTA_BOUNCES_NUM                8
+#define PT_PSR_BOUNCES_NUM                  2
+#define PT_RAY_FLAGS                        0
 
-// Spatial HAsh-ased Radiance Cache ( SHARC )
+// Spatial HAsh-based Radiance Cache ( SHARC )
 #define SHARC_CAPACITY                      ( 1 << 22 )
 #define SHARC_SCENE_SCALE                   45.0
 #define SHARC_DOWNSCALE                     5
@@ -262,13 +262,10 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     float gRoughnessOverride;
     float gMetalnessOverride;
     float gUnitToMetersMultiplier;
-    float gIndirectDiffuse;
-    float gIndirectSpecular;
     float gTanSunAngularRadius;
     float gTanPixelAngularRadius;
     float gDebug;
     float gPrevFrameConfidence;
-    float gMinProbability;
     float gUnproject;
     float gAperture;
     float gFocalDistance;
@@ -278,24 +275,27 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
     float gExposure;
     float gMipBias;
     float gOrthoMode;
+    float gIndirectDiffuse;
+    float gIndirectSpecular;
+    float gMinProbability;
     uint32_t gSharcMaxAccumulatedFrameNum;
     uint32_t gDenoiserType;
     uint32_t gDisableShadowsAndEnableImportanceSampling; // TODO: remove - modify GetSunIntensity to return 0 if sun is below horizon
-    uint32_t gOnScreen;
     uint32_t gFrameIndex;
     uint32_t gForcedMaterial;
     uint32_t gUseNormalMap;
-    uint32_t gTracingMode;
-    uint32_t gSampleNum;
     uint32_t gBounceNum;
     uint32_t gResolve;
-    uint32_t gPSR;
-    uint32_t gSHARC;
     uint32_t gValidation;
-    uint32_t gTrimLobe;
     uint32_t gSR;
     uint32_t gRR;
     uint32_t gIsSrgb;
+    uint32_t gOnScreen;
+    uint32_t gTracingMode;
+    uint32_t gSampleNum;
+    uint32_t gPSR;
+    uint32_t gSHARC;
+    uint32_t gTrimLobe;
 };
 
 NRI_RESOURCE( cbuffer, MorphMeshUpdateVerticesConstants, b, 0, SET_MORPH )
