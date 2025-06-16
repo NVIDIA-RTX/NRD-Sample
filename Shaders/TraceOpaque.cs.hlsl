@@ -24,9 +24,10 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float2>, gOut_ShadowData, u, 7, 
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Shadow_Translucency, u, 8, 1 );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Diff, u, 9, 1 );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Spec, u, 10, 1 );
+
 #if( NRD_MODE == SH )
-    NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, 1 );
-    NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, 1 );
 #endif
 
 float2 GetBlueNoise( uint2 pixelPos, uint seed = 0 )
@@ -114,10 +115,10 @@ struct TraceOpaqueResult
     float3 specRadiance;
     float specHitDist;
 
-    #if( NRD_MODE == SH )
-        float3 diffDirection;
-        float3 specDirection;
-    #endif
+#if( NRD_MODE == SH )
+    float3 diffDirection;
+    float3 specDirection;
+#endif
 };
 
 TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos, float3x3 mirrorMatrix, float4 Lpsr )
@@ -144,7 +145,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         }
     }
 
-    #if( USE_SHARC_DEBUG != 0 )
+    if( USE_SHARC_DEBUG != 0 )
     {
         HashGridParameters hashGridParams;
         hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
@@ -168,20 +169,19 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
         sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
 
-        #if( USE_SHARC_DEBUG == 2 )
-            result.diffRadiance = HashGridDebugColoredHash( sharcHitData.positionWorld, hashGridParams );
-        #else
-            bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, result.diffRadiance, true );
+    #if( USE_SHARC_DEBUG == 2 )
+        result.diffRadiance = HashGridDebugColoredHash( sharcHitData.positionWorld, hashGridParams );
+    #else
+        bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, result.diffRadiance, true );
 
-            // Highlight invalid cells
-            // result.diffRadiance = isValid ?  result.diffRadiance : float3( 1.0, 0.0, 0.0 );
-        #endif
+        // Highlight invalid cells
+        // result.diffRadiance = isValid ?  result.diffRadiance : float3( 1.0, 0.0, 0.0 );
+    #endif
 
         result.diffRadiance /= diffFactor0;
 
         return result;
     }
-    #endif
 
     bool isDiffusePath = false;
     {
@@ -324,17 +324,17 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 }
 
                 // ( Optional ) Save sampling direction for the 1st bounce
-                #if( NRD_MODE == SH )
-                    if( bounce == 1 )
-                    {
-                        float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
+            #if( NRD_MODE == SH )
+                if( bounce == 1 )
+                {
+                    float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
 
-                        if( isDiffuse )
-                            result.diffDirection += psrRay;
-                        else
-                            result.specDirection += psrRay;
-                    }
-                #endif
+                    if( isDiffuse )
+                        result.diffDirection += psrRay;
+                    else
+                        result.specDirection += psrRay;
+                }
+            #endif
 
                 // Update path throughput
                 if( !geometryProps.Has( FLAG_HAIR ) )
@@ -522,10 +522,10 @@ void WriteResult( uint2 outPixelPos, float4 diff, float4 spec, float4 diffSh, fl
     gOut_Diff[ outPixelPos ] = diff;
     gOut_Spec[ outPixelPos ] = spec;
 
-    #if( NRD_MODE == SH )
-        gOut_DiffSh[ outPixelPos ] = diffSh;
-        gOut_SpecSh[ outPixelPos ] = specSh;
-    #endif
+#if( NRD_MODE == SH )
+    gOut_DiffSh[ outPixelPos ] = diffSh;
+    gOut_SpecSh[ outPixelPos ] = specSh;
+#endif
 }
 
 [numthreads( 16, 16, 1 )]
@@ -538,9 +538,9 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Do not generate NANs for unused threads
     if( pixelUv.x > 1.0 || pixelUv.y > 1.0 )
     {
-        #if( USE_DRS_STRESS_TEST == 1 )
-            WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
-        #endif
+    #if( USE_DRS_STRESS_TEST == 1 )
+        WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+    #endif
 
         return;
     }
@@ -635,9 +635,9 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Early out
     if( geometryProps0.IsSky( ) )
     {
-        #if( USE_INF_STRESS_TEST == 1 )
-            WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
-        #endif
+    #if( USE_INF_STRESS_TEST == 1 )
+        WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+    #endif
 
         return;
     }
@@ -658,9 +658,9 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     }
 
     float materialID = GetMaterialID( geometryProps0, materialProps0 );
-    #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
-        materialID = frac( geometryProps0.X ).x < 0.05 ? MATERIAL_ID_HAIR : materialID;
-    #endif
+#if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
+    materialID = frac( geometryProps0.X ).x < 0.05 ? MATERIAL_ID_HAIR : materialID;
+#endif
 
     gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( N, materialProps0.roughness, materialID );
 
@@ -668,7 +668,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     gOut_BaseColor_Metalness[ pixelPos ] = float4( Color::ToSrgb( materialProps0.baseColor ), materialProps0.metalness );
 
     // Direct lighting
-    gOut_DirectLighting[ pixelPos ] = materialProps0.Ldirect * psrThroughput;
+    gOut_DirectLighting[ pixelPos ] = materialProps0.Ldirect; // "psrThroughput" applied in "Composition"
 
     // PSR throughput
     gOut_PsrThroughput[ pixelPos ] = psrThroughput;
@@ -692,21 +692,21 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
     TraceOpaqueResult result = TraceOpaque( geometryProps0, materialProps0, pixelPos, mirrorMatrix, Lpsr );
 
-    #if( USE_MOVING_EMISSION_FIX == 1 )
-        // Or emissives ( not having lighting in diffuse and specular ) can use a different material ID
-        result.diffRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
-        result.specRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
-    #endif
+#if( USE_MOVING_EMISSION_FIX == 1 )
+    // Or emissives ( not having lighting in diffuse and specular ) can use a different material ID
+    result.diffRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
+    result.specRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
+#endif
 
-    #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
-        if( frac( geometryProps0.X ).x < 0.05 )
-            result.diffRadiance = float3( 0, 10, 0 ) * Color::Luminance( result.diffRadiance );
-    #endif
+#if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
+    if( frac( geometryProps0.X ).x < 0.05 )
+        result.diffRadiance = float3( 0, 10, 0 ) * Color::Luminance( result.diffRadiance );
+#endif
 
-    #if( USE_SIMULATED_FIREFLY_TEST == 1 )
-        const float maxFireflyEnergyScaleFactor = 10000.0;
-        result.diffRadiance /= lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
-    #endif
+#if( USE_SIMULATED_FIREFLY_TEST == 1 )
+    const float maxFireflyEnergyScaleFactor = 10000.0;
+    result.diffRadiance /= lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
+#endif
 
     //================================================================================================================================================================================
     // Sun shadow
