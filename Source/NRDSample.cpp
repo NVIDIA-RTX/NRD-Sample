@@ -471,9 +471,6 @@ public:
             resourceSnapshot.SetResource(nrd::ResourceType::IN_NORMAL_ROUGHNESS, GetNrdResource(Texture::Normal_Roughness));
             resourceSnapshot.SetResource(nrd::ResourceType::IN_VIEWZ, GetNrdResource(Texture::ViewZ));
 
-            // (Optional) Needed to allow IN_MV modification on the NRD side
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_BASECOLOR_METALNESS, GetNrdResource(Texture::BaseColor_Metalness));
-
             // (Optional) Validation
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_VALIDATION, GetNrdResource(Texture::Validation));
 
@@ -3677,7 +3674,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.frameIndex = frameIndex;
     commonSettings.accumulationMode = m_ForceHistoryReset ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
     commonSettings.isMotionVectorInWorldSpace = false;
-    commonSettings.isBaseColorMetalnessAvailable = true;
     commonSettings.enableValidation = m_ShowValidationOverlay;
 
 #if (NRD_NORMAL_ENCODING == 2)
