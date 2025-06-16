@@ -184,323 +184,321 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
     }
 
     bool isDiffusePath = false;
+    float accumulatedHitDist = 0;
+    float accumulatedDiffuseLikeMotion = 0;
+    float accumulatedCurvature = 0;
+
+    float3 Lsum = Lpsr.xyz;
+    float3 pathThroughput = 1.0 - Lpsr.w;
+
+    [loop]
+    for( uint bounce = 1; bounce <= gBounceNum && !geometryProps.IsSky( ); bounce++ )
     {
-        float accumulatedHitDist = 0;
-        float accumulatedDiffuseLikeMotion = 0;
-        float accumulatedCurvature = 0;
+        //=============================================================================================================================================================
+        // Origin point
+        //=============================================================================================================================================================
 
-        float3 Lsum = Lpsr.xyz;
-        float3 pathThroughput = 1.0 - Lpsr.w;
-
-        [loop]
-        for( uint bounce = 1; bounce <= gBounceNum && !geometryProps.IsSky( ); bounce++ )
+        bool isDiffuse = false;
         {
-            //=============================================================================================================================================================
-            // Origin point
-            //=============================================================================================================================================================
+            // Estimate diffuse probability
+            float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps ) * float( !geometryProps.Has( FLAG_HAIR ) );
 
-            bool isDiffuse = isDiffusePath;
+            // Clamp probability to a sane range to guarantee a sample in 3x3 ( or 5x5 ) area ( see NRD docs )
+            float rnd = Rng::Hash::GetFloat( );
+            if( bounce == 1 && !gRR )
             {
-                // Estimate diffuse probability
-                float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps ) * float( !geometryProps.Has( FLAG_HAIR ) );
+                diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
+                rnd = Sequence::Bayer4x4( pixelPos, gFrameIndex ) + rnd / 16.0;
+            }
 
-                // Clamp probability to a sane range to guarantee a sample in 3x3 ( or 5x5 ) area ( see NRD docs )
-                float rnd = Rng::Hash::GetFloat( );
-                if( bounce == 1 && !gRR )
-                {
-                    diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
-                    rnd = Sequence::Bayer4x4( pixelPos, gFrameIndex ) + rnd / 16.0;
-                }
+            // Diffuse or specular path?
+            isDiffuse = rnd < diffuseProbability; // TODO: if "diffuseProbability" is clamped, "pathThroughput" should be adjusted too
+            pathThroughput /= abs( float( !isDiffuse ) - diffuseProbability );
 
-                // Diffuse or specular path?
-                isDiffuse = rnd < diffuseProbability; // TODO: if "diffuseProbability" is clamped, "pathThroughput" should be adjusted too
-                pathThroughput /= abs( float( !isDiffuse ) - diffuseProbability );
+            if( bounce == 1 )
+                isDiffusePath = isDiffuse;
 
-                if( bounce == 1 )
-                    isDiffusePath = isDiffuse;
+            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
 
-                float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
+            // Choose a ray
+            float3x3 mLocalBasis = geometryProps.Has( FLAG_HAIR ) ? HairGetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
 
-                // Choose a ray
-                float3x3 mLocalBasis = geometryProps.Has( FLAG_HAIR ) ? HairGetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
+            float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
+            float3 ray = 0;
+            uint samplesNum = 0;
 
-                float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
-                float3 ray = 0;
-                uint samplesNum = 0;
+            // If IS is enabled, generate up to PT_IMPORTANCE_SAMPLES_NUM rays depending on roughness
+            // If IS is disabled, there is no need to generate up to PT_IMPORTANCE_SAMPLES_NUM rays for specular because VNDF v3 doesn't produce rays pointing inside the surface
+            uint maxSamplesNum = 0;
+            if( bounce == 1 && gDisableShadowsAndEnableImportanceSampling ) // TODO: use IS in each bounce?
+                maxSamplesNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : materialProps.roughness );
+            maxSamplesNum = max( maxSamplesNum, 1 );
 
-                // If IS is enabled, generate up to PT_IMPORTANCE_SAMPLES_NUM rays depending on roughness
-                // If IS is disabled, there is no need to generate up to PT_IMPORTANCE_SAMPLES_NUM rays for specular because VNDF v3 doesn't produce rays pointing inside the surface
-                uint maxSamplesNum = 0;
-                if( bounce == 1 && gDisableShadowsAndEnableImportanceSampling ) // TODO: use IS in each bounce?
-                    maxSamplesNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : materialProps.roughness );
-                maxSamplesNum = max( maxSamplesNum, 1 );
-
-                if( geometryProps.Has( FLAG_HAIR ) )
-                {
-                    if( isDiffuse )
-                        break;
-
-                    HairSurfaceData hairSd = ( HairSurfaceData )0;
-                    hairSd.N = float3( 0, 0, 1 );
-                    hairSd.T = float3( 1, 0, 0 );
-                    hairSd.V = Vlocal;
-
-                    HairData hairData = ( HairData )0;
-                    hairData.baseColor = materialProps.baseColor;
-                    hairData.betaM = materialProps.roughness;
-                    hairData.betaN = materialProps.metalness;
-
-                    HairContext hairBrdf = HairContextInit( hairSd, hairData );
-
-                    float3 r;
-                    float pdf = HairSampleRay( hairBrdf, Vlocal, Rng::Hash::GetFloat4( ), r );
-
-                    float3 throughput = HairEval( hairBrdf, Vlocal, r ) / pdf;
-                    pathThroughput *= throughput;
-
-                    ray = Geometry::RotateVectorInverse( mLocalBasis, r );
-                }
-                else
-                {
-                    for( uint sampleIndex = 0; sampleIndex < maxSamplesNum; sampleIndex++ )
-                    {
-                        float2 rnd = Rng::Hash::GetFloat2( ); // TODO: blue noise?
-
-                        // Generate a ray in local space
-                        float3 r;
-                        if( isDiffuse )
-                            r = ImportanceSampling::Cosine::GetRay( rnd );
-                        else
-                        {
-                            float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, PT_SPEC_LOBE_ENERGY );
-                            r = reflect( -Vlocal, Hlocal );
-                        }
-
-                        // Transform to world space
-                        r = Geometry::RotateVectorInverse( mLocalBasis, r );
-
-                        // Importance sampling for direct lighting
-                        // TODO: move direct lighting tracing into a separate pass:
-                        // - currently AO and SO get replaced with useless distances to closest lights if IS is on
-                        // - better separate direct and indirect lighting denoising
-
-                        //   1. If IS enabled, check the ray in LightBVH
-                        bool isMiss = false;
-                        if( gDisableShadowsAndEnableImportanceSampling && maxSamplesNum != 1 )
-                            isMiss = CastVisibilityRay_AnyHit( geometryProps.GetXoffset( geometryProps.N ), r, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
-
-                        //   2. Count rays hitting emissive surfaces
-                        if( !isMiss )
-                            samplesNum++;
-
-                        //   3. Save either the first ray or the current ray hitting an emissive
-                        if( !isMiss || sampleIndex == 0 )
-                            ray = r;
-                    }
-                }
-
-                // Adjust throughput by percentage of rays hitting any emissive surface
-                // IMPORTANT: do not modify throughput if there is no a hit, it's needed to cast a non-IS ray and get correct AO / SO at least
-                if( samplesNum != 0 )
-                    pathThroughput *= float( samplesNum ) / float( maxSamplesNum );
-
-                // ( Optional ) Helpful insignificant fixes
-                float a = dot( geometryProps.N, ray );
-                if( !geometryProps.Has( FLAG_HAIR ) && a < 0.0 )
-                {
-                    if( isDiffuse )
-                    {
-                        // Terminate diffuse paths pointing inside the surface
-                        pathThroughput = 0.0;
-                    }
-                    else
-                    {
-                        // Patch ray direction and shading normal to avoid self-intersections: https://arxiv.org/pdf/1705.01263.pdf ( Appendix 3 )
-                        float b = abs( dot( geometryProps.N, materialProps.N ) ) * 0.99;
-
-                        ray = normalize( ray + geometryProps.N * abs( a ) * Math::PositiveRcp( b ) );
-                        materialProps.N = normalize( geometryProps.V + ray );
-                    }
-                }
-
-                // ( Optional ) Save sampling direction for the 1st bounce
-            #if( NRD_MODE == SH )
-                if( bounce == 1 )
-                {
-                    float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
-
-                    if( isDiffuse )
-                        result.diffDirection += psrRay;
-                    else
-                        result.specDirection += psrRay;
-                }
-            #endif
-
-                // Update path throughput
-                if( !geometryProps.Has( FLAG_HAIR ) )
-                {
-                    float3 albedo, Rf0;
-                    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-                    float3 H = normalize( geometryProps.V + ray );
-                    float VoH = abs( dot( geometryProps.V, H ) );
-                    float NoL = saturate( dot( materialProps.N, ray ) );
-
-                    if( isDiffuse )
-                    {
-                        float NoV = abs( dot( materialProps.N, geometryProps.V ) );
-                        pathThroughput *= saturate( albedo * Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ) );
-                    }
-                    else
-                    {
-                        float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
-                        pathThroughput *= F;
-
-                        // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
-                        pathThroughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
-                    }
-
-                    // Translucency
-                    if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
-                    {
-                        if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
-                        {
-                            ray = -ray;
-                            geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
-                            pathThroughput /= LEAF_TRANSLUCENCY;
-                        }
-                        else
-                            pathThroughput /= 1.0 - LEAF_TRANSLUCENCY;
-                    }
-                }
-
-                // Abort if expected contribution of the current bounce is low
-                /*
-                GOOD PRACTICE:
-                - terminate path if "pathThroughput" is smaller than some threshold
-                - approximate ambient at the end of the path
-                - re-use data from the previous frame
-                */
-
-                if( PT_THROUGHPUT_THRESHOLD != 0.0 && Color::Luminance( pathThroughput ) < PT_THROUGHPUT_THRESHOLD )
+            if( geometryProps.Has( FLAG_HAIR ) )
+            {
+                if( isDiffuse )
                     break;
 
-                //=========================================================================================================================================================
-                // Trace to the next hit
-                //=========================================================================================================================================================
+                HairSurfaceData hairSd = ( HairSurfaceData )0;
+                hairSd.N = float3( 0, 0, 1 );
+                hairSd.T = float3( 1, 0, 0 );
+                hairSd.V = Vlocal;
 
-                geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
-                materialProps = GetMaterialProps( geometryProps ); // TODO: try to read metrials only if L1- and L2- lighting caches failed
-            }
+                HairData hairData = ( HairData )0;
+                hairData.baseColor = materialProps.baseColor;
+                hairData.betaM = materialProps.roughness;
+                hairData.betaN = materialProps.metalness;
 
-            //=============================================================================================================================================================
-            // Hit point
-            //=============================================================================================================================================================
+                HairContext hairBrdf = HairContextInit( hairSd, hairData );
 
-            {
-                //=============================================================================================================================================================
-                // Lighting
-                //=============================================================================================================================================================
+                float3 r;
+                float pdf = HairSampleRay( hairBrdf, Vlocal, Rng::Hash::GetFloat4( ), r );
 
-                float4 Lcached = float4( materialProps.Lemi, 0.0 );
-                if( !geometryProps.IsSky( ) )
-                {
-                    // L1 cache - reproject previous frame, carefully treating specular
-                    Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos, false );
+                float3 throughput = HairEval( hairBrdf, Vlocal, r ) / pdf;
+                pathThroughput *= throughput;
 
-                    // L2 cache - SHARC
-                    HashGridParameters hashGridParams;
-                    hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-                    hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-                    hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-                    hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
-
-                    float3 Xglobal = GetGlobalPos( geometryProps.X );
-                    uint level = HashGridGetLevel( Xglobal, hashGridParams );
-                    float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
-                    float smc = GetSpecMagicCurve( materialProps.roughness );
-
-                    float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-                    float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
-                    Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
-
-                    SharcHitData sharcHitData;
-                    sharcHitData.positionWorld = Xglobal;
-                    sharcHitData.normalWorld = geometryProps.N;
-                    sharcHitData.emissive = materialProps.Lemi;
-
-                    HashMapData hashMapData;
-                    hashMapData.capacity = SHARC_CAPACITY;
-                    hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-                    SharcParameters sharcParams;
-                    sharcParams.gridParameters = hashGridParams;
-                    sharcParams.hashMapData = hashMapData;
-                    sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-                    sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-                    sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
-
-                    float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
-                    bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
-                    isSharcAllowed &= footprint > voxelSize; // voxel angular size is acceptable
-
-                    float3 sharcRadiance;
-                    if( isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false ) )
-                        Lcached = float4( sharcRadiance, 1.0 );
-
-                    // Cache miss - compute lighting, if not found in caches
-                    if( Rng::Hash::GetFloat( ) > Lcached.w )
-                    {
-                        float3 L = GetShadowedLighting( geometryProps, materialProps );
-                        Lcached.xyz = bounce < gBounceNum ? L : max( Lcached.xyz, L );
-                    }
-                }
-
-                //=============================================================================================================================================================
-                // Other
-                //=============================================================================================================================================================
-
-                // Accumulate lighting
-                float3 L = Lcached.xyz * pathThroughput;
-                Lsum += L;
-
-                // ( Biased ) Reduce contribution of next samples if previous frame is sampled, which already has multi-bounce information
-                pathThroughput *= 1.0 - Lcached.w;
-
-                // Accumulate path length for NRD ( see "README/NOISY INPUTS" )
-                float a = Color::Luminance( L );
-                float b = Color::Luminance( Lsum ); // already includes L
-                float importance = a / ( b + 1e-6 );
-
-                importance *= 1.0 - Color::Luminance( materialProps.Lemi ) / ( a + 1e-6 );
-
-                float diffuseLikeMotion = EstimateDiffuseProbability( geometryProps, materialProps, true );
-                diffuseLikeMotion = isDiffuse ? 1.0 : diffuseLikeMotion;
-
-                accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, accumulatedCurvature ) * Math::SmoothStep( 0.2, 0.0, accumulatedDiffuseLikeMotion );
-                accumulatedDiffuseLikeMotion += 1.0 - importance * ( 1.0 - diffuseLikeMotion );
-                accumulatedCurvature += materialProps.curvature; // yes, after hit
-            }
-        }
-
-        // Normalize hit distances for REBLUR and REFERENCE ( needed only for AO ) before averaging
-        float normHitDist = accumulatedHitDist;
-        if( gDenoiserType != DENOISER_RELAX )
-            normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistParams, isDiffusePath ? 1.0 : roughness0 );
-
-        // Accumulate diffuse and specular separately for denoising
-        if( !USE_SANITIZATION || NRD_IsValidRadiance( Lsum ) )
-        {
-            if( isDiffusePath )
-            {
-                result.diffRadiance += Lsum;
-                result.diffHitDist += normHitDist;
+                ray = Geometry::RotateVectorInverse( mLocalBasis, r );
             }
             else
             {
-                result.specRadiance += Lsum;
-                NRD_FrontEnd_SpecHitDistAveraging_Add( result.specHitDist, normHitDist );
+                for( uint sampleIndex = 0; sampleIndex < maxSamplesNum; sampleIndex++ )
+                {
+                    float2 rnd = Rng::Hash::GetFloat2( ); // TODO: blue noise?
+
+                    // Generate a ray in local space
+                    float3 r;
+                    if( isDiffuse )
+                        r = ImportanceSampling::Cosine::GetRay( rnd );
+                    else
+                    {
+                        float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, PT_SPEC_LOBE_ENERGY );
+                        r = reflect( -Vlocal, Hlocal );
+                    }
+
+                    // Transform to world space
+                    r = Geometry::RotateVectorInverse( mLocalBasis, r );
+
+                    // Importance sampling for direct lighting
+                    // TODO: move direct lighting tracing into a separate pass:
+                    // - currently AO and SO get replaced with useless distances to closest lights if IS is on
+                    // - better separate direct and indirect lighting denoising
+
+                    //   1. If IS enabled, check the ray in LightBVH
+                    bool isMiss = false;
+                    if( gDisableShadowsAndEnableImportanceSampling && maxSamplesNum != 1 )
+                        isMiss = CastVisibilityRay_AnyHit( geometryProps.GetXoffset( geometryProps.N ), r, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+
+                    //   2. Count rays hitting emissive surfaces
+                    if( !isMiss )
+                        samplesNum++;
+
+                    //   3. Save either the first ray or the current ray hitting an emissive
+                    if( !isMiss || sampleIndex == 0 )
+                        ray = r;
+                }
             }
+
+            // Adjust throughput by percentage of rays hitting any emissive surface
+            // IMPORTANT: do not modify throughput if there is no a hit, it's needed to cast a non-IS ray and get correct AO / SO at least
+            if( samplesNum != 0 )
+                pathThroughput *= float( samplesNum ) / float( maxSamplesNum );
+
+            // ( Optional ) Helpful insignificant fixes
+            float a = dot( geometryProps.N, ray );
+            if( !geometryProps.Has( FLAG_HAIR ) && a < 0.0 )
+            {
+                if( isDiffuse )
+                {
+                    // Terminate diffuse paths pointing inside the surface
+                    pathThroughput = 0.0;
+                }
+                else
+                {
+                    // Patch ray direction and shading normal to avoid self-intersections: https://arxiv.org/pdf/1705.01263.pdf ( Appendix 3 )
+                    float b = abs( dot( geometryProps.N, materialProps.N ) ) * 0.99;
+
+                    ray = normalize( ray + geometryProps.N * abs( a ) * Math::PositiveRcp( b ) );
+                    materialProps.N = normalize( geometryProps.V + ray );
+                }
+            }
+
+            // ( Optional ) Save sampling direction for the 1st bounce
+        #if( NRD_MODE == SH )
+            if( bounce == 1 )
+            {
+                float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
+
+                if( isDiffuse )
+                    result.diffDirection += psrRay;
+                else
+                    result.specDirection += psrRay;
+            }
+        #endif
+
+            // Update path throughput
+            if( !geometryProps.Has( FLAG_HAIR ) )
+            {
+                float3 albedo, Rf0;
+                BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+
+                float3 H = normalize( geometryProps.V + ray );
+                float VoH = abs( dot( geometryProps.V, H ) );
+                float NoL = saturate( dot( materialProps.N, ray ) );
+
+                if( isDiffuse )
+                {
+                    float NoV = abs( dot( materialProps.N, geometryProps.V ) );
+                    pathThroughput *= saturate( albedo * Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ) );
+                }
+                else
+                {
+                    float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
+                    pathThroughput *= F;
+
+                    // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
+                    pathThroughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
+                }
+
+                // Translucency
+                if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
+                {
+                    if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
+                    {
+                        ray = -ray;
+                        geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
+                        pathThroughput /= LEAF_TRANSLUCENCY;
+                    }
+                    else
+                        pathThroughput /= 1.0 - LEAF_TRANSLUCENCY;
+                }
+            }
+
+            // Abort if expected contribution of the current bounce is low
+            /*
+            GOOD PRACTICE:
+            - terminate path if "pathThroughput" is smaller than some threshold
+            - approximate ambient at the end of the path
+            - re-use data from the previous frame
+            */
+
+            if( PT_THROUGHPUT_THRESHOLD != 0.0 && Color::Luminance( pathThroughput ) < PT_THROUGHPUT_THRESHOLD )
+                break;
+
+            //=========================================================================================================================================================
+            // Trace to the next hit
+            //=========================================================================================================================================================
+
+            geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+            materialProps = GetMaterialProps( geometryProps ); // TODO: try to read metrials only if L1- and L2- lighting caches failed
+        }
+
+        //=============================================================================================================================================================
+        // Hit point
+        //=============================================================================================================================================================
+
+        {
+            //=============================================================================================================================================================
+            // Lighting
+            //=============================================================================================================================================================
+
+            float4 Lcached = float4( materialProps.Lemi, 0.0 );
+            if( !geometryProps.IsSky( ) )
+            {
+                // L1 cache - reproject previous frame, carefully treating specular
+                Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos, false );
+
+                // L2 cache - SHARC
+                HashGridParameters hashGridParams;
+                hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
+                hashGridParams.sceneScale = SHARC_SCENE_SCALE;
+                hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+                hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+
+                float3 Xglobal = GetGlobalPos( geometryProps.X );
+                uint level = HashGridGetLevel( Xglobal, hashGridParams );
+                float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
+                float smc = GetSpecMagicCurve( materialProps.roughness );
+
+                float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
+                float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
+                Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
+
+                SharcHitData sharcHitData;
+                sharcHitData.positionWorld = Xglobal;
+                sharcHitData.normalWorld = geometryProps.N;
+                sharcHitData.emissive = materialProps.Lemi;
+
+                HashMapData hashMapData;
+                hashMapData.capacity = SHARC_CAPACITY;
+                hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+
+                SharcParameters sharcParams;
+                sharcParams.gridParameters = hashGridParams;
+                sharcParams.hashMapData = hashMapData;
+                sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
+                sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
+                sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+
+                float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
+                bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
+                isSharcAllowed &= footprint > voxelSize; // voxel angular size is acceptable
+
+                float3 sharcRadiance;
+                if( isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false ) )
+                    Lcached = float4( sharcRadiance, 1.0 );
+
+                // Cache miss - compute lighting, if not found in caches
+                if( Rng::Hash::GetFloat( ) > Lcached.w )
+                {
+                    float3 L = GetShadowedLighting( geometryProps, materialProps );
+                    Lcached.xyz = bounce < gBounceNum ? L : max( Lcached.xyz, L );
+                }
+            }
+
+            //=============================================================================================================================================================
+            // Other
+            //=============================================================================================================================================================
+
+            // Accumulate lighting
+            float3 L = Lcached.xyz * pathThroughput;
+            Lsum += L;
+
+            // ( Biased ) Reduce contribution of next samples if previous frame is sampled, which already has multi-bounce information
+            pathThroughput *= 1.0 - Lcached.w;
+
+            // Accumulate path length for NRD ( see "README/NOISY INPUTS" )
+            float a = Color::Luminance( L );
+            float b = Color::Luminance( Lsum ); // already includes L
+            float importance = a / ( b + 1e-6 );
+
+            importance *= 1.0 - Color::Luminance( materialProps.Lemi ) / ( a + 1e-6 );
+
+            float diffuseLikeMotion = EstimateDiffuseProbability( geometryProps, materialProps, true );
+            diffuseLikeMotion = isDiffuse ? 1.0 : diffuseLikeMotion;
+
+            accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, accumulatedCurvature ) * Math::SmoothStep( 0.2, 0.0, accumulatedDiffuseLikeMotion );
+            accumulatedDiffuseLikeMotion += 1.0 - importance * ( 1.0 - diffuseLikeMotion );
+            accumulatedCurvature += materialProps.curvature; // yes, after hit
+        }
+    }
+
+    // Normalize hit distances for REBLUR and REFERENCE ( needed only for AO ) before averaging
+    float normHitDist = accumulatedHitDist;
+    if( gDenoiserType != DENOISER_RELAX )
+        normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistParams, isDiffusePath ? 1.0 : roughness0 );
+
+    // Accumulate diffuse and specular separately for denoising
+    if( !USE_SANITIZATION || NRD_IsValidRadiance( Lsum ) )
+    {
+        if( isDiffusePath )
+        {
+            result.diffRadiance += Lsum;
+            result.diffHitDist += normHitDist;
+        }
+        else
+        {
+            result.specRadiance += Lsum;
+            NRD_FrontEnd_SpecHitDistAveraging_Add( result.specHitDist, normHitDist );
         }
     }
 
