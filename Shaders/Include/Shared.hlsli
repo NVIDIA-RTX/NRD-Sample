@@ -78,7 +78,7 @@
 #define PT_PSR_BOUNCES_NUM                  2
 #define PT_RAY_FLAGS                        0
 
-// Spatial HAsh-ased Radiance Cache ( SHARC )
+// Spatial HAsh-based Radiance Cache ( SHARC )
 #define SHARC_CAPACITY                      ( 1 << 22 )
 #define SHARC_SCENE_SCALE                   45.0
 #define SHARC_DOWNSCALE                     5
