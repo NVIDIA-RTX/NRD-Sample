@@ -667,7 +667,7 @@ public:
         return sunDirection;
     }
 
-    bool Initialize(nri::GraphicsAPI graphicsAPI) override;
+    bool Initialize(nri::GraphicsAPI graphicsAPI, bool) override;
     void LatencySleep(uint32_t frameIndex) override;
     void PrepareFrame(uint32_t frameIndex) override;
     void RenderFrame(uint32_t frameIndex) override;
@@ -683,7 +683,7 @@ public:
     void CreateSamplers();
     void CreateResources(nri::Format swapChainFormat);
     void CreateDescriptorSets();
-    void CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, nri::Dim_t width, nri::Dim_t height, nri::Mip_t mipNum, nri::Dim_t arraySize, nri::TextureUsageBits usage, nri::AccessBits state);
+    void CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, nri::Dim_t width, nri::Dim_t height, nri::Dim_t mipNum, nri::Dim_t arraySize, nri::TextureUsageBits usage, nri::AccessBits state);
     void CreateBuffer(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, uint64_t elements, uint32_t stride, nri::BufferUsageBits usage);
     void UploadStaticData();
     void UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor);
@@ -766,17 +766,9 @@ private:
 };
 
 Sample::~Sample() {
-    if (NRI.HasHelper())
-        NRI.WaitForIdle(*m_GraphicsQueue);
-
-    if (NRI.HasUpscaler()) {
-        NRI.DestroyUpscaler(*m_NIS[0]);
-        NRI.DestroyUpscaler(*m_NIS[1]);
-        NRI.DestroyUpscaler(*m_DLSR);
-        NRI.DestroyUpscaler(*m_DLRR);
-    }
-
     if (NRI.HasCore()) {
+        NRI.DeviceWaitIdle(*m_Device);
+
         for (QueuedFrame& queuedFrame : m_QueuedFrames) {
             NRI.DestroyCommandBuffer(*queuedFrame.commandBuffer);
             NRI.DestroyCommandAllocator(*queuedFrame.commandAllocator);
@@ -808,6 +800,13 @@ Sample::~Sample() {
         NRI.DestroyFence(*m_FrameFence);
     }
 
+    if (NRI.HasUpscaler()) {
+        NRI.DestroyUpscaler(*m_NIS[0]);
+        NRI.DestroyUpscaler(*m_NIS[1]);
+        NRI.DestroyUpscaler(*m_DLSR);
+        NRI.DestroyUpscaler(*m_DLRR);
+    }
+
     if (NRI.HasSwapChain())
         NRI.DestroySwapChain(*m_SwapChain);
 
@@ -821,7 +820,7 @@ Sample::~Sample() {
     nri::nriDestroyDevice(*m_Device);
 }
 
-bool Sample::Initialize(nri::GraphicsAPI graphicsAPI) {
+bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
     Rng::Hash::Initialize(m_RngState, 106937, 69);
 
     nri::AdapterDesc bestAdapterDesc = {};
@@ -2547,7 +2546,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
 
 void Sample::CreatePipelines() {
     if (!m_Pipelines.empty()) {
-        NRI.WaitForIdle(*m_GraphicsQueue);
+        NRI.DeviceWaitIdle(*m_Device);
 
         for (uint32_t i = 0; i < m_Pipelines.size(); i++)
             NRI.DestroyPipeline(*m_Pipelines[i]);
@@ -3008,7 +3007,7 @@ void Sample::CreateAccelerationStructures() {
         NRI.QueueSubmit(*m_GraphicsQueue, queueSubmitDesc);
 
         // Wait idle
-        NRI.WaitForIdle(*m_GraphicsQueue);
+        NRI.QueueWaitIdle(*m_GraphicsQueue);
     }
 
     // Compact BLASes
@@ -3048,7 +3047,7 @@ void Sample::CreateAccelerationStructures() {
         NRI.QueueSubmit(*m_GraphicsQueue, queueSubmitDesc);
 
         // Wait idle
-        NRI.WaitForIdle(*m_GraphicsQueue);
+        NRI.QueueWaitIdle(*m_GraphicsQueue);
     }
 
     double buildTime = m_Timer.GetTimeStamp() - stamp2;
@@ -3292,7 +3291,7 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
 #endif
 
     for (const utils::Texture* texture : m_Scene.textures)
-        CreateTexture(descriptorDescs, "", texture->GetFormat(), texture->GetWidth(), texture->GetHeight(), texture->GetMipNum(), texture->GetArraySize(), nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::UNKNOWN);
+        CreateTexture(descriptorDescs, "", texture->GetFormat(), texture->GetWidth(), texture->GetHeight(), texture->GetMipNum(), texture->GetArraySize(), nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::NONE);
 
     // Create descriptors
     nri::Descriptor* descriptor = nullptr;
@@ -3678,7 +3677,7 @@ void Sample::CreateDescriptorSets() {
     }
 }
 
-void Sample::CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, nri::Dim_t width, nri::Dim_t height, nri::Mip_t mipNum, nri::Dim_t arraySize, nri::TextureUsageBits usage, nri::AccessBits access) {
+void Sample::CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, nri::Dim_t width, nri::Dim_t height, nri::Dim_t mipNum, nri::Dim_t arraySize, nri::TextureUsageBits usage, nri::AccessBits access) {
     nri::AllocateTextureDesc allocateTextureDesc = {};
     allocateTextureDesc.desc.type = nri::TextureType::TEXTURE_2D;
     allocateTextureDesc.desc.usage = usage;
@@ -3695,7 +3694,7 @@ void Sample::CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const c
     NRI_ABORT_ON_FAILURE(NRI.AllocateTexture(*m_Device, allocateTextureDesc, texture));
     m_Textures.push_back(texture);
 
-    if (access != nri::AccessBits::UNKNOWN) {
+    if (access != nri::AccessBits::NONE) {
         nri::Layout layout = nri::Layout::SHADER_RESOURCE;
         if (access & nri::AccessBits::COPY_SOURCE)
             layout = nri::Layout::COPY_SOURCE;
@@ -3794,7 +3793,7 @@ void Sample::UploadStaticData() {
         const utils::Texture* texture = m_Scene.textures[i];
         textureUploadDescs.push_back({&subresources[subresourceOffset], Get((Texture)((size_t)Texture::MaterialTextures + i)), {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}});
 
-        nri::Mip_t mipNum = texture->GetMipNum();
+        nri::Dim_t mipNum = texture->GetMipNum();
         nri::Dim_t arraySize = texture->GetArraySize();
         subresourceOffset += size_t(arraySize) * size_t(mipNum);
     }
@@ -5038,7 +5037,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         }
         NRI.CmdEndRendering(commandBuffer);
 
-        const nri::TextureBarrierDesc after = nri::TextureBarrierFromState(before, {nri::AccessBits::UNKNOWN, nri::Layout::PRESENT, nri::StageBits::ALL});
+        const nri::TextureBarrierDesc after = nri::TextureBarrierFromState(before, {nri::AccessBits::NONE, nri::Layout::PRESENT, nri::StageBits::ALL});
         transitionBarriers = {nullptr, 0, nullptr, 0, &after, 1};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
     }
