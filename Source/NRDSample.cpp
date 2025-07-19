@@ -1,6 +1,6 @@
 // © 2022 NVIDIA Corporation
 
-#include "NRIFramework.h"1
+#include "NRIFramework.h"
 
 #include "Extensions/NRIWrapperD3D12.h"
 #include "Extensions/NRIWrapperVK.h"
@@ -494,10 +494,10 @@ public:
             const nri::TextureDesc& textureDesc = NRI.GetTextureDesc(*textureState->texture);
 
             if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
-                resource.d3d12.resource = (ID3D12Resource*)NRI.GetTextureNativeObject(*textureState->texture);
+                resource.d3d12.resource = (ID3D12Resource*)NRI.GetTextureNativeObject(textureState->texture);
                 resource.d3d12.format = nri::nriConvertNRIFormatToDXGI(textureDesc.format);
             } else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
-                resource.vk.image = (VKNonDispatchableHandle)NRI.GetTextureNativeObject(*textureState->texture);
+                resource.vk.image = (VKNonDispatchableHandle)NRI.GetTextureNativeObject(textureState->texture);
                 resource.vk.format = nri::nriConvertNRIFormatToVK(textureDesc.format);
             }
         } else
@@ -581,12 +581,12 @@ public:
 
             if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
                 nri::CommandBufferD3D12Desc commandBufferD3D12Desc = {};
-                commandBufferD3D12Desc.d3d12CommandList = (ID3D12GraphicsCommandList*)NRI.GetCommandBufferNativeObject(commandBuffer);
+                commandBufferD3D12Desc.d3d12CommandList = (ID3D12GraphicsCommandList*)NRI.GetCommandBufferNativeObject(&commandBuffer);
 
                 m_NRD.DenoiseD3D12(denoisers, denoiserNum, commandBufferD3D12Desc, resourceSnapshot);
             } else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
                 nri::CommandBufferVKDesc commandBufferVKDesc = {};
-                commandBufferVKDesc.vkCommandBuffer = (VKHandle)NRI.GetCommandBufferNativeObject(commandBuffer);
+                commandBufferVKDesc.vkCommandBuffer = (VKHandle)NRI.GetCommandBufferNativeObject(&commandBuffer);
                 commandBufferVKDesc.queueType = nri::QueueType::GRAPHICS;
 
                 m_NRD.DenoiseVK(denoisers, denoiserNum, commandBufferVKDesc, resourceSnapshot);
@@ -767,57 +767,57 @@ private:
 
 Sample::~Sample() {
     if (NRI.HasCore()) {
-        NRI.DeviceWaitIdle(*m_Device);
+        NRI.DeviceWaitIdle(m_Device);
 
         for (QueuedFrame& queuedFrame : m_QueuedFrames) {
-            NRI.DestroyCommandBuffer(*queuedFrame.commandBuffer);
-            NRI.DestroyCommandAllocator(*queuedFrame.commandAllocator);
+            NRI.DestroyCommandBuffer(queuedFrame.commandBuffer);
+            NRI.DestroyCommandAllocator(queuedFrame.commandAllocator);
         }
 
         for (SwapChainTexture& swapChainTexture : m_SwapChainTextures) {
-            NRI.DestroyFence(*swapChainTexture.releaseSemaphore);
-            NRI.DestroyFence(*swapChainTexture.acquireSemaphore);
-            NRI.DestroyDescriptor(*swapChainTexture.colorAttachment);
+            NRI.DestroyFence(swapChainTexture.releaseSemaphore);
+            NRI.DestroyFence(swapChainTexture.acquireSemaphore);
+            NRI.DestroyDescriptor(swapChainTexture.colorAttachment);
         }
 
         for (uint32_t i = 0; i < m_Textures.size(); i++)
-            NRI.DestroyTexture(*m_Textures[i]);
+            NRI.DestroyTexture(m_Textures[i]);
 
         for (uint32_t i = 0; i < m_Buffers.size(); i++)
-            NRI.DestroyBuffer(*m_Buffers[i]);
+            NRI.DestroyBuffer(m_Buffers[i]);
 
         for (uint32_t i = 0; i < m_Descriptors.size(); i++)
-            NRI.DestroyDescriptor(*m_Descriptors[i]);
+            NRI.DestroyDescriptor(m_Descriptors[i]);
 
         for (uint32_t i = 0; i < m_Pipelines.size(); i++)
-            NRI.DestroyPipeline(*m_Pipelines[i]);
+            NRI.DestroyPipeline(m_Pipelines[i]);
 
         for (uint32_t i = 0; i < m_AccelerationStructures.size(); i++)
-            NRI.DestroyAccelerationStructure(*m_AccelerationStructures[i]);
+            NRI.DestroyAccelerationStructure(m_AccelerationStructures[i]);
 
-        NRI.DestroyPipelineLayout(*m_PipelineLayout);
-        NRI.DestroyDescriptorPool(*m_DescriptorPool);
-        NRI.DestroyFence(*m_FrameFence);
+        NRI.DestroyPipelineLayout(m_PipelineLayout);
+        NRI.DestroyDescriptorPool(m_DescriptorPool);
+        NRI.DestroyFence(m_FrameFence);
     }
 
     if (NRI.HasUpscaler()) {
-        NRI.DestroyUpscaler(*m_NIS[0]);
-        NRI.DestroyUpscaler(*m_NIS[1]);
-        NRI.DestroyUpscaler(*m_DLSR);
-        NRI.DestroyUpscaler(*m_DLRR);
+        NRI.DestroyUpscaler(m_NIS[0]);
+        NRI.DestroyUpscaler(m_NIS[1]);
+        NRI.DestroyUpscaler(m_DLSR);
+        NRI.DestroyUpscaler(m_DLRR);
     }
 
     if (NRI.HasSwapChain())
-        NRI.DestroySwapChain(*m_SwapChain);
+        NRI.DestroySwapChain(m_SwapChain);
 
     if (NRI.HasStreamer())
-        NRI.DestroyStreamer(*m_Streamer);
+        NRI.DestroyStreamer(m_Streamer);
 
     m_NRD.Destroy();
 
     DestroyImgui();
 
-    nri::nriDestroyDevice(*m_Device);
+    nri::nriDestroyDevice(m_Device);
 }
 
 bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
@@ -1012,7 +1012,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
             const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
 
             if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
-                ID3D12CommandQueue* queue = (ID3D12CommandQueue*)NRI.GetQueueNativeObject(*m_GraphicsQueue);
+                ID3D12CommandQueue* queue = (ID3D12CommandQueue*)NRI.GetQueueNativeObject(m_GraphicsQueue);
 
                 nri::QueueFamilyD3D12Desc queueFamily = {};
                 queueFamily.d3d12Queues = &queue;
@@ -1020,7 +1020,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
                 queueFamily.queueNum = 1;
 
                 nri::DeviceCreationD3D12Desc deviceCreationD3D12Desc = {};
-                deviceCreationD3D12Desc.d3d12Device = (ID3D12Device*)NRI.GetDeviceNativeObject(*m_Device);
+                deviceCreationD3D12Desc.d3d12Device = (ID3D12Device*)NRI.GetDeviceNativeObject(m_Device);
                 deviceCreationD3D12Desc.queueFamilies = &queueFamily;
                 deviceCreationD3D12Desc.queueFamilyNum = 1;
                 deviceCreationD3D12Desc.enableNRIValidation = m_DebugNRI;
@@ -1039,7 +1039,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
                 nri::DeviceCreationVKDesc deviceCreationVKDesc = {};
                 deviceCreationVKDesc.vkInstance = (VKHandle)iWrapperVK.GetInstanceVK(*m_Device);
                 deviceCreationVKDesc.vkPhysicalDevice = (VKHandle)iWrapperVK.GetPhysicalDeviceVK(*m_Device);
-                deviceCreationVKDesc.vkDevice = (VKHandle)NRI.GetDeviceNativeObject(*m_Device);
+                deviceCreationVKDesc.vkDevice = (VKHandle)NRI.GetDeviceNativeObject(m_Device);
                 deviceCreationVKDesc.minorVersion = 3;
                 deviceCreationVKDesc.queueFamilies = &queueFamily;
                 deviceCreationVKDesc.queueFamilyNum = 1;
@@ -2546,10 +2546,10 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
 
 void Sample::CreatePipelines() {
     if (!m_Pipelines.empty()) {
-        NRI.DeviceWaitIdle(*m_Device);
+        NRI.DeviceWaitIdle(m_Device);
 
         for (uint32_t i = 0; i < m_Pipelines.size(); i++)
-            NRI.DestroyPipeline(*m_Pipelines[i]);
+            NRI.DestroyPipeline(m_Pipelines[i]);
         m_Pipelines.clear();
 
         m_NRD.RecreatePipelines();
@@ -3007,7 +3007,7 @@ void Sample::CreateAccelerationStructures() {
         NRI.QueueSubmit(*m_GraphicsQueue, queueSubmitDesc);
 
         // Wait idle
-        NRI.QueueWaitIdle(*m_GraphicsQueue);
+        NRI.QueueWaitIdle(m_GraphicsQueue);
     }
 
     // Compact BLASes
@@ -3047,7 +3047,7 @@ void Sample::CreateAccelerationStructures() {
         NRI.QueueSubmit(*m_GraphicsQueue, queueSubmitDesc);
 
         // Wait idle
-        NRI.QueueWaitIdle(*m_GraphicsQueue);
+        NRI.QueueWaitIdle(m_GraphicsQueue);
     }
 
     double buildTime = m_Timer.GetTimeStamp() - stamp2;
@@ -3057,7 +3057,7 @@ void Sample::CreateAccelerationStructures() {
         const nri::BuildBottomLevelAccelerationStructureDesc& blasBuildDesc = buildBottomLevelAccelerationStructureDescs[i];
 
         nri::AccelerationStructure* tempBlas = blasBuildDesc.dst;
-        NRI.DestroyAccelerationStructure(*tempBlas);
+        NRI.DestroyAccelerationStructure(tempBlas);
 
         nri::AccelerationStructure* compactedBlas = compactedBlases[i];
         std::replace(m_AccelerationStructures.begin(), m_AccelerationStructures.end(), tempBlas, compactedBlas);
@@ -3066,14 +3066,14 @@ void Sample::CreateAccelerationStructures() {
     NRI.UnmapBuffer(*uploadBuffer);
     NRI.UnmapBuffer(*readbackBuffer);
 
-    NRI.DestroyQueryPool(*queryPool);
+    NRI.DestroyQueryPool(queryPool);
 
-    NRI.DestroyBuffer(*readbackBuffer);
-    NRI.DestroyBuffer(*scratchBuffer);
-    NRI.DestroyBuffer(*uploadBuffer);
+    NRI.DestroyBuffer(readbackBuffer);
+    NRI.DestroyBuffer(scratchBuffer);
+    NRI.DestroyBuffer(uploadBuffer);
 
-    NRI.DestroyCommandBuffer(*commandBuffer);
-    NRI.DestroyCommandAllocator(*commandAllocator);
+    NRI.DestroyCommandBuffer(commandBuffer);
+    NRI.DestroyCommandAllocator(commandAllocator);
 
     double totalTime = m_Timer.GetTimeStamp() - stamp1;
 
