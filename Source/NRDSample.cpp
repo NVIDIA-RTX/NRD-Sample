@@ -11,7 +11,7 @@
 
 #ifdef _WIN32
 #    undef APIENTRY
-#    include <windows.h>
+#    include <windows.h> // SetForegroundWindow, GetConsoleWindow
 #endif
 
 //=================================================================================
@@ -1850,8 +1850,10 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 result = system(nrdShaders.c_str());
                             }
 
+#ifdef _WIN32
                             if (result)
                                 SetForegroundWindow(GetConsoleWindow());
+#endif
 
                             m_IsReloadShadersSucceeded = !result;
 
