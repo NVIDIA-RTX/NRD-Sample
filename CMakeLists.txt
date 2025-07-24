@@ -131,7 +131,7 @@ function(fix_folders _DIRECTORY _FOLDER)
 
     foreach(_TARGET IN LISTS _TARGETS)
         get_property(_FOLDER_ORIGINAL TARGET ${_TARGET} PROPERTY FOLDER)
-        set_property(TARGET ${_TARGET} PROPERTY FOLDER "${_FOLDER}/${_FOLDER_ORIGINAL}")
+        set_target_properties(${_TARGET} PROPERTIES FOLDER "${_FOLDER}/${_FOLDER_ORIGINAL}")
     endforeach()
 
     get_property(SUBDIRS DIRECTORY "${_DIRECTORY}" PROPERTY SUBDIRECTORIES)
@@ -186,8 +186,10 @@ if(UNIX)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_DL_LIBS} pthread X11)
 endif()
 
-set_property(TARGET ${PROJECT_NAME} PROPERTY FOLDER "Sample")
-set_property(TARGET ${PROJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    FOLDER "Sample"
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 
 # Copy arguments for Visual Studio Smart Command Line Arguments extension
@@ -243,5 +245,5 @@ add_custom_target(${PROJECT_NAME}Shaders ALL
     SOURCES ${SHADERS}
 )
 
-set_property(TARGET ${PROJECT_NAME}Shaders PROPERTY FOLDER "Sample")
+set_target_properties(${PROJECT_NAME}Shaders PROPERTIES FOLDER "Sample")
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}Shaders)
