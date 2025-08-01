@@ -141,7 +141,7 @@ fix_folders("External/NRIFramework" "External")
 fix_folders("External/NRD" "External")
 
 # Get source directories for 3rd parties
-get_target_property(ML_SOURCE_DIR MathLib INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(ML_SOURCE_DIR MathLib SOURCE_DIR)
 get_target_property(NRI_SOURCE_DIR NRI SOURCE_DIR)
 get_target_property(NRD_SOURCE_DIR NRD SOURCE_DIR)
 
