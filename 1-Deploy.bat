@@ -6,7 +6,7 @@ mkdir "_Build"
 
 cd "_Build"
 
-cmake .. -A x64
+cmake .. %*
 if %ERRORLEVEL% NEQ 0 exit /B %ERRORLEVEL%
 
 cd ..
