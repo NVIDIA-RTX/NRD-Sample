@@ -3716,7 +3716,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     const uint32_t dummyDynamicConstantOffset = 0;
 
     // RECORDING START
-    NRI.BeginCommandBuffer(commandBuffer, m_DescriptorPool);
+    NRI.BeginCommandBuffer(commandBuffer, nullptr);
 
     //======================================================================================================================================
     // Resolution independent
@@ -3775,7 +3775,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     // Render resolution
     //======================================================================================================================================
 
-    // All-in-one pipeline layout
     RestoreBindings(commandBuffer, isEven);
 
     // SHARC
