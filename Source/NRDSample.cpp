@@ -1428,6 +1428,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             nrdShaders = STRINGIFY(SHADERMAKE_PATH);
                         }
 
+                        // clang-format off
                         sampleShaders +=
                             " --flatten --stripReflection --WX --colorize"
                             " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
@@ -1439,7 +1440,12 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             " -o _Shaders"
                             " -I Shaders"
                             " -I External"
-                            " -I " STRINGIFY(ML_SOURCE_DIR) " -I " STRINGIFY(NRD_SOURCE_DIR) " -I " STRINGIFY(NRI_SOURCE_DIR) " -I " STRINGIFY(SHARC_SOURCE_DIR) " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING) " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING);
+                            " -I " STRINGIFY(ML_SOURCE_DIR)
+                            " -I " STRINGIFY(NRD_SOURCE_DIR)
+                            " -I " STRINGIFY(NRI_SOURCE_DIR)
+                            " -I " STRINGIFY(SHARC_SOURCE_DIR)
+                            " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING)
+                            " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING);
 
                         nrdShaders +=
                             " --flatten --stripReflection --WX --colorize"
@@ -1452,9 +1458,19 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             " -c External/NRD/Shaders/Shaders.cfg"
                             " -o _Shaders"
                             " -I " STRINGIFY(ML_SOURCE_DIR)
-                                " -I External/NRD/Shaders/Include"
-                                " -I External/NRD/Shaders/Resources"
-                                " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING) " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING) " -D NRD_INTERNAL";
+                            " -I External/NRD/Shaders/Include"
+                            " -I External/NRD/Shaders/Resources"
+                            " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING)
+                            " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING)
+                            " -D NRD_SUPPORTS_VIEWPORT_OFFSET=" STRINGIFY(NRD_SUPPORTS_VIEWPORT_OFFSET)
+                            " -D NRD_SUPPORTS_CHECKERBOARD=" STRINGIFY(NRD_SUPPORTS_CHECKERBOARD)
+                            " -D NRD_SUPPORTS_HISTORY_CONFIDENCE=" STRINGIFY(NRD_SUPPORTS_HISTORY_CONFIDENCE)
+                            " -D NRD_SUPPORTS_DISOCCLUSION_THRESHOLD_MIX=" STRINGIFY(NRD_SUPPORTS_DISOCCLUSION_THRESHOLD_MIX)
+                            " -D NRD_SUPPORTS_BASECOLOR_METALNESS=" STRINGIFY(NRD_SUPPORTS_BASECOLOR_METALNESS)
+                            " -D NRD_SUPPORTS_ANTIFIREFLY=" STRINGIFY(NRD_SUPPORTS_ANTIFIREFLY)
+                            " -D REBLUR_PERFORMANCE_MODE=" STRINGIFY(REBLUR_PERFORMANCE_MODE)
+                            " -D NRD_INTERNAL";
+                        // clang-format on
 
                         if (NRI.GetDeviceDesc(*m_Device).graphicsAPI == nri::GraphicsAPI::D3D12) {
                             std::string dxil = " -p DXIL --compiler \"" STRINGIFY(SHADERMAKE_DXC_PATH) "\"";
@@ -2462,7 +2478,7 @@ void Sample::CreateAccelerationStructures() {
                 blases.push_back(desc.dst);
             }
 
-            nri::BarrierGroupDesc barrierGroupDesc = {};
+            nri::BarrierDesc barrierGroupDesc = {};
             barrierGroupDesc.bufferNum = (uint32_t)bufferBarriers.size();
             barrierGroupDesc.buffers = bufferBarriers.data();
 
@@ -3611,17 +3627,29 @@ uint16_t Sample::BuildOptimizedTransitions(const TextureState* states, uint32_t 
 
 void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven) {
     NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
-    NRI.CmdSetPipelineLayout(commandBuffer, *m_PipelineLayout);
-    NRI.CmdSetDescriptorSet(commandBuffer, SET_GLOBAL, *Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset);
+    NRI.CmdSetPipelineLayout(commandBuffer, nri::BindPoint::COMPUTE, *m_PipelineLayout);
+
+    nri::SetDescriptorSetDesc globalSet = {SET_GLOBAL, Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset};
+    NRI.CmdSetDescriptorSet(commandBuffer, globalSet);
 
     // TODO: ray tracing related resources are not always needed, but absence of root descriptors leads to a silent crash inside VK validation
-    NRI.CmdSetDescriptorSet(commandBuffer, SET_RAY_TRACING, *Get(DescriptorSet::RayTracing2), nullptr);
-    NRI.CmdSetDescriptorSet(commandBuffer, SET_SHARC, isEven ? *Get(DescriptorSet::SharcPing3) : *Get(DescriptorSet::SharcPong3), nullptr);
+    nri::SetDescriptorSetDesc rayTracingSet = {SET_RAY_TRACING, Get(DescriptorSet::RayTracing2)};
+    NRI.CmdSetDescriptorSet(commandBuffer, rayTracingSet);
 
-    NRI.CmdSetRootDescriptor(commandBuffer, 0, *Get(Descriptor::World_AccelerationStructure));
-    NRI.CmdSetRootDescriptor(commandBuffer, 1, *Get(Descriptor::Light_AccelerationStructure));
-    NRI.CmdSetRootDescriptor(commandBuffer, 2, *Get(Descriptor::InstanceData_Buffer));
-    NRI.CmdSetRootDescriptor(commandBuffer, 3, *Get(Descriptor::PrimitiveData_Buffer));
+    nri::SetDescriptorSetDesc sharcSet = {SET_SHARC, isEven ? Get(DescriptorSet::SharcPing3) : Get(DescriptorSet::SharcPong3)};
+    NRI.CmdSetDescriptorSet(commandBuffer, sharcSet);
+
+    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::World_AccelerationStructure)};
+    NRI.CmdSetRootDescriptor(commandBuffer, root0);
+
+    nri::SetRootDescriptorDesc root1 = {1, Get(Descriptor::Light_AccelerationStructure)};
+    NRI.CmdSetRootDescriptor(commandBuffer, root1);
+
+    nri::SetRootDescriptorDesc root2 = {2, Get(Descriptor::InstanceData_Buffer)};
+    NRI.CmdSetRootDescriptor(commandBuffer, root2);
+
+    nri::SetRootDescriptorDesc root3 = {3, Get(Descriptor::PrimitiveData_Buffer)};
+    NRI.CmdSetRootDescriptor(commandBuffer, root3);
 }
 
 void Sample::RenderFrame(uint32_t frameIndex) {
@@ -3700,7 +3728,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         { // Transitions
             const nri::BufferBarrierDesc transition = {Get(Buffer::InstanceData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::COPY_DESTINATION}};
 
-            nri::BarrierGroupDesc barrierGroupDesc = {};
+            nri::BarrierDesc barrierGroupDesc = {};
             barrierGroupDesc.buffers = &transition;
             barrierGroupDesc.bufferNum = 1;
 
@@ -3735,7 +3763,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         { // Transitions
             const nri::BufferBarrierDesc transition = {Get(Buffer::InstanceData), {nri::AccessBits::COPY_DESTINATION}, {nri::AccessBits::SHADER_RESOURCE}};
 
-            nri::BarrierGroupDesc barrierGroupDesc = {};
+            nri::BarrierDesc barrierGroupDesc = {};
             barrierGroupDesc.buffers = &transition;
             barrierGroupDesc.bufferNum = 1;
 
@@ -3762,7 +3790,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {Get(Buffer::SharcVoxelDataPong), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
         };
 
-        nri::BarrierGroupDesc barrierGroupDesc = {};
+        nri::BarrierDesc barrierGroupDesc = {};
         barrierGroupDesc.buffers = transitions;
         barrierGroupDesc.bufferNum = (uint16_t)helper::GetCountOf(transitions);
 
@@ -3770,11 +3798,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             helper::Annotation annotation(NRI, commandBuffer, "SHARC - Update");
 
             NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcUpdate));
 
             uint32_t w = (m_RenderResolution.x / SHARC_DOWNSCALE + 15) / 16;
             uint32_t h = (m_RenderResolution.y / SHARC_DOWNSCALE + 15) / 16;
 
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcUpdate));
             NRI.CmdDispatch(commandBuffer, {w, h, 1});
         }
 
@@ -3782,8 +3810,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             helper::Annotation annotation(NRI, commandBuffer, "SHARC - Resolve");
 
             NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcResolve));
 
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcResolve));
             NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
         }
 
@@ -3791,8 +3819,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             helper::Annotation annotation(NRI, commandBuffer, "SHARC - Hash copy");
 
             NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcHashCopy));
 
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcHashCopy));
             NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
         }
     }
@@ -3821,17 +3849,18 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {Texture::Unfiltered_SpecSh, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
 #endif
         };
-        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceOpaque));
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::TraceOpaque1), &dummyDynamicConstantOffset);
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::TraceOpaque1), &dummyDynamicConstantOffset};
+        NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
         uint32_t rectWmod = uint32_t(m_RenderResolution.x * m_Settings.resolutionScale + 0.5f);
         uint32_t rectHmod = uint32_t(m_RenderResolution.y * m_Settings.resolutionScale + 0.5f);
         uint32_t rectGridWmod = (rectWmod + 15) / 16;
         uint32_t rectGridHmod = (rectHmod + 15) / 16;
 
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceOpaque));
         NRI.CmdDispatch(commandBuffer, {rectGridWmod, rectGridHmod, 1});
     }
 
@@ -3921,12 +3950,13 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
             {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
         };
-        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Composition));
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::Composition1), &dummyDynamicConstantOffset);
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::Composition1), &dummyDynamicConstantOffset};
+        NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Composition));
         NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
     }
 
@@ -3943,12 +3973,13 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
         };
 
-        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceTransparent));
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::TraceTransparent1), &dummyDynamicConstantOffset);
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::TraceTransparent1), &dummyDynamicConstantOffset};
+        NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceTransparent));
         NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
     }
 
@@ -3992,12 +4023,13 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 {Texture::RRGuide_SpecHitDistance, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
                 {Texture::RRGuide_Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
             };
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+            nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssBefore));
-            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::DlssBefore1), &dummyDynamicConstantOffset);
+            nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::DlssBefore1), &dummyDynamicConstantOffset};
+            NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssBefore));
             NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
         }
 
@@ -4017,7 +4049,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 // Output
                 {Texture::DlssOutput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
             };
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+            nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
             bool resetHistory = m_ForceHistoryReset || m_Settings.SR != m_SettingsPrev.SR || m_Settings.RR != m_SettingsPrev.RR;
@@ -4068,12 +4100,13 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 // Output
                 {Texture::DlssOutput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
             };
-            nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+            nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssAfter));
-            NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::DlssAfter1), &dummyDynamicConstantOffset);
+            nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::DlssAfter1), &dummyDynamicConstantOffset};
+            NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
+            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssAfter));
             NRI.CmdDispatch(commandBuffer, {outputGridW, outputGridH, 1});
         }
     } else { // TAA
@@ -4087,12 +4120,13 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             // Output
             {taaDst, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
         };
-        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Taa));
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(isEven ? DescriptorSet::Taa1a : DescriptorSet::Taa1b), &dummyDynamicConstantOffset);
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(isEven ? DescriptorSet::Taa1a : DescriptorSet::Taa1b), &dummyDynamicConstantOffset};
+        NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Taa));
         NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
     }
 
@@ -4110,7 +4144,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {sharcBufferToClear, {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::COPY_DESTINATION}},
         };
 
-        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, buffers, helper::GetCountOf(buffers), optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, buffers, helper::GetCountOf(buffers), optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
         nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
@@ -4151,12 +4185,13 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             // Output
             {Texture::Final, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
         };
-        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Final));
-        NRI.CmdSetDescriptorSet(commandBuffer, SET_OTHER, *Get(DescriptorSet::Final1), &dummyDynamicConstantOffset);
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::Final1), &dummyDynamicConstantOffset};
+        NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
+        NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Final));
         NRI.CmdDispatch(commandBuffer, {windowGridW, windowGridH, 1});
     }
 
@@ -4178,7 +4213,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             nri::TextureBarrierFromState(GetState(Texture::Final), {nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE}),
             nri::TextureBarrierFromUnknown(swapChainTexture.texture, {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION}),
         };
-        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, transitions, (uint16_t)helper::GetCountOf(transitions)};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, transitions, (uint16_t)helper::GetCountOf(transitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
         NRI.CmdCopyTexture(commandBuffer, *swapChainTexture.texture, nullptr, *Get(Texture::Final), nullptr);
@@ -4190,7 +4225,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         before.before = {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION, nri::StageBits::COPY};
         before.after = {nri::AccessBits::COLOR_ATTACHMENT, nri::Layout::COLOR_ATTACHMENT, nri::StageBits::COLOR_ATTACHMENT};
 
-        nri::BarrierGroupDesc transitionBarriers = {nullptr, 0, nullptr, 0, &before, 1};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, &before, 1};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
         nri::AttachmentsDesc desc = {};
