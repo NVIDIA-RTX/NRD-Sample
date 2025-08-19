@@ -15,6 +15,10 @@ All-in-one repository including all relevant pieces to see [*NRD (NVIDIA Real-ti
 - curvature estimation
 - native integration of DLSS-SR and DLSS-RR via NGX API (not StreamLine)
 
+GitHub branches:
+- `main` - "all-in-one" branch: all possible options and settings are there. Since this branch covers all aspects, it's for NRD development and maintenance mostly
+- `simplex` - "best practices" branch: optimized for the recommended usage (the path tracer does a probabilistic split at the primary hit, `HitDistanceReconstructionMode::AREA_3X3` enabled in NRD). This branch is recommended to borrow best practices of path tracing and NRD usage. It offers better performance and has less code
+
 # BUILD INSTRUCTIONS
 
 - Install [*Cmake*](https://cmake.org/download/) 3.30+
