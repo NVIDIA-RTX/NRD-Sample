@@ -3,23 +3,23 @@
 #include "Include/Shared.hlsli"
 
 // Inputs
-NRI_RESOURCE( Texture2D<float>, gIn_ViewZ, t, 0, 1 );
-NRI_RESOURCE( Texture2D<float4>, gIn_Normal_Roughness, t, 1, 1 );
-NRI_RESOURCE( Texture2D<float4>, gIn_BaseColor_Metalness, t, 2, 1 );
-NRI_RESOURCE( Texture2D<float3>, gIn_DirectLighting, t, 3, 1 );
-NRI_RESOURCE( Texture2D<float3>, gIn_DirectEmission, t, 4, 1 );
-NRI_RESOURCE( Texture2D<float3>, gIn_PsrThroughput, t, 5, 1 );
-NRI_RESOURCE( Texture2D<float4>, gIn_Shadow, t, 6, 1 );
-NRI_RESOURCE( Texture2D<float4>, gIn_Diff, t, 7, 1 );
-NRI_RESOURCE( Texture2D<float4>, gIn_Spec, t, 8, 1 );
+NRI_RESOURCE( Texture2D<float>, gIn_ViewZ, t, 0, SET_OTHER );
+NRI_RESOURCE( Texture2D<float4>, gIn_Normal_Roughness, t, 1, SET_OTHER );
+NRI_RESOURCE( Texture2D<float4>, gIn_BaseColor_Metalness, t, 2, SET_OTHER );
+NRI_RESOURCE( Texture2D<float3>, gIn_DirectLighting, t, 3, SET_OTHER );
+NRI_RESOURCE( Texture2D<float3>, gIn_DirectEmission, t, 4, SET_OTHER );
+NRI_RESOURCE( Texture2D<float3>, gIn_PsrThroughput, t, 5, SET_OTHER );
+NRI_RESOURCE( Texture2D<float4>, gIn_Shadow, t, 6, SET_OTHER );
+NRI_RESOURCE( Texture2D<float4>, gIn_Diff, t, 7, SET_OTHER );
+NRI_RESOURCE( Texture2D<float4>, gIn_Spec, t, 8, SET_OTHER );
 #if( NRD_MODE == SH )
-    NRI_RESOURCE( Texture2D<float4>, gIn_DiffSh, t, 9, 1 );
-    NRI_RESOURCE( Texture2D<float4>, gIn_SpecSh, t, 10, 1 );
+    NRI_RESOURCE( Texture2D<float4>, gIn_DiffSh, t, 9, SET_OTHER );
+    NRI_RESOURCE( Texture2D<float4>, gIn_SpecSh, t, 10, SET_OTHER );
 #endif
 
 // Outputs
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_ComposedDiff, u, 0, 1 );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_ComposedSpec_ViewZ, u, 1, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_ComposedDiff, u, 0, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_ComposedSpec_ViewZ, u, 1, SET_OTHER );
 
 [numthreads( 16, 16, 1 )]
 void main( int2 pixelPos : SV_DispatchThreadId )

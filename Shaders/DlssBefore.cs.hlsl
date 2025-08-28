@@ -2,15 +2,15 @@
 
 #include "Include/Shared.hlsli"
 
-NRI_RESOURCE( Texture2D<float4>, gIn_Normal_Roughness, t, 0, 1 );
-NRI_RESOURCE( Texture2D<float4>, gIn_BaseColor_Metalness, t, 1, 1 );
-NRI_RESOURCE( Texture2D<float4>, gIn_Spec, t, 2, 1 );
+NRI_RESOURCE( Texture2D<float4>, gIn_Normal_Roughness, t, 0, SET_OTHER );
+NRI_RESOURCE( Texture2D<float4>, gIn_BaseColor_Metalness, t, 1, SET_OTHER );
+NRI_RESOURCE( Texture2D<float4>, gIn_Spec, t, 2, SET_OTHER );
 
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float>, gInOut_ViewZ, u, 0, 1 );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_DiffAlbedo, u, 1, 1 );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_SpecAlbedo, u, 2, 1 );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float>, gOut_SpecHitDistance, u, 3, 1 );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Normal_Roughness, u, 4, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float>, gInOut_ViewZ, u, 0, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_DiffAlbedo, u, 1, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_SpecAlbedo, u, 2, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float>, gOut_SpecHitDistance, u, 3, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Normal_Roughness, u, 4, SET_OTHER );
 
 [numthreads( 16, 16, 1 )]
 void main( uint2 pixelPos : SV_DispatchThreadId )

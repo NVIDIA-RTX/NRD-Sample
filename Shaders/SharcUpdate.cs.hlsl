@@ -55,6 +55,7 @@ void Trace( GeometryProps geometryProps )
     {
         SharcHitData sharcHitData;
         sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
+        sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
         sharcHitData.normalWorld = geometryProps.N;
         sharcHitData.emissive = materialProps.Lemi;
 
@@ -214,6 +215,7 @@ void Trace( GeometryProps geometryProps )
             {
                 SharcHitData sharcHitData;
                 sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
+                sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
                 sharcHitData.normalWorld = geometryProps.N;
                 sharcHitData.emissive = materialProps.Lemi;
 

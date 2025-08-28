@@ -119,7 +119,6 @@ enum class Buffer : uint32_t {
     MorphedPrimitivePrevPositions,
     PrimitiveData,
     SharcHashEntries,
-    SharcHashCopyOffset,
     SharcVoxelDataPing,
     SharcVoxelDataPong,
 
@@ -183,7 +182,6 @@ enum class Pipeline : uint32_t {
     MorphMeshUpdatePrimitives,
     SharcUpdate,
     SharcResolve,
-    SharcHashCopy,
     TraceOpaque,
     Composition,
     TraceTransparent,
@@ -197,18 +195,12 @@ enum class Descriptor : uint32_t {
     World_AccelerationStructure,
     Light_AccelerationStructure,
 
-    LinearMipmapLinear_Sampler,
-    LinearMipmapNearest_Sampler,
-    NearestMipmapNearest_Sampler,
-
     Global_ConstantBuffer,
     MorphTargetPose_ConstantBuffer,
     MorphTargetUpdatePrimitives_ConstantBuffer,
-
     InstanceData_Buffer,
     MorphMeshIndices_Buffer,
     MorphMeshVertices_Buffer,
-
     MorphedPositions_Buffer,
     MorphedPositions_StorageBuffer,
     MorphedAttributes_Buffer,
@@ -218,7 +210,6 @@ enum class Descriptor : uint32_t {
     PrimitiveData_Buffer,
     PrimitiveData_StorageBuffer,
     SharcHashEntries_StorageBuffer,
-    SharcHashCopyOffset_StorageBuffer,
     SharcVoxelDataPing_StorageBuffer,
     SharcVoxelDataPong_StorageBuffer,
 
@@ -302,20 +293,26 @@ enum class Descriptor : uint32_t {
 };
 
 enum class DescriptorSet : uint32_t {
-    Global0,
-    TraceOpaque1,
-    Composition1,
-    TraceTransparent1,
-    Taa1a,
-    Taa1b,
-    Final1,
-    DlssBefore1,
-    DlssAfter1,
-    RayTracing2,
-    SharcPing3,
-    SharcPong3,
-    MorphTargetPose4,
-    MorphTargetUpdatePrimitives4,
+    // SET_OTHER
+    TraceOpaque,
+    Composition,
+    TraceTransparent,
+    TaaPing,
+    TaaPong,
+    Final,
+    DlssBefore,
+    DlssAfter,
+
+    // SET_RAY_TRACING
+    RayTracing,
+
+    // SET_SHARC
+    SharcPing,
+    SharcPong,
+
+    // SET_MORPH
+    MorphTargetPose,
+    MorphTargetUpdatePrimitives,
 
     MAX_NUM
 };
@@ -680,7 +677,6 @@ public:
     void CreatePipelineLayoutAndDescriptorPool();
     void CreatePipelines();
     void CreateAccelerationStructures();
-    void CreateSamplers();
     void CreateResources(nri::Format swapChainFormat);
     void CreateDescriptorSets();
     void CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, nri::Dim_t width, nri::Dim_t height, nri::Dim_t mipNum, nri::Dim_t arraySize, nri::TextureUsageBits usage, nri::AccessBits state);
@@ -1130,7 +1126,6 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
     CreatePipelineLayoutAndDescriptorPool();
     CreatePipelines();
     CreateAccelerationStructures();
-    CreateSamplers();
     CreateResources(swapChainFormat);
     CreateDescriptorSets();
 
@@ -2472,36 +2467,26 @@ void Sample::CreateCommandBuffers() {
 }
 
 void Sample::CreatePipelineLayoutAndDescriptorPool() {
-    // SET_GLOBAL
-    const nri::DescriptorRangeDesc descriptorRanges0[] = {
-        {0, 3, nri::DescriptorType::SAMPLER, nri::StageBits::COMPUTE_SHADER},
-    };
-
     // SET_OTHER
-    const nri::DescriptorRangeDesc descriptorRanges1[] = {
+    const nri::DescriptorRangeDesc otherRanges[] = {
         {0, 12, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
         {0, 13, nri::DescriptorType::STORAGE_TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
     };
 
     // SET_RAY_TRACING
     const uint32_t textureNum = helper::GetCountOf(m_Scene.materials) * TEXTURES_PER_MATERIAL;
-    nri::DescriptorRangeDesc descriptorRanges2[] = {
+    nri::DescriptorRangeDesc rayTracingRanges[] = {
         {0, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
     };
 
     // SET_SHARC
-    const nri::DescriptorRangeDesc descriptorRanges3[] = {
-        {0, 4, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
+    const nri::DescriptorRangeDesc sharcRanges[] = {
+        {0, 3, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
     };
 
-    // SET_MORPH
-    const nri::DescriptorRangeDesc descriptorRanges4[] = {
-        {0, 3, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
-        {0, 2, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
-    };
-
-    // SET_PUSH
+    // SET_ROOT
     nri::RootDescriptorDesc rootDescriptors[] = {
+        {0, nri::DescriptorType::CONSTANT_BUFFER, nri::StageBits::COMPUTE_SHADER},
         {0, nri::DescriptorType::ACCELERATION_STRUCTURE, nri::StageBits::COMPUTE_SHADER},
         {1, nri::DescriptorType::ACCELERATION_STRUCTURE, nri::StageBits::COMPUTE_SHADER},
         {2, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
@@ -2509,21 +2494,47 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         {4, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
     };
 
-    nri::DynamicConstantBufferDesc dynamicConstantBuffer = {0, nri::StageBits::COMPUTE_SHADER};
+    // SET_MORPH
+    const nri::DescriptorRangeDesc morphRanges[] = {
+        {0, 3, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
+        {0, 2, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
+    };
+
+    nri::SamplerDesc samplerLinearMipmapLinear = {};
+    samplerLinearMipmapLinear.addressModes = {nri::AddressMode::REPEAT, nri::AddressMode::REPEAT};
+    samplerLinearMipmapLinear.filters = {nri::Filter::LINEAR, nri::Filter::LINEAR, nri::Filter::LINEAR};
+    samplerLinearMipmapLinear.mipMax = 16.0f;
+
+    nri::SamplerDesc samplerLinearMipmapNearest = {};
+    samplerLinearMipmapNearest.addressModes = {nri::AddressMode::REPEAT, nri::AddressMode::REPEAT};
+    samplerLinearMipmapNearest.filters = {nri::Filter::LINEAR, nri::Filter::LINEAR, nri::Filter::NEAREST};
+    samplerLinearMipmapNearest.mipMax = 16.0f;
+
+    nri::SamplerDesc samplerNearestMipmapNearest = {};
+    samplerNearestMipmapNearest.addressModes = {nri::AddressMode::REPEAT, nri::AddressMode::REPEAT};
+    samplerNearestMipmapNearest.filters = {nri::Filter::NEAREST, nri::Filter::NEAREST, nri::Filter::NEAREST};
+    samplerNearestMipmapNearest.mipMax = 16.0f;
+
+    nri::RootSamplerDesc rootSamplers[3] = {
+        {0, samplerLinearMipmapLinear, nri::StageBits::COMPUTE_SHADER},
+        {1, samplerLinearMipmapNearest, nri::StageBits::COMPUTE_SHADER},
+        {2, samplerNearestMipmapNearest, nri::StageBits::COMPUTE_SHADER},
+    };
 
     const nri::DescriptorSetDesc descriptorSetDescs[] = {
-        {SET_GLOBAL, descriptorRanges0, helper::GetCountOf(descriptorRanges0), &dynamicConstantBuffer, 1},
-        {SET_OTHER, descriptorRanges1, helper::GetCountOf(descriptorRanges1)},
-        {SET_RAY_TRACING, descriptorRanges2, helper::GetCountOf(descriptorRanges2)},
-        {SET_SHARC, descriptorRanges3, helper::GetCountOf(descriptorRanges3)},
-        {SET_MORPH, descriptorRanges4, helper::GetCountOf(descriptorRanges4), &dynamicConstantBuffer, 1},
+        {SET_OTHER, otherRanges, helper::GetCountOf(otherRanges)},
+        {SET_RAY_TRACING, rayTracingRanges, helper::GetCountOf(rayTracingRanges)},
+        {SET_SHARC, sharcRanges, helper::GetCountOf(sharcRanges)},
+        {SET_MORPH, morphRanges, helper::GetCountOf(morphRanges)},
     };
 
     { // Pipeline layout
         nri::PipelineLayoutDesc pipelineLayoutDesc = {};
-        pipelineLayoutDesc.rootRegisterSpace = SET_PUSH;
+        pipelineLayoutDesc.rootRegisterSpace = SET_ROOT;
         pipelineLayoutDesc.rootDescriptors = rootDescriptors;
         pipelineLayoutDesc.rootDescriptorNum = helper::GetCountOf(rootDescriptors);
+        pipelineLayoutDesc.rootSamplers = rootSamplers;
+        pipelineLayoutDesc.rootSamplerNum = helper::GetCountOf(rootSamplers);
         pipelineLayoutDesc.descriptorSets = descriptorSetDescs;
         pipelineLayoutDesc.descriptorSetNum = helper::GetCountOf(descriptorSetDescs);
         pipelineLayoutDesc.shaderStages = nri::StageBits::COMPUTE_SHADER;
@@ -2536,27 +2547,24 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
 
         uint32_t setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.dynamicConstantBufferMaxNum += descriptorSetDescs[SET_GLOBAL].dynamicConstantBufferNum * setNum;
-        descriptorPoolDesc.samplerMaxNum += descriptorSetDescs[SET_GLOBAL].ranges[0].descriptorNum * GetQueuedFrameNum() * setNum;
 
-        setNum = (uint32_t)DescriptorSet::MAX_NUM - 6; // exclude non-SET_OTHER sets
+        setNum = (uint32_t)DescriptorSet::MAX_NUM - 5; // exclude non-SET_OTHER sets
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.textureMaxNum += descriptorSetDescs[SET_OTHER].ranges[0].descriptorNum * setNum;
-        descriptorPoolDesc.storageTextureMaxNum += descriptorSetDescs[SET_OTHER].ranges[1].descriptorNum * setNum;
+        descriptorPoolDesc.textureMaxNum += otherRanges[0].descriptorNum * setNum;
+        descriptorPoolDesc.storageTextureMaxNum += otherRanges[1].descriptorNum * setNum;
 
         setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.textureMaxNum += descriptorSetDescs[SET_RAY_TRACING].ranges[0].descriptorNum * setNum;
+        descriptorPoolDesc.textureMaxNum += rayTracingRanges[0].descriptorNum * setNum;
 
         setNum = 2;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.storageStructuredBufferMaxNum += descriptorSetDescs[SET_SHARC].ranges[0].descriptorNum * setNum;
+        descriptorPoolDesc.storageStructuredBufferMaxNum += sharcRanges[0].descriptorNum * setNum;
 
         setNum = 2;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.dynamicConstantBufferMaxNum += descriptorSetDescs[SET_MORPH].dynamicConstantBufferNum * setNum;
-        descriptorPoolDesc.structuredBufferMaxNum += descriptorSetDescs[SET_MORPH].ranges[0].descriptorNum * setNum;
-        descriptorPoolDesc.storageStructuredBufferMaxNum += descriptorSetDescs[SET_MORPH].ranges[1].descriptorNum * setNum;
+        descriptorPoolDesc.structuredBufferMaxNum += morphRanges[0].descriptorNum * setNum;
+        descriptorPoolDesc.storageStructuredBufferMaxNum += morphRanges[1].descriptorNum * setNum;
 
         NRI_ABORT_ON_FAILURE(NRI.CreateDescriptorPool(*m_Device, descriptorPoolDesc, m_DescriptorPool));
     }
@@ -2604,13 +2612,6 @@ void Sample::CreatePipelines() {
 
     { // Pipeline::SharcResolve
         pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcResolve.cs", shaderCodeStorage);
-
-        NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, pipeline));
-        m_Pipelines.push_back(pipeline);
-    }
-
-    { // Pipeline::SharcHashCopy
-        pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcHashCopy.cs", shaderCodeStorage);
 
         NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, pipeline));
         m_Pipelines.push_back(pipeline);
@@ -3113,40 +3114,6 @@ void Sample::CreateAccelerationStructures() {
         blasNum, geometries.size(), primitivesNum);
 }
 
-void Sample::CreateSamplers() {
-    nri::Descriptor* descriptor = nullptr;
-
-    { // Descriptor::LinearMipmapLinear_Sampler
-        nri::SamplerDesc samplerDesc = {};
-        samplerDesc.addressModes = {nri::AddressMode::REPEAT, nri::AddressMode::REPEAT};
-        samplerDesc.filters = {nri::Filter::LINEAR, nri::Filter::LINEAR, nri::Filter::LINEAR};
-        samplerDesc.mipMax = 16.0f;
-
-        NRI_ABORT_ON_FAILURE(NRI.CreateSampler(*m_Device, samplerDesc, descriptor));
-        m_Descriptors.push_back(descriptor);
-    }
-
-    { // Descriptor::LinearMipmapNearest_Sampler
-        nri::SamplerDesc samplerDesc = {};
-        samplerDesc.addressModes = {nri::AddressMode::REPEAT, nri::AddressMode::REPEAT};
-        samplerDesc.filters = {nri::Filter::LINEAR, nri::Filter::LINEAR, nri::Filter::NEAREST};
-        samplerDesc.mipMax = 16.0f;
-
-        NRI_ABORT_ON_FAILURE(NRI.CreateSampler(*m_Device, samplerDesc, descriptor));
-        m_Descriptors.push_back(descriptor);
-    }
-
-    { // Descriptor::NearestMipmapNearest_Sampler
-        nri::SamplerDesc samplerDesc = {};
-        samplerDesc.addressModes = {nri::AddressMode::REPEAT, nri::AddressMode::REPEAT};
-        samplerDesc.filters = {nri::Filter::NEAREST, nri::Filter::NEAREST, nri::Filter::NEAREST};
-        samplerDesc.mipMax = 16.0f;
-
-        NRI_ABORT_ON_FAILURE(NRI.CreateSampler(*m_Device, samplerDesc, descriptor));
-        m_Descriptors.push_back(descriptor);
-    }
-}
-
 inline nri::Format ConvertFormatToTextureStorageCompatible(nri::Format format) {
     switch (format) {
         case nri::Format::D16_UNORM:
@@ -3224,8 +3191,6 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     CreateBuffer(descriptorDescs, "Buffer::PrimitiveData", nri::Format::UNKNOWN, m_Scene.totalInstancedPrimitivesNum, sizeof(PrimitiveData),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(descriptorDescs, "Buffer::SharcHashEntries", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint64_t),
-        nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-    CreateBuffer(descriptorDescs, "Buffer::SharcHashCopyOffset", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint32_t),
         nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(descriptorDescs, "Buffer::SharcVoxelDataPing", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint32_t) * 4,
         nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
@@ -3371,27 +3336,7 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
 void Sample::CreateDescriptorSets() {
     nri::DescriptorSet* descriptorSet = nullptr;
 
-    { // DescriptorSet::Global0
-        NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_GLOBAL, &descriptorSet, 1, 0));
-        m_DescriptorSets.push_back(descriptorSet);
-
-        const nri::Descriptor* samplers[] = {
-            Get(Descriptor::LinearMipmapLinear_Sampler),
-            Get(Descriptor::LinearMipmapNearest_Sampler),
-            Get(Descriptor::NearestMipmapNearest_Sampler),
-        };
-
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {samplers, helper::GetCountOf(samplers)},
-        };
-
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-
-        nri::Descriptor* constantBuffer = Get(Descriptor::Global_ConstantBuffer);
-        NRI.UpdateDynamicConstantBuffers(*descriptorSet, 0, 1, &constantBuffer);
-    }
-
-    { // DescriptorSet::TraceOpaque1
+    { // DescriptorSet::TraceOpaque
         const nri::Descriptor* resources[] = {
             Get(Descriptor::ComposedDiff_Texture),
             Get(Descriptor::ComposedSpec_ViewZ_Texture),
@@ -3428,7 +3373,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::Composition1
+    { // DescriptorSet::Composition
         const nri::Descriptor* resources[] = {
             Get(Descriptor::ViewZ_Texture),
             Get(Descriptor::Normal_Roughness_Texture),
@@ -3461,7 +3406,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::TraceTransparent1
+    { // DescriptorSet::TraceTransparent
         const nri::Descriptor* resources[] = {
             Get(Descriptor::ComposedDiff_Texture),
             Get(Descriptor::ComposedSpec_ViewZ_Texture),
@@ -3484,7 +3429,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::Taa1a
+    { // DescriptorSet::TaaPing
         const nri::Descriptor* resources[] = {
             Get(Descriptor::Mv_Texture),
             Get(Descriptor::Composed_Texture),
@@ -3506,7 +3451,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::Taa1b
+    { // DescriptorSet::TaaPong
         const nri::Descriptor* resources[] = {
             Get(Descriptor::Mv_Texture),
             Get(Descriptor::Composed_Texture),
@@ -3528,7 +3473,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::Final1
+    { // DescriptorSet::Final
         const nri::Descriptor* resources[] = {
             Get(Descriptor::PreFinal_Texture),
             Get(Descriptor::Composed_Texture),
@@ -3550,7 +3495,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::DlssBefore1
+    { // DescriptorSet::DlssBefore
         const nri::Descriptor* resources[] = {
             Get(Descriptor::Normal_Roughness_Texture),
             Get(Descriptor::BaseColor_Metalness_Texture),
@@ -3576,7 +3521,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::DlssAfter1
+    { // DescriptorSet::DlssAfter
         const nri::Descriptor* storageResources[] = {
             Get(Descriptor::DlssOutput_StorageTexture),
         };
@@ -3591,7 +3536,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 1, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::RayTracing2
+    { // DescriptorSet::RayTracing
         std::vector<nri::Descriptor*> textures(m_Scene.materials.size() * TEXTURES_PER_MATERIAL);
         for (size_t i = 0; i < m_Scene.materials.size(); i++) {
             const size_t index = i * TEXTURES_PER_MATERIAL;
@@ -3613,10 +3558,9 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::SharcPing3
+    { // DescriptorSet::SharcPing
         const nri::Descriptor* storageResources[] = {
             Get(Descriptor::SharcHashEntries_StorageBuffer),
-            Get(Descriptor::SharcHashCopyOffset_StorageBuffer),
             Get(Descriptor::SharcVoxelDataPing_StorageBuffer),
             Get(Descriptor::SharcVoxelDataPong_StorageBuffer),
         };
@@ -3631,10 +3575,9 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::SharcPong3
+    { // DescriptorSet::SharcPong
         const nri::Descriptor* storageResources[] = {
             Get(Descriptor::SharcHashEntries_StorageBuffer),
-            Get(Descriptor::SharcHashCopyOffset_StorageBuffer),
             Get(Descriptor::SharcVoxelDataPong_StorageBuffer),
             Get(Descriptor::SharcVoxelDataPing_StorageBuffer),
         };
@@ -3649,7 +3592,7 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
     }
 
-    { // DescriptorSet::MorphTargetPose4
+    { // DescriptorSet::MorphTargetPose
         const nri::Descriptor* resources[] = {
             Get(Descriptor::MorphMeshVertices_Buffer)};
 
@@ -3666,12 +3609,9 @@ void Sample::CreateDescriptorSets() {
             {storageResources, helper::GetCountOf(storageResources)}};
 
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-
-        nri::Descriptor* constantBuffer = Get(Descriptor::MorphTargetPose_ConstantBuffer);
-        NRI.UpdateDynamicConstantBuffers(*descriptorSet, 0, 1, &constantBuffer);
     }
 
-    { // DescriptorSet::MorphTargetUpdatePrimitives4
+    { // DescriptorSet::MorphTargetUpdatePrimitives
         const nri::Descriptor* resources[] = {
             Get(Descriptor::MorphMeshIndices_Buffer),
             Get(Descriptor::MorphedPositions_Buffer),
@@ -3689,9 +3629,6 @@ void Sample::CreateDescriptorSets() {
             {storageResources, helper::GetCountOf(storageResources)}};
 
         NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
-
-        nri::Descriptor* constantBuffer = Get(Descriptor::MorphTargetUpdatePrimitives_ConstantBuffer);
-        NRI.UpdateDynamicConstantBuffers(*descriptorSet, 0, 1, &constantBuffer);
     }
 }
 
@@ -4259,30 +4196,30 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven) {
     NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
     NRI.CmdSetPipelineLayout(commandBuffer, nri::BindPoint::COMPUTE, *m_PipelineLayout);
 
-    nri::SetDescriptorSetDesc globalSet = {SET_GLOBAL, Get(DescriptorSet::Global0), &m_GlobalConstantBufferOffset};
-    NRI.CmdSetDescriptorSet(commandBuffer, globalSet);
-
-    // TODO: ray tracing related resources are not always needed, but absence of root descriptors leads to a silent crash inside VK validation
-    nri::SetDescriptorSetDesc rayTracingSet = {SET_RAY_TRACING, Get(DescriptorSet::RayTracing2)};
-    NRI.CmdSetDescriptorSet(commandBuffer, rayTracingSet);
-
-    nri::SetDescriptorSetDesc sharcSet = {SET_SHARC, isEven ? Get(DescriptorSet::SharcPing3) : Get(DescriptorSet::SharcPong3)};
-    NRI.CmdSetDescriptorSet(commandBuffer, sharcSet);
-
-    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::World_AccelerationStructure)};
+    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::Global_ConstantBuffer), m_GlobalConstantBufferOffset};
     NRI.CmdSetRootDescriptor(commandBuffer, root0);
 
-    nri::SetRootDescriptorDesc root1 = {1, Get(Descriptor::Light_AccelerationStructure)};
+    // TODO: ray tracing related resources are not always needed, but absence of root descriptors leads to a silent crash inside VK validation
+    nri::SetDescriptorSetDesc rayTracingSet = {SET_RAY_TRACING, Get(DescriptorSet::RayTracing)};
+    NRI.CmdSetDescriptorSet(commandBuffer, rayTracingSet);
+
+    nri::SetDescriptorSetDesc sharcSet = {SET_SHARC, isEven ? Get(DescriptorSet::SharcPing) : Get(DescriptorSet::SharcPong)};
+    NRI.CmdSetDescriptorSet(commandBuffer, sharcSet);
+
+    nri::SetRootDescriptorDesc root1 = {1, Get(Descriptor::World_AccelerationStructure)};
     NRI.CmdSetRootDescriptor(commandBuffer, root1);
 
-    nri::SetRootDescriptorDesc root2 = {2, Get(Descriptor::InstanceData_Buffer)};
+    nri::SetRootDescriptorDesc root2 = {2, Get(Descriptor::Light_AccelerationStructure)};
     NRI.CmdSetRootDescriptor(commandBuffer, root2);
 
-    nri::SetRootDescriptorDesc root3 = {3, Get(Descriptor::PrimitiveData_Buffer)};
+    nri::SetRootDescriptorDesc root3 = {3, Get(Descriptor::InstanceData_Buffer)};
     NRI.CmdSetRootDescriptor(commandBuffer, root3);
 
-    nri::SetRootDescriptorDesc root4 = {4, Get(Descriptor::MorphedPrimitivePrevData_Buffer)};
+    nri::SetRootDescriptorDesc root4 = {4, Get(Descriptor::PrimitiveData_Buffer)};
     NRI.CmdSetRootDescriptor(commandBuffer, root4);
+
+    nri::SetRootDescriptorDesc root5 = {5, Get(Descriptor::MorphedPrimitivePrevData_Buffer)};
+    NRI.CmdSetRootDescriptor(commandBuffer, root5);
 }
 
 void Sample::RenderFrame(uint32_t frameIndex) {
@@ -4354,8 +4291,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     m_NRD.NewFrame();
     m_NRD.SetCommonSettings(commonSettings);
 
-    const uint32_t dummyDynamicConstantOffset = 0;
-
     // RECORDING START
     NRI.BeginCommandBuffer(commandBuffer, nullptr);
 
@@ -4378,8 +4313,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         NRI.CmdCopyStreamedData(commandBuffer, *m_Streamer);
     }
-
-    RestoreBindings(commandBuffer, isEven);
 
     // Update morph animation
     if (m_Settings.activeAnimation < m_Scene.animations.size() && m_Scene.animations[m_Settings.activeAnimation].morphMeshInstances.size() && (!m_Settings.pauseAnimation || !m_SettingsPrev.pauseAnimation || frameIndex == 0)) {
@@ -4430,8 +4363,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 }
 
                 uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
-                nri::SetDescriptorSetDesc setMorph = {SET_MORPH, Get(DescriptorSet::MorphTargetPose4), &dynamicConstantBufferOffset};
-                NRI.CmdSetDescriptorSet(commandBuffer, setMorph);
+                NRI.CmdSetDescriptorSet(commandBuffer, {SET_MORPH, Get(DescriptorSet::MorphTargetPose)});
+                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::MorphTargetPose_ConstantBuffer), dynamicConstantBufferOffset});
 
                 NRI.CmdDispatch(commandBuffer, {(mesh.vertexNum + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
             }
@@ -4474,8 +4407,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 }
 
                 uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
-                nri::SetDescriptorSetDesc setMorph = {SET_MORPH, Get(DescriptorSet::MorphTargetUpdatePrimitives4), &dynamicConstantBufferOffset};
-                NRI.CmdSetDescriptorSet(commandBuffer, setMorph);
+                NRI.CmdSetDescriptorSet(commandBuffer, {SET_MORPH, Get(DescriptorSet::MorphTargetUpdatePrimitives)});
+                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::MorphTargetPose_ConstantBuffer), dynamicConstantBufferOffset});
 
                 NRI.CmdDispatch(commandBuffer, {(numPrimitives + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
             }
@@ -4578,6 +4511,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     // Render resolution
     //======================================================================================================================================
 
+    RestoreBindings(commandBuffer, isEven);
+
     // SHARC
     nri::Buffer* sharcBufferToClear = isEven ? Get(Buffer::SharcVoxelDataPong) : Get(Buffer::SharcVoxelDataPing);
     if (m_Settings.SHARC && NRD_MODE < OCCLUSION) {
@@ -4585,7 +4520,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         const nri::BufferBarrierDesc transitions[] = {
             {Get(Buffer::SharcHashEntries), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-            {Get(Buffer::SharcHashCopyOffset), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
             {Get(Buffer::SharcVoxelDataPing), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
             {Get(Buffer::SharcVoxelDataPong), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
         };
@@ -4612,15 +4546,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
 
             NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcResolve));
-            NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
-        }
-
-        { // Hash copy
-            helper::Annotation annotation(NRI, commandBuffer, "SHARC - Hash copy");
-
-            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-
-            NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcHashCopy));
             NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
         }
     }
@@ -4652,7 +4577,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::TraceOpaque1), &dummyDynamicConstantOffset};
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::TraceOpaque)};
         NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
         uint32_t rectWmod = uint32_t(m_RenderResolution.x * m_Settings.resolutionScale + 0.5f);
@@ -4779,7 +4704,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::Composition1), &dummyDynamicConstantOffset};
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::Composition)};
         NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
         NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Composition));
@@ -4802,7 +4727,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::TraceTransparent1), &dummyDynamicConstantOffset};
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::TraceTransparent)};
         NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
         NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::TraceTransparent));
@@ -4852,7 +4777,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-            nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::DlssBefore1), &dummyDynamicConstantOffset};
+            nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::DlssBefore)};
             NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
             NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssBefore));
@@ -4929,7 +4854,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-            nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::DlssAfter1), &dummyDynamicConstantOffset};
+            nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::DlssAfter)};
             NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
             NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::DlssAfter));
@@ -4949,7 +4874,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(isEven ? DescriptorSet::Taa1a : DescriptorSet::Taa1b), &dummyDynamicConstantOffset};
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(isEven ? DescriptorSet::TaaPing : DescriptorSet::TaaPong)};
         NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
         NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Taa));
@@ -5015,7 +4940,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::Final1), &dummyDynamicConstantOffset};
+        nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(DescriptorSet::Final)};
         NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
         NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Final));

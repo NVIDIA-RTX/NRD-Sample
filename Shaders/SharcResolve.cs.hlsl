@@ -31,5 +31,5 @@ void main( uint threadIndex : SV_DispatchThreadID )
     sharcResolveParameters.staleFrameNumMax = SHARC_STALE_FRAME_NUM_MIN;
     sharcResolveParameters.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
 
-    SharcResolveEntry( threadIndex, sharcParams, sharcResolveParameters, gInOut_SharcHashCopyOffsetBuffer );
+    SharcResolveEntry( threadIndex, sharcParams, sharcResolveParameters );
 }
