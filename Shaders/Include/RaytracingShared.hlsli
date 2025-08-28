@@ -1,15 +1,14 @@
 
-NRI_RESOURCE( RaytracingAccelerationStructure, gWorldTlas, t, 0, SET_PUSH );
-NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_PUSH );
-NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_PUSH );
-NRI_RESOURCE( StructuredBuffer<PrimitiveData>, gIn_PrimitiveData, t, 3, SET_PUSH );
+NRI_RESOURCE( RaytracingAccelerationStructure, gWorldTlas, t, 0, SET_ROOT );
+NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_ROOT );
+NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_ROOT );
+NRI_RESOURCE( StructuredBuffer<PrimitiveData>, gIn_PrimitiveData, t, 3, SET_ROOT );
 
 NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 0, SET_RAY_TRACING );
 
 NRI_RESOURCE( RWStructuredBuffer<uint64_t>, gInOut_SharcHashEntriesBuffer, u, 0, SET_SHARC );
-NRI_RESOURCE( RWStructuredBuffer<uint>, gInOut_SharcHashCopyOffsetBuffer, u, 1, SET_SHARC );
-NRI_RESOURCE( RWStructuredBuffer<uint4>, gInOut_SharcVoxelDataBuffer, u, 2, SET_SHARC );
-NRI_RESOURCE( RWStructuredBuffer<uint4>, gInOut_SharcVoxelDataBufferPrev, u, 3, SET_SHARC );
+NRI_RESOURCE( RWStructuredBuffer<uint4>, gInOut_SharcVoxelDataBuffer, u, 1, SET_SHARC );
+NRI_RESOURCE( RWStructuredBuffer<uint4>, gInOut_SharcVoxelDataBufferPrev, u, 2, SET_SHARC );
 
 #if( USE_STOCHASTIC_SAMPLING == 1 )
     #define TEX_SAMPLER gNearestMipmapNearestSampler
@@ -520,6 +519,17 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
 //====================================================================================================================================
 // MISC
 //====================================================================================================================================
+
+float3 GetMaterialDemodulation( GeometryProps geometryProps, MaterialProps materialProps )
+{
+    float3 albedo, Rf0;
+    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+
+    float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
+    float3 Fenv = _NRD_EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
+
+    return ( albedo + Fenv ) * 0.95 + 0.05;
+}
 
 float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float eta, out float3 Xoffset, out float3 ray )
 {

@@ -58,11 +58,10 @@
 #define MIP_SHARP                           2 // for albedo and roughness
 
 // Register spaces ( sets )
-#define SET_GLOBAL                          0
-#define SET_OTHER                           1
-#define SET_RAY_TRACING                     2
-#define SET_SHARC                           3
-#define SET_PUSH                            4
+#define SET_OTHER                           0
+#define SET_RAY_TRACING                     1
+#define SET_SHARC                           2
+#define SET_ROOT                            3
 
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001
@@ -85,6 +84,7 @@
 #define SHARC_ANTI_FIREFLY                  true
 #define SHARC_STALE_FRAME_NUM_MIN           32 // new version uses 8 by default, old value offers more stability in voxels with low number of samples ( critical for glass )
 #define SHARC_SEPARATE_EMISSIVE             1
+#define SHARC_MATERIAL_DEMODULATION         1
 
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking
@@ -166,7 +166,7 @@ struct InstanceData
 
 #include "NRI.hlsl"
 
-NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
+NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
 {
     float4x4 gViewToWorld;
     float4x4 gViewToClip;
@@ -232,9 +232,9 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_GLOBAL )
 #include "ml.hlsli"
 #include "NRD.hlsli"
 
-NRI_RESOURCE( SamplerState, gLinearMipmapLinearSampler, s, 0, SET_GLOBAL );
-NRI_RESOURCE( SamplerState, gLinearMipmapNearestSampler, s, 1, SET_GLOBAL );
-NRI_RESOURCE( SamplerState, gNearestMipmapNearestSampler, s, 2, SET_GLOBAL );
+NRI_RESOURCE( SamplerState, gLinearMipmapLinearSampler, s, 0, SET_ROOT );
+NRI_RESOURCE( SamplerState, gLinearMipmapNearestSampler, s, 1, SET_ROOT );
+NRI_RESOURCE( SamplerState, gNearestMipmapNearestSampler, s, 2, SET_ROOT );
 
 #define gLinearSampler gLinearMipmapLinearSampler
 #define gNearestSampler gNearestMipmapNearestSampler

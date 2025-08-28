@@ -2,7 +2,7 @@
 
 #include "Include/Shared.hlsli"
 
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_Image, u, 0, 1 );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_Image, u, 0, SET_OTHER );
 
 [numthreads( 16, 16, 1 )]
 void main( uint2 pixelPos : SV_DispatchThreadId )
