@@ -4320,6 +4320,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         uint32_t animCurrBufferIndex = frameIndex & 0x1;
         uint32_t animPrevBufferIndex = frameIndex == 0 ? animCurrBufferIndex : 1 - animCurrBufferIndex;
 
+        NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
+        NRI.CmdSetPipelineLayout(commandBuffer, nri::BindPoint::COMPUTE, *m_PipelineLayout);
+
         { // Update vertices
             helper::Annotation annotation(NRI, commandBuffer, "Morph mesh: update vertices");
 
