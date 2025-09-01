@@ -377,7 +377,7 @@ struct Settings {
     bool nineBrothers = false;
     bool blink = false;
     bool pauseAnimation = true;
-    bool emission = false;
+    bool emission = true;
     bool linearMotion = true;
     bool emissiveObjects = false;
     bool importanceSampling = true;
@@ -2254,30 +2254,31 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         }
     }
 
-    // Global history reset
+    // Global history reset: sun elevation
+    float a = sin(radians(m_Settings.sunElevation));
+    float b = sin(radians(m_SettingsPrev.sunElevation));
+    a = linearstep(-0.7f, 0.7f, a); // relax pole positions
+    b = linearstep(-0.7f, 0.7f, b);
+    float d = abs(a - b) * 1000.0f / m_Timer.GetVerySmoothedFrameTime(); // make FPS-independent
+    float resetHistoryFactor = linearstep(5.0f, 0.0f, d);
+
+    // Global history reset: emission intensity
+    a = float(m_Settings.emission) * m_Settings.emissionIntensity;
+    b = float(m_SettingsPrev.emission) * m_SettingsPrev.emissionIntensity;
+    a = log2(1.0f + a);
+    b = log2(1.0f + b);
+    d = abs(a - b) * 1000.0f / m_Timer.GetVerySmoothedFrameTime(); // make FPS-independent
+    resetHistoryFactor /= 1.0f + 0.2f * d;
+
+    // Global history reset: incompatible state changes
     if (m_SettingsPrev.denoiser != m_Settings.denoiser)
         m_ForceHistoryReset = true;
-    if (m_SettingsPrev.denoiser == DENOISER_REFERENCE && m_SettingsPrev.tracingMode != m_Settings.tracingMode)
-        m_ForceHistoryReset = true;
     if (m_SettingsPrev.ortho != m_Settings.ortho)
-        m_ForceHistoryReset = true;
-    if (m_SettingsPrev.onScreen != m_Settings.onScreen)
         m_ForceHistoryReset = true;
     if (m_SettingsPrev.RR != m_Settings.RR)
         m_ForceHistoryReset = true;
     if (frameIndex == 0)
         m_ForceHistoryReset = true;
-
-    float a = sin(radians(m_Settings.sunElevation));
-    float b = sin(radians(m_SettingsPrev.sunElevation));
-    float sunCurr = smoothstep(-0.9f, 0.05f, a);
-    float sunPrev = smoothstep(-0.9f, 0.05f, b);
-    float resetHistoryFactor = 1.0f - smoothstep(0.0f, 0.2f, abs(sunCurr - sunPrev));
-
-    float emiCurr = m_Settings.emission * m_Settings.emissionIntensity;
-    float emiPrev = m_SettingsPrev.emission * m_SettingsPrev.emissionIntensity;
-    if (emiCurr != emiPrev)
-        resetHistoryFactor *= lerp(1.0f, 0.5f, abs(emiCurr - emiPrev) / max(emiCurr, emiPrev));
 
     if (m_ForceHistoryReset)
         resetHistoryFactor = 0.0f;
@@ -2335,15 +2336,14 @@ void Sample::LoadScene() {
     m_ReblurSettings = GetDefaultReblurSettings();
     m_RelaxSettings = GetDefaultRelaxSettings();
 
+    m_Settings.emission = true;
     if (m_SceneFile.find("BistroInterior") != std::string::npos) {
         m_Settings.exposure = 80.0f;
-        m_Settings.emission = true;
         m_Settings.animatedObjectScale = 0.5f;
         m_Settings.sunElevation = 7.0f;
-    } else if (m_SceneFile.find("BistroExterior") != std::string::npos) {
+    } else if (m_SceneFile.find("BistroExterior") != std::string::npos)
         m_Settings.exposure = 50.0f;
-        m_Settings.emission = true;
-    } else if (m_SceneFile.find("Hair") != std::string::npos) {
+    else if (m_SceneFile.find("Hair") != std::string::npos) {
         m_Settings.exposure = 2.0f;
         m_Settings.bounceNum = 4;
     } else if (m_SceneFile.find("ShaderBalls") != std::string::npos)
