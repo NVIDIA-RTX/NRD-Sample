@@ -2829,12 +2829,12 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::Composition
@@ -2862,12 +2862,12 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::TraceTransparent
@@ -2885,12 +2885,12 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::TaaPing
@@ -2907,12 +2907,12 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::TaaPong
@@ -2929,12 +2929,12 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::Final
@@ -2951,12 +2951,12 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::DlssBefore
@@ -2977,12 +2977,12 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {resources, helper::GetCountOf(resources)},
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::DlssAfter
@@ -2993,11 +2993,11 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 1, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::RayTracing
@@ -3015,11 +3015,11 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_RAY_TRACING, &descriptorSet, 1, helper::GetCountOf(textures)));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {textures.data(), helper::GetCountOf(textures)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, textures.data(), helper::GetCountOf(textures)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::SharcPing
@@ -3032,11 +3032,11 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_SHARC, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::SharcPong
@@ -3049,11 +3049,11 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_SHARC, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::DescriptorRangeUpdateDesc descriptorRangeUpdateDesc[] = {
-            {storageResources, helper::GetCountOf(storageResources)},
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, storageResources, helper::GetCountOf(storageResources)},
         };
 
-        NRI.UpdateDescriptorRanges(*descriptorSet, 0, helper::GetCountOf(descriptorRangeUpdateDesc), descriptorRangeUpdateDesc);
+        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 }
 
