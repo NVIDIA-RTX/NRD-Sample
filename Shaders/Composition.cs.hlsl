@@ -57,7 +57,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     // Direct sun lighting * shadow + emission
     float4 shadowData = gIn_Shadow[ pixelPos ];
 
-    #if( SIGMA_TRANSLUCENT == 1 )
+    #if( SIGMA_TRANSLUCENCY == 1 )
         float3 shadow = SIGMA_BackEnd_UnpackShadow( shadowData ).yzw;
     #else
         float shadow = SIGMA_BackEnd_UnpackShadow( shadowData ).x;

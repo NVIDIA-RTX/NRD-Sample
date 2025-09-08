@@ -14,7 +14,7 @@
 // OCCLUSION - OCCLUSION (ambient or specular occlusion only) denoisers
 // DIRECTIONAL_OCCLUSION - DIRECTIONAL_OCCLUSION (ambient occlusion in SH mode) denoisers
 #define NRD_MODE                            NORMAL // NORMAL, SH, OCCLUSION, DIRECTIONAL_OCCLUSION (NRD sample recompile required)
-#define SIGMA_TRANSLUCENT                   1
+#define SIGMA_TRANSLUCENCY                  1
 
 // Default = 1
 #define USE_IMPORTANCE_SAMPLING             1

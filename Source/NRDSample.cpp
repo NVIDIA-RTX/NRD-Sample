@@ -47,7 +47,7 @@ constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM = 32;
 constexpr uint32_t DYNAMIC_CONSTANT_BUFFER_SIZE = 1024 * 1024; // 1MB
 constexpr uint32_t MAX_ANIMATION_HISTORY_FRAME_NUM = 2;
 
-#if (SIGMA_TRANSLUCENT == 1)
+#if (SIGMA_TRANSLUCENCY == 1)
 #    define SIGMA_VARIANT nrd::Denoiser::SIGMA_SHADOW_TRANSLUCENCY
 #else
 #    define SIGMA_VARIANT nrd::Denoiser::SIGMA_SHADOW
@@ -1784,21 +1784,16 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::PushStyleColor(ImGuiCol_Text, m_IsReloadShadersSucceeded ? UI_DEFAULT : UI_RED);
                         if (ImGui::Button("Reload shaders")) {
                             std::string sampleShaders;
-                            std::string nrdShaders;
 
                             bool isTool = std::string(STRINGIFY(SHADERMAKE_PATH)) == "ShaderMake";
                             if (isTool) {
 #ifdef _DEBUG
                                 sampleShaders = "_Bin\\Debug\\ShaderMake.exe";
-                                nrdShaders = "_Bin\\Debug\\ShaderMake.exe";
 #else
                                 sampleShaders = "_Bin\\Release\\ShaderMake.exe";
-                                nrdShaders = "_Bin\\Release\\ShaderMake.exe";
 #endif
-                            } else {
+                            } else
                                 sampleShaders = STRINGIFY(SHADERMAKE_PATH);
-                                nrdShaders = STRINGIFY(SHADERMAKE_PATH);
-                            }
 
                             // clang-format off
                             sampleShaders +=
@@ -1818,49 +1813,15 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 " -I " STRINGIFY(SHARC_SOURCE_DIR)
                                 " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING)
                                 " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING);
-
-                            nrdShaders +=
-                                " --flatten --stripReflection --WX --colorize"
-                                " --sRegShift 0 --bRegShift 32 --uRegShift 64 --tRegShift 128"
-                                " --binary --header"
-                                " --allResourcesBound"
-                                " --vulkanVersion 1.2"
-                                " --sourceDir External/NRD/Shaders/Source"
-                                " --ignoreConfigDir"
-                                " -c External/NRD/Shaders/Shaders.cfg"
-                                " -o _Shaders"
-                                " -I " STRINGIFY(ML_SOURCE_DIR)
-                                " -I External/NRD/Shaders/Include"
-                                " -I External/NRD/Shaders/Resources"
-                                " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING)
-                                " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING)
-                                " -D NRD_SUPPORTS_VIEWPORT_OFFSET=" STRINGIFY(NRD_SUPPORTS_VIEWPORT_OFFSET)
-                                " -D NRD_SUPPORTS_CHECKERBOARD=" STRINGIFY(NRD_SUPPORTS_CHECKERBOARD)
-                                " -D NRD_SUPPORTS_HISTORY_CONFIDENCE=" STRINGIFY(NRD_SUPPORTS_HISTORY_CONFIDENCE)
-                                " -D NRD_SUPPORTS_DISOCCLUSION_THRESHOLD_MIX=" STRINGIFY(NRD_SUPPORTS_DISOCCLUSION_THRESHOLD_MIX)
-                                " -D NRD_SUPPORTS_BASECOLOR_METALNESS=" STRINGIFY(NRD_SUPPORTS_BASECOLOR_METALNESS)
-                                " -D NRD_SUPPORTS_ANTIFIREFLY=" STRINGIFY(NRD_SUPPORTS_ANTIFIREFLY)
-                                " -D REBLUR_PERFORMANCE_MODE=" STRINGIFY(REBLUR_PERFORMANCE_MODE)
-                                " -D NRD_INTERNAL";
                             // clang-format on
 
-                            if (NRI.GetDeviceDesc(*m_Device).graphicsAPI == nri::GraphicsAPI::D3D12) {
-                                std::string dxil = " -p DXIL --compiler \"" STRINGIFY(SHADERMAKE_DXC_PATH) "\"";
-                                sampleShaders += dxil;
-                                nrdShaders += dxil;
-                            } else {
-                                std::string spirv = " -p SPIRV --compiler \"" STRINGIFY(SHADERMAKE_DXC_VK_PATH) "\"";
-                                sampleShaders += spirv;
-                                nrdShaders += spirv;
-                            }
+                            if (NRI.GetDeviceDesc(*m_Device).graphicsAPI == nri::GraphicsAPI::D3D12)
+                                sampleShaders += " -p DXIL --compiler \"" STRINGIFY(SHADERMAKE_DXC_PATH) "\"";
+                            else
+                                sampleShaders += " -p SPIRV --compiler \"" STRINGIFY(SHADERMAKE_DXC_VK_PATH) "\"";
 
                             printf("Compiling sample shaders...\n");
                             int32_t result = system(sampleShaders.c_str());
-                            if (!result) {
-                                printf("Compiling NRD shaders...\n");
-                                result = system(nrdShaders.c_str());
-                            }
-
 #ifdef _WIN32
                             if (result)
                                 SetForegroundWindow(GetConsoleWindow());
@@ -3158,7 +3119,7 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     const nri::Format taaFormat = nri::Format::RGBA16_SFLOAT; // required for new TAA even in LDR mode (RGBA16_UNORM can't be used)
     const nri::Format colorFormat = USE_LOW_PRECISION_FP_FORMATS ? nri::Format::R11_G11_B10_UFLOAT : nri::Format::RGBA16_SFLOAT;
     const nri::Format criticalColorFormat = nri::Format::RGBA16_SFLOAT; // TODO: R9_G9_B9_E5_UFLOAT?
-    const nri::Format shadowFormat = SIGMA_TRANSLUCENT ? nri::Format::RGBA8_UNORM : nri::Format::R8_UNORM;
+    const nri::Format shadowFormat = SIGMA_TRANSLUCENCY ? nri::Format::RGBA8_UNORM : nri::Format::R8_UNORM;
 
     const uint16_t w = (uint16_t)m_RenderResolution.x;
     const uint16_t h = (uint16_t)m_RenderResolution.y;
