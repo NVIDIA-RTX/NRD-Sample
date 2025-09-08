@@ -17,15 +17,19 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     if( pixelUv.x > 1.0 || pixelUv.y > 1.0 )
         return;
 
-    // Upsampling
-    float3 upsampled = BicubicFilterNoCorners( gIn_PostAA, gLinearSampler, pixelUv * gOutputSize, gInvOutputSize, 0.66 ).xyz;
-
     // Noisy input
     float3 input = gIn_PreAA.SampleLevel( gNearestSampler, pixelUv * gRectSize * gInvRenderSize, 0 ).xyz;
 
     input = ApplyTonemap( input );
     if( gIsSrgb )
         input = Color::ToSrgb( saturate( input ) );
+
+    // Upsampling
+    float3 upsampled = BicubicFilterNoCorners( gIn_PostAA, gLinearSampler, pixelUv * gOutputSize, gInvOutputSize, 0.66 ).xyz;
+
+    // TODO: since data outside of "rectSize" is not cleared, NIS and "BicubicFilterNoCorners" can mix up wrong data from neighbors
+    if( gRectSize.x != gRenderSize.x && ( any( pixelUv * gRectSize > gRectSize - 2.5 ) || any( pixelUv * gRectSize < 2.5 ) ) )
+        upsampled = input;
 
     // Split screen - noisy input / denoised output
     float3 result = pixelUv.x < gSeparator ? input : upsampled;
@@ -42,7 +46,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     verticalLine *= float( gSeparator != 0.0 );
 
     const float3 nvColor = float3( 118.0, 185.0, 0.0 ) / 255.0;
-    result = lerp( result, nvColor * verticalLine, verticalLine );
+    //result = lerp( result, nvColor * verticalLine, verticalLine );
 
     // Validation layer
     if( gValidation )
