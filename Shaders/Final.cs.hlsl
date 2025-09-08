@@ -46,7 +46,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     verticalLine *= float( gSeparator != 0.0 );
 
     const float3 nvColor = float3( 118.0, 185.0, 0.0 ) / 255.0;
-    //result = lerp( result, nvColor * verticalLine, verticalLine );
+    result = lerp( result, nvColor * verticalLine, verticalLine );
 
     // Validation layer
     if( gValidation )
