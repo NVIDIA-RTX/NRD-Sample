@@ -27,10 +27,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Upsampling
     float3 upsampled = BicubicFilterNoCorners( gIn_PostAA, gLinearSampler, pixelUv * gOutputSize, gInvOutputSize, 0.66 ).xyz;
 
-    // TODO: since data outside of "rectSize" is not cleared, NIS and "BicubicFilterNoCorners" can mix up wrong data from neighbors
-    if( gRectSize.x != gRenderSize.x && ( any( pixelUv * gRectSize > gRectSize - 2.5 ) || any( pixelUv * gRectSize < 2.5 ) ) )
-        upsampled = input;
-
     // Split screen - noisy input / denoised output
     float3 result = pixelUv.x < gSeparator ? input : upsampled;
 
