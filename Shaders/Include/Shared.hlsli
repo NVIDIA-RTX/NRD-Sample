@@ -13,7 +13,7 @@
 // SH - SH (spherical harmonics or spherical gaussian) denoisers
 // OCCLUSION - OCCLUSION (ambient or specular occlusion only) denoisers
 // DIRECTIONAL_OCCLUSION - DIRECTIONAL_OCCLUSION (ambient occlusion in SH mode) denoisers
-#define NRD_MODE                            NORMAL // NORMAL, SH, OCCLUSION, DIRECTIONAL_OCCLUSION (NRD sample recompile required)
+#define NRD_MODE                            NORMAL // NORMAL, SH, OCCLUSION, DIRECTIONAL_OCCLUSION (NRD sample recompilation required)
 #define SIGMA_TRANSLUCENCY                  1
 
 // Default = 1

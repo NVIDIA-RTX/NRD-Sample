@@ -1091,16 +1091,15 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
                 instanceCreationDesc.denoisersNum = 1;
 
                 nrd::IntegrationCreationDesc desc = {};
-                desc.name = "Unused";
                 desc.queuedFrameNum = GetQueuedFrameNum();
-                desc.enableDescriptorCaching = NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING;
+                desc.enableWholeLifetimeDescriptorCaching = NRD_ENABLE_WHOLE_LIFETIME_DESCRIPTOR_CACHING;
                 desc.promoteFloat16to32 = NRD_PROMOTE_FLOAT16_TO_32;
                 desc.demoteFloat32to16 = NRD_DEMOTE_FLOAT32_TO_16;
                 desc.resourceWidth = w;
                 desc.resourceHeight = h;
 
                 nrd::Integration instance;
-                NRI_ABORT_ON_FALSE( instance.Initialize(desc, instanceCreationDesc, *m_Device, NRI, NRI) );
+                instance.Recreate(desc, instanceCreationDesc, m_Device);
 
                 printf("| %10s | %36s | %16.2f | %16.2f | %16.2f |\n", i == 0 ? resolution : "", methodName, instance.GetTotalMemoryUsageInMb(), instance.GetPersistentMemoryUsageInMb(), instance.GetAliasableMemoryUsageInMb());
 
