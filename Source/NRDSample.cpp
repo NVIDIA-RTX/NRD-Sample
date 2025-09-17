@@ -39,7 +39,6 @@ constexpr int32_t MAX_HISTORY_FRAME_NUM = (int32_t)std::min(60u, std::min(nrd::R
 constexpr uint32_t TEXTURES_PER_MATERIAL = 4;
 constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM = 32;
 constexpr uint32_t DYNAMIC_CONSTANT_BUFFER_SIZE = 1024 * 1024; // 1MB
-constexpr uint32_t MAX_ANIMATION_HISTORY_FRAME_NUM = 2;
 
 #if (SIGMA_TRANSLUCENCY == 1)
 #    define SIGMA_VARIANT nrd::Denoiser::SIGMA_SHADOW_TRANSLUCENCY
@@ -953,7 +952,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
             "SH",
         };
 
-        const nrd::LibraryDesc& nrdLibraryDesc = nrd::GetLibraryDesc();
+        const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
 
         char buf[256];
         snprintf(buf, sizeof(buf) - 1, "NRD v%u.%u.%u (%u.%u) - %s [Tab]", nrdLibraryDesc.versionMajor, nrdLibraryDesc.versionMinor, nrdLibraryDesc.versionBuild, (uint32_t)nrdLibraryDesc.normalEncoding, (uint32_t)nrdLibraryDesc.roughnessEncoding, nrdModes[NRD_MODE]);
@@ -3726,23 +3725,23 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         const TextureState transitions[] = {
             // Input
-            {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::ComposedDiff, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::ComposedSpec_ViewZ, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             // Output
-            {Texture::Mv, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::DirectLighting, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::DirectEmission, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::PsrThroughput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::Unfiltered_Penumbra, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::Unfiltered_Translucency, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::Unfiltered_Diff, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::Unfiltered_Spec, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Mv, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::ViewZ, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::BaseColor_Metalness, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::DirectLighting, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::DirectEmission, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::PsrThroughput, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Unfiltered_Penumbra, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Unfiltered_Translucency, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Unfiltered_Diff, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Unfiltered_Spec, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
 #if (NRD_MODE == SH)
-            {Texture::Unfiltered_DiffSh, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::Unfiltered_SpecSh, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Unfiltered_DiffSh, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Unfiltered_SpecSh, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
 #endif
         };
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
@@ -3829,22 +3828,22 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         const TextureState transitions[] = {
             // Input
-            {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::DirectLighting, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::DirectEmission, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::PsrThroughput, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::Shadow, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::Diff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::Spec, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::ViewZ, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::BaseColor_Metalness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::DirectLighting, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::DirectEmission, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::PsrThroughput, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Shadow, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Diff, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Spec, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
 #if (NRD_MODE == SH)
-            {Texture::DiffSh, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::SpecSh, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::DiffSh, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::SpecSh, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
 #endif
             // Output
-            {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::ComposedDiff, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::ComposedSpec_ViewZ, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
@@ -3861,12 +3860,12 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         const TextureState transitions[] = {
             // Input
-            {Texture::ComposedDiff, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::ComposedSpec_ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::ComposedDiff, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::ComposedSpec_ViewZ, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             // Output
-            {Texture::Composed, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::Mv, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-            {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Composed, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Mv, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
 
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
@@ -3909,15 +3908,15 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
             const TextureState transitions[] = {
                 // Input
-                {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::BaseColor_Metalness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Unfiltered_Spec, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::BaseColor_Metalness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::Unfiltered_Spec, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
                 // Output
-                {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::RRGuide_DiffAlbedo, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::RRGuide_SpecAlbedo, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::RRGuide_SpecHitDistance, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
-                {Texture::RRGuide_Normal_Roughness, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+                {Texture::ViewZ, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+                {Texture::RRGuide_DiffAlbedo, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+                {Texture::RRGuide_SpecAlbedo, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+                {Texture::RRGuide_SpecHitDistance, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+                {Texture::RRGuide_Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
             };
             nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
@@ -3934,16 +3933,16 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
             const TextureState transitions[] = {
                 // Input
-                {Texture::ViewZ, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Mv, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::RRGuide_DiffAlbedo, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::RRGuide_SpecAlbedo, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::RRGuide_SpecHitDistance, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::RRGuide_Normal_Roughness, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-                {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+                {Texture::ViewZ, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::Mv, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::RRGuide_DiffAlbedo, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::RRGuide_SpecAlbedo, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::RRGuide_SpecHitDistance, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::RRGuide_Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::Composed, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
                 // Output
-                {Texture::DlssOutput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+                {Texture::DlssOutput, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
             };
             nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
@@ -3994,7 +3993,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
             const TextureState transitions[] = {
                 // Output
-                {Texture::DlssOutput, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+                {Texture::DlssOutput, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
             };
             nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
             NRI.CmdBarrier(commandBuffer, transitionBarriers);
@@ -4010,11 +4009,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         const TextureState transitions[] = {
             // Input
-            {Texture::Mv, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {taaSrc, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::Mv, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Composed, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {taaSrc, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             // Output
-            {taaDst, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {taaDst, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
@@ -4031,9 +4030,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         const TextureState transitions[] = {
             // Input
-            {IsDlssEnabled() ? Texture::DlssOutput : taaDst, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {IsDlssEnabled() ? Texture::DlssOutput : taaDst, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             // Output
-            {Texture::PreFinal, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::PreFinal, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
 
         const nri::BufferBarrierDesc buffers[] = {
@@ -4075,11 +4074,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         const TextureState transitions[] = {
             // Input
-            {Texture::PreFinal, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::Composed, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
-            {Texture::Validation, nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE},
+            {Texture::PreFinal, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Composed, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Validation, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             // Output
-            {Texture::Final, nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE},
+            {Texture::Final, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
