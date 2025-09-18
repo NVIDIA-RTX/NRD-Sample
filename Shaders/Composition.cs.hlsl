@@ -125,10 +125,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
             diff.xyz = NRD_SG_ExtractColor( diffSg );
             spec.xyz = NRD_SG_ExtractColor( specSg );
         }
-
-        // ( Optional ) AO / SO
-        diff.w = diffSg.normHitDist;
-        spec.w = specSg.normHitDist;
     // Decode NORMAL mode outputs
     #else
         if( gDenoiserType == DENOISER_RELAX )
@@ -142,13 +138,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
             spec = REBLUR_BackEnd_UnpackRadianceAndNormHitDist( spec );
         }
     #endif
-
-    // ( Optional ) RELAX doesn't support AO / SO
-    if( gDenoiserType == DENOISER_RELAX )
-    {
-        diff.w = 1.0 / Math::Pi( 1.0 );
-        spec.w = 1.0 / Math::Pi( 1.0 );
-    }
 
     // Material modulation ( convert radiance back into irradiance )
     float3 diffFactor, specFactor;

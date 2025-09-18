@@ -1161,7 +1161,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                     const float3& sunDirection = GetSunDirection();
 
                     ImGui::SliderInt("Bounces", &m_Settings.bounceNum, 1, 8);
-                    ImGui::SliderFloat("AO / SO range (m)", &m_Settings.hitDistScale, 0.01f, sceneRadiusInMeters, "%.2f");
+                    ImGui::SliderFloat("HitT scale (m)", &m_Settings.hitDistScale, 0.01f, sceneRadiusInMeters, "%.2f");
 
                     ImGui::Checkbox("Normal map", &m_Settings.normalMap);
                     ImGui::SameLine();
