@@ -2,7 +2,14 @@ cmake_minimum_required(VERSION 3.30)
 
 include(FetchContent)
 
-# Cached
+# Architecture
+if((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64") OR (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64"))
+    set(IS_ARM64 TRUE)
+else()
+    set(IS_ARM64 FALSE)
+endif()
+
+# Options
 option(USE_MINIMAL_DATA "Use minimal '_Data' (90MB)" OFF)
 
 set(SHADER_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/_Shaders" CACHE STRING "")
@@ -31,13 +38,13 @@ else()
     set(PACKMAN_EXT ".sh")
 endif()
 
-if((CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64") OR(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64"))
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     if(WIN32)
         set(PACKMAN_PLATFORM "windows-x86_64")
     else()
         set(PACKMAN_PLATFORM "linux-x86_64")
     endif()
-elseif((CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64") OR(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64"))
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
     set(PACKMAN_PLATFORM "linux-aarch64")
 else()
     message(FATAL_ERROR "Unsupported architecture: '${CMAKE_SYSTEM_PROCESSOR}'")
@@ -81,7 +88,7 @@ if(DEPS)
 endif()
 
 # Compile options
-if(NOT((CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64") OR(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")))
+if(NOT IS_ARM64)
     set(SIMD -mssse3)
 endif()
 
@@ -108,9 +115,11 @@ set(NRI_SHADERS_PATH "${SHADER_OUTPUT_PATH}" CACHE STRING "")
 option(NRI_ENABLE_NONE_SUPPORT "" OFF)
 option(NRI_ENABLE_D3D11_SUPPORT "" OFF)
 option(NRI_ENABLE_NIS_SDK "" ON)
-option(NRI_ENABLE_NGX_SDK "" ON)
-option(NRI_ENABLE_FFX_SDK "" ON)
-option(NRI_ENABLE_XESS_SDK "" ON)
+if(NOT IS_ARM64)
+    option(NRI_ENABLE_NGX_SDK "" ON)
+    option(NRI_ENABLE_FFX_SDK "" ON)
+    option(NRI_ENABLE_XESS_SDK "" ON)
+endif()
 
 add_subdirectory("External/NRIFramework")
 
