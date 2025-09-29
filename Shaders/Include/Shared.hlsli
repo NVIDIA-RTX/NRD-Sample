@@ -47,10 +47,10 @@
 #define MATERIAL_COBALT                     2
 
 // Material ID
-#define MATERIAL_ID_DEFAULT                 0.0
-#define MATERIAL_ID_METAL                   1.0
-#define MATERIAL_ID_HAIR                    2.0
-#define MATERIAL_ID_SELF_REFLECTION         3.0
+#define MATERIAL_ID_DEFAULT                 0.0f
+#define MATERIAL_ID_METAL                   1.0f
+#define MATERIAL_ID_HAIR                    2.0f
+#define MATERIAL_ID_SELF_REFLECTION         3.0f
 
 // Mip mode
 #define MIP_VISIBILITY                      0 // for visibility: emission, shadow and alpha mask
