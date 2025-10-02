@@ -1348,7 +1348,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::SliderFloat("Roughness fraction", &m_RelaxSettings.roughnessFraction, 0.0f, 1.0f, "%.2f");
                         ImGui::SliderFloat("Min hitT weight", &m_RelaxSettings.minHitDistanceWeight, 0.01f, 0.2f, "%.2f");
                         ImGui::SliderFloat("Spec variance boost", &m_RelaxSettings.specularVarianceBoost, 0.0f, 8.0f, "%.2f");
-                        ImGui::SliderFloat("Clamping sigma scale", &m_RelaxSettings.historyClampingColorBoxSigmaScale, 0.0f, 10.0f, "%.1f");
+                        ImGui::SliderFloat("Clamping sigma scale", &m_RelaxSettings.fastHistoryClampingSigmaScale, 0.0f, 3.0f, "%.1f");
                         ImGui::SliderInt("History threshold", (int32_t*)&m_RelaxSettings.spatialVarianceEstimationHistoryThreshold, 0, 10);
                         ImGui::Text("Luminance / Normal / Roughness:");
                         ImGui::SliderFloat3("Relaxation", &m_RelaxSettings.luminanceEdgeStoppingRelaxation, 0.0f, 1.0f, "%.2f");
@@ -1774,15 +1774,15 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     // NRD common settings
     if (m_Settings.adaptiveAccumulation) {
-        bool isFastHistoryEnabled = m_Settings.maxAccumulatedFrameNum > m_Settings.maxFastAccumulatedFrameNum;
         float fps = 1000.0f / m_Timer.GetVerySmoothedFrameTime();
         fps = min(fps, 121.0f);
 
         // REBLUR / RELAX
-        int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(ACCUMULATION_TIME, fps), 1u);
+        float accumulationTime = ACCUMULATION_TIME * ((m_Settings.boost && m_Settings.SHARC) ? 0.667f : 1.0f);
+        int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(accumulationTime, fps), 1u);
 
         m_Settings.maxAccumulatedFrameNum = min(maxAccumulatedFrameNum, MAX_HISTORY_FRAME_NUM);
-        m_Settings.maxFastAccumulatedFrameNum = isFastHistoryEnabled ? m_Settings.maxAccumulatedFrameNum / 5 : MAX_HISTORY_FRAME_NUM;
+        m_Settings.maxFastAccumulatedFrameNum = m_Settings.maxAccumulatedFrameNum / (m_Settings.SHARC ? 7 : 5);
 
         m_ReblurSettings.maxStabilizedFrameNum = m_Settings.maxAccumulatedFrameNum;
 
@@ -1797,6 +1797,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     m_ReblurSettings.maxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_ReblurSettings.maxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
+    m_ReblurSettings.fastHistoryClampingSigmaScale = (m_Settings.SHARC || NRD_MODE >= OCCLUSION) ? 1.1f : 1.5f;
 
     m_RelaxSettings.diffuseMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
