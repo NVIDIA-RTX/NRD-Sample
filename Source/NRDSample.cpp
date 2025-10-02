@@ -1797,7 +1797,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     m_ReblurSettings.maxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_ReblurSettings.maxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
-    m_ReblurSettings.fastHistoryClampingSigmaScale = (m_Settings.SHARC || NRD_MODE >= OCCLUSION) ? 1.1f : 1.5f;
+    m_ReblurSettings.fastHistoryClampingSigmaScale = m_Settings.SHARC ? 1.1f : 1.5f;
 
     m_RelaxSettings.diffuseMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
