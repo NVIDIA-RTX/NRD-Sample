@@ -1432,9 +1432,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             " -I " STRINGIFY(ML_SOURCE_DIR)
                             " -I " STRINGIFY(NRD_SOURCE_DIR)
                             " -I " STRINGIFY(NRI_SOURCE_DIR)
-                            " -I " STRINGIFY(SHARC_SOURCE_DIR)
-                            " -D NRD_NORMAL_ENCODING=" STRINGIFY(NRD_NORMAL_ENCODING)
-                            " -D NRD_ROUGHNESS_ENCODING=" STRINGIFY(NRD_ROUGHNESS_ENCODING);
+                            " -I " STRINGIFY(SHARC_SOURCE_DIR);
                         // clang-format on
 
                         if (NRI.GetDeviceDesc(*m_Device).graphicsAPI == nri::GraphicsAPI::D3D12)
