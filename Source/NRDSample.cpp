@@ -47,6 +47,8 @@ constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM = 32;
 constexpr uint32_t DYNAMIC_CONSTANT_BUFFER_SIZE = 1024 * 1024; // 1MB
 constexpr uint32_t MAX_ANIMATION_HISTORY_FRAME_NUM = 2;
 
+#define NriDeviceHeap nullptr, 0
+
 #if (SIGMA_TRANSLUCENCY == 1)
 #    define SIGMA_VARIANT nrd::Denoiser::SIGMA_SHADOW_TRANSLUCENCY
 #else
@@ -834,7 +836,6 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
     NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::CoreInterface), (nri::CoreInterface*)&NRI));
     NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::HelperInterface), (nri::HelperInterface*)&NRI));
     NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::RayTracingInterface), (nri::RayTracingInterface*)&NRI));
-    NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::ResourceAllocatorInterface), (nri::ResourceAllocatorInterface*)&NRI));
     NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::StreamerInterface), (nri::StreamerInterface*)&NRI));
     NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::SwapChainInterface), (nri::SwapChainInterface*)&NRI));
     NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::UpscalerInterface), (nri::UpscalerInterface*)&NRI));
@@ -2688,14 +2689,13 @@ void Sample::CreateAccelerationStructures() {
     }
 
     { // AccelerationStructure::TLAS_World
-        nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
-        allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::TOP_LEVEL;
-        allocateAccelerationStructureDesc.desc.flags = TLAS_BUILD_BITS;
-        allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = helper::GetCountOf(m_Scene.instances);
-        allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
+        nri::AccelerationStructureDesc accelerationStructureDesc = {};
+        accelerationStructureDesc.type = nri::AccelerationStructureType::TOP_LEVEL;
+        accelerationStructureDesc.flags = TLAS_BUILD_BITS;
+        accelerationStructureDesc.geometryOrInstanceNum = helper::GetCountOf(m_Scene.instances);
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
-        NRI_ABORT_ON_FAILURE(NRI.AllocateAccelerationStructure(*m_Device, allocateAccelerationStructureDesc, accelerationStructure));
+        NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, NriDeviceHeap, accelerationStructureDesc, accelerationStructure));
         m_AccelerationStructures.push_back(accelerationStructure);
 
         // Descriptor::World_AccelerationStructure
@@ -2705,14 +2705,13 @@ void Sample::CreateAccelerationStructures() {
     }
 
     { // AccelerationStructure::TLAS_Emissive
-        nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
-        allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::TOP_LEVEL;
-        allocateAccelerationStructureDesc.desc.flags = TLAS_BUILD_BITS;
-        allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = helper::GetCountOf(m_Scene.instances);
-        allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
+        nri::AccelerationStructureDesc accelerationStructureDesc = {};
+        accelerationStructureDesc.type = nri::AccelerationStructureType::TOP_LEVEL;
+        accelerationStructureDesc.flags = TLAS_BUILD_BITS;
+        accelerationStructureDesc.geometryOrInstanceNum = helper::GetCountOf(m_Scene.instances);
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
-        NRI_ABORT_ON_FAILURE(NRI.AllocateAccelerationStructure(*m_Device, allocateAccelerationStructureDesc, accelerationStructure));
+        NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, NriDeviceHeap, accelerationStructureDesc, accelerationStructure));
         m_AccelerationStructures.push_back(accelerationStructure);
 
         // Descriptor::Light_AccelerationStructure
@@ -2724,12 +2723,9 @@ void Sample::CreateAccelerationStructures() {
     // Create temp buffer for indices, vertices and transforms in UPLOAD heap
     nri::Buffer* uploadBuffer = nullptr;
     {
-        nri::AllocateBufferDesc allocateBufferDesc = {};
-        allocateBufferDesc.desc = {uploadSize, 0, nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT};
-        allocateBufferDesc.memoryLocation = nri::MemoryLocation::HOST_UPLOAD;
-        allocateBufferDesc.dedicated = true;
+        nri::BufferDesc bufferDesc = {uploadSize, 0, nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT};
 
-        NRI_ABORT_ON_FAILURE(NRI.AllocateBuffer(*m_Device, allocateBufferDesc, uploadBuffer));
+        NRI_ABORT_ON_FAILURE(NRI.CreateCommittedBuffer(*m_Device, nri::MemoryLocation::HOST_UPLOAD, 0.0f, bufferDesc, uploadBuffer));
     }
 
     // Create BOTTOM_LEVEL acceleration structures
@@ -2819,16 +2815,14 @@ void Sample::CreateAccelerationStructures() {
                 bottomLevelGeometry.triangles.transformOffset = transformOffset;
             } else {
                 // Create BLAS
-                nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
-                allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
-                allocateAccelerationStructureDesc.desc.flags = mesh.HasMorphTargets() ? BLAS_DEFORMABLE_MESH_BUILD_BITS : BLAS_RIGID_MESH_BUILD_BITS;
-                allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = 1;
-                allocateAccelerationStructureDesc.desc.geometries = &bottomLevelGeometry;
-                allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
-                allocateAccelerationStructureDesc.dedicated = true;
+                nri::AccelerationStructureDesc accelerationStructureDesc = {};
+                accelerationStructureDesc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
+                accelerationStructureDesc.flags = mesh.HasMorphTargets() ? BLAS_DEFORMABLE_MESH_BUILD_BITS : BLAS_RIGID_MESH_BUILD_BITS;
+                accelerationStructureDesc.geometryOrInstanceNum = 1;
+                accelerationStructureDesc.geometries = &bottomLevelGeometry;
 
                 nri::AccelerationStructure* accelerationStructure = nullptr;
-                NRI_ABORT_ON_FAILURE(NRI.AllocateAccelerationStructure(*m_Device, allocateAccelerationStructureDesc, accelerationStructure));
+                NRI_ABORT_ON_FAILURE(NRI.CreateCommittedAccelerationStructure(*m_Device, nri::MemoryLocation::DEVICE, 0.0f, accelerationStructureDesc, accelerationStructure));
                 m_AccelerationStructures.push_back(accelerationStructure);
 
                 // Save build parameters
@@ -2860,16 +2854,14 @@ void Sample::CreateAccelerationStructures() {
             uint32_t geometryObjectsNum = (uint32_t)(geometries.size() - geometryObjectBase);
             if (geometryObjectsNum) {
                 // Create BLAS
-                nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
-                allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
-                allocateAccelerationStructureDesc.desc.flags = BLAS_RIGID_MESH_BUILD_BITS;
-                allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = geometryObjectsNum;
-                allocateAccelerationStructureDesc.desc.geometries = &geometries[geometryObjectBase];
-                allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
-                allocateAccelerationStructureDesc.dedicated = true;
+                nri::AccelerationStructureDesc accelerationStructureDesc = {};
+                accelerationStructureDesc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
+                accelerationStructureDesc.flags = BLAS_RIGID_MESH_BUILD_BITS;
+                accelerationStructureDesc.geometryOrInstanceNum = geometryObjectsNum;
+                accelerationStructureDesc.geometries = &geometries[geometryObjectBase];
 
                 nri::AccelerationStructure* accelerationStructure = nullptr;
-                NRI_ABORT_ON_FAILURE(NRI.AllocateAccelerationStructure(*m_Device, allocateAccelerationStructureDesc, accelerationStructure));
+                NRI_ABORT_ON_FAILURE(NRI.CreateCommittedAccelerationStructure(*m_Device, nri::MemoryLocation::DEVICE, 0.0f, accelerationStructureDesc, accelerationStructure));
                 m_AccelerationStructures.push_back(accelerationStructure);
 
                 // Save build parameters
@@ -2897,22 +2889,16 @@ void Sample::CreateAccelerationStructures() {
 
     nri::Buffer* scratchBuffer = nullptr;
     {
-        nri::AllocateBufferDesc allocateBufferDesc = {};
-        allocateBufferDesc.desc = {scratchSize, 0, nri::BufferUsageBits::SCRATCH_BUFFER};
-        allocateBufferDesc.memoryLocation = nri::MemoryLocation::DEVICE;
-        allocateBufferDesc.dedicated = true;
+        nri::BufferDesc bufferDesc = {scratchSize, 0, nri::BufferUsageBits::SCRATCH_BUFFER};
 
-        NRI_ABORT_ON_FAILURE(NRI.AllocateBuffer(*m_Device, allocateBufferDesc, scratchBuffer));
+        NRI_ABORT_ON_FAILURE(NRI.CreateCommittedBuffer(*m_Device, nri::MemoryLocation::DEVICE, 0.0f, bufferDesc, scratchBuffer));
     }
 
     nri::Buffer* readbackBuffer = nullptr;
     {
-        nri::AllocateBufferDesc allocateBufferDesc = {};
-        allocateBufferDesc.desc = {blasNum * sizeof(uint64_t), 0, nri::BufferUsageBits::NONE};
-        allocateBufferDesc.memoryLocation = nri::MemoryLocation::HOST_READBACK;
-        allocateBufferDesc.dedicated = true;
+        nri::BufferDesc bufferDesc = {blasNum * sizeof(uint64_t), 0, nri::BufferUsageBits::NONE};
 
-        NRI_ABORT_ON_FAILURE(NRI.AllocateBuffer(*m_Device, allocateBufferDesc, readbackBuffer));
+        NRI_ABORT_ON_FAILURE(NRI.CreateCommittedBuffer(*m_Device, nri::MemoryLocation::HOST_READBACK, 0.0f, bufferDesc, readbackBuffer));
     }
 
     nri::QueryPool* queryPool = nullptr;
@@ -2998,16 +2984,15 @@ void Sample::CreateAccelerationStructures() {
             for (uint32_t i = 0; i < blasNum; i++) {
                 const nri::BuildBottomLevelAccelerationStructureDesc& blasBuildDesc = buildBottomLevelAccelerationStructureDescs[i];
 
-                nri::AllocateAccelerationStructureDesc allocateAccelerationStructureDesc = {};
-                allocateAccelerationStructureDesc.desc.optimizedSize = sizes[i];
-                allocateAccelerationStructureDesc.desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
-                allocateAccelerationStructureDesc.desc.flags = isDeformable[i] ? BLAS_DEFORMABLE_MESH_BUILD_BITS : BLAS_RIGID_MESH_BUILD_BITS;
-                allocateAccelerationStructureDesc.desc.geometryOrInstanceNum = blasBuildDesc.geometryNum;
-                allocateAccelerationStructureDesc.desc.geometries = blasBuildDesc.geometries;
-                allocateAccelerationStructureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
+                nri::AccelerationStructureDesc accelerationStructureDesc = {};
+                accelerationStructureDesc.optimizedSize = sizes[i];
+                accelerationStructureDesc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
+                accelerationStructureDesc.flags = isDeformable[i] ? BLAS_DEFORMABLE_MESH_BUILD_BITS : BLAS_RIGID_MESH_BUILD_BITS;
+                accelerationStructureDesc.geometryOrInstanceNum = blasBuildDesc.geometryNum;
+                accelerationStructureDesc.geometries = blasBuildDesc.geometries;
 
                 nri::AccelerationStructure* compactedBlas = nullptr;
-                NRI_ABORT_ON_FAILURE(NRI.AllocateAccelerationStructure(*m_Device, allocateAccelerationStructureDesc, compactedBlas));
+                NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, NriDeviceHeap, accelerationStructureDesc, compactedBlas));
                 compactedBlases.push_back(compactedBlas);
 
                 nri::AccelerationStructure* tempBlas = blasBuildDesc.dst;
@@ -3101,17 +3086,24 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     const nri::Format dataFormat = nri::Format::RGBA16_SFLOAT;
 #endif
 
-#if (NRD_NORMAL_ENCODING == 0)
-    const nri::Format normalFormat = nri::Format::RGBA8_UNORM;
-#elif (NRD_NORMAL_ENCODING == 1)
-    const nri::Format normalFormat = nri::Format::RGBA8_SNORM;
-#elif (NRD_NORMAL_ENCODING == 2)
-    const nri::Format normalFormat = nri::Format::R10_G10_B10_A2_UNORM;
-#elif (NRD_NORMAL_ENCODING == 3)
-    const nri::Format normalFormat = nri::Format::RGBA16_UNORM;
-#elif (NRD_NORMAL_ENCODING == 4)
-    const nri::Format normalFormat = nri::Format::RGBA16_SFLOAT; // TODO: RGBA16_SNORM can't be used, because NGX doesn't support it
-#endif
+    const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
+    nri::Format normalFormat = nri::Format::RGBA16_SFLOAT; // TODO: RGBA16_SNORM can't be used, because NGX doesn't support it
+    switch (nrdLibraryDesc.normalEncoding) {
+        case nrd::NormalEncoding::RGBA8_UNORM:
+            normalFormat = nri::Format::RGBA8_UNORM;
+            break;
+        case nrd::NormalEncoding::RGBA8_SNORM:
+            normalFormat = nri::Format::RGBA8_SNORM;
+            break;
+        case nrd::NormalEncoding::R10_G10_B10_A2_UNORM:
+            normalFormat = nri::Format::R10_G10_B10_A2_UNORM;
+            break;
+        case nrd::NormalEncoding::RGBA16_UNORM:
+            normalFormat = nri::Format::RGBA16_UNORM;
+            break;
+        default:
+            break;
+    }
 
     const nri::Format taaFormat = nri::Format::RGBA16_SFLOAT; // required for new TAA even in LDR mode (RGBA16_UNORM can't be used)
     const nri::Format colorFormat = USE_LOW_PRECISION_FP_FORMATS ? nri::Format::R11_G11_B10_UFLOAT : nri::Format::RGBA16_SFLOAT;
@@ -3552,20 +3544,19 @@ void Sample::CreateDescriptorSets() {
 }
 
 void Sample::CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, nri::Dim_t width, nri::Dim_t height, nri::Dim_t mipNum, nri::Dim_t arraySize, nri::TextureUsageBits usage, nri::AccessBits access) {
-    nri::AllocateTextureDesc allocateTextureDesc = {};
-    allocateTextureDesc.desc.type = nri::TextureType::TEXTURE_2D;
-    allocateTextureDesc.desc.usage = usage;
-    allocateTextureDesc.desc.format = format;
-    allocateTextureDesc.desc.width = width;
-    allocateTextureDesc.desc.height = height;
-    allocateTextureDesc.desc.depth = 1;
-    allocateTextureDesc.desc.mipNum = mipNum;
-    allocateTextureDesc.desc.layerNum = arraySize;
-    allocateTextureDesc.desc.sampleNum = 1;
-    allocateTextureDesc.memoryLocation = nri::MemoryLocation::DEVICE;
+    nri::TextureDesc textureDesc = {};
+    textureDesc.type = nri::TextureType::TEXTURE_2D;
+    textureDesc.usage = usage;
+    textureDesc.format = format;
+    textureDesc.width = width;
+    textureDesc.height = height;
+    textureDesc.depth = 1;
+    textureDesc.mipNum = mipNum;
+    textureDesc.layerNum = arraySize;
+    textureDesc.sampleNum = 1;
 
     nri::Texture* texture = nullptr;
-    NRI_ABORT_ON_FAILURE(NRI.AllocateTexture(*m_Device, allocateTextureDesc, texture));
+    NRI_ABORT_ON_FAILURE(NRI.CreatePlacedTexture(*m_Device, NriDeviceHeap, textureDesc, texture));
     m_Textures.push_back(texture);
 
     if (access != nri::AccessBits::NONE) {
@@ -3588,14 +3579,13 @@ void Sample::CreateBuffer(std::vector<DescriptorDesc>& descriptorDescs, const ch
     if (!elements)
         elements = 1;
 
-    nri::AllocateBufferDesc allocateBufferDesc = {};
-    allocateBufferDesc.desc.size = elements * stride;
-    allocateBufferDesc.desc.structureStride = format == nri::Format::UNKNOWN ? stride : 0;
-    allocateBufferDesc.desc.usage = usage;
-    allocateBufferDesc.memoryLocation = nri::MemoryLocation::DEVICE;
+    nri::BufferDesc bufferDesc = {};
+    bufferDesc.size = elements * stride;
+    bufferDesc.structureStride = format == nri::Format::UNKNOWN ? stride : 0;
+    bufferDesc.usage = usage;
 
     nri::Buffer* buffer = nullptr;
-    NRI_ABORT_ON_FAILURE(NRI.AllocateBuffer(*m_Device, allocateBufferDesc, buffer));
+    NRI_ABORT_ON_FAILURE(NRI.CreatePlacedBuffer(*m_Device, NriDeviceHeap, bufferDesc, buffer));
     m_Buffers.push_back(buffer);
 
     if (!(usage & nri::BufferUsageBits::SCRATCH_BUFFER))
