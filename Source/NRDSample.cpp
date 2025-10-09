@@ -40,6 +40,8 @@ constexpr uint32_t TEXTURES_PER_MATERIAL = 4;
 constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM = 32;
 constexpr uint32_t DYNAMIC_CONSTANT_BUFFER_SIZE = 1024 * 1024; // 1MB
 
+#define NriDeviceHeap nullptr, 0
+
 #if (SIGMA_TRANSLUCENCY == 1)
 #    define SIGMA_VARIANT nrd::Denoiser::SIGMA_SHADOW_TRANSLUCENCY
 #else
@@ -2195,7 +2197,7 @@ void Sample::CreateAccelerationStructures() {
         accelerationStructureDesc.geometryOrInstanceNum = helper::GetCountOf(m_Scene.instances);
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
-        NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, nullptr, 0, accelerationStructureDesc, accelerationStructure));
+        NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, NriDeviceHeap, accelerationStructureDesc, accelerationStructure));
         m_AccelerationStructures.push_back(accelerationStructure);
 
         // Descriptor::World_AccelerationStructure
@@ -2211,7 +2213,7 @@ void Sample::CreateAccelerationStructures() {
         accelerationStructureDesc.geometryOrInstanceNum = helper::GetCountOf(m_Scene.instances);
 
         nri::AccelerationStructure* accelerationStructure = nullptr;
-        NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, nullptr, 0, accelerationStructureDesc, accelerationStructure));
+        NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, NriDeviceHeap, accelerationStructureDesc, accelerationStructure));
         m_AccelerationStructures.push_back(accelerationStructure);
 
         // Descriptor::Light_AccelerationStructure
@@ -2481,7 +2483,7 @@ void Sample::CreateAccelerationStructures() {
                 accelerationStructureDesc.geometries = blasBuildDesc.geometries;
 
                 nri::AccelerationStructure* compactedBlas = nullptr;
-                NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, nullptr, 0, accelerationStructureDesc, compactedBlas));
+                NRI_ABORT_ON_FAILURE(NRI.CreatePlacedAccelerationStructure(*m_Device, NriDeviceHeap, accelerationStructureDesc, compactedBlas));
                 compactedBlases.push_back(compactedBlas);
 
                 nri::AccelerationStructure* tempBlas = blasBuildDesc.dst;
@@ -3019,7 +3021,7 @@ void Sample::CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const c
     textureDesc.sampleNum = 1;
 
     nri::Texture* texture = nullptr;
-    NRI_ABORT_ON_FAILURE(NRI.CreatePlacedTexture(*m_Device, nullptr, 0, textureDesc, texture));
+    NRI_ABORT_ON_FAILURE(NRI.CreatePlacedTexture(*m_Device, NriDeviceHeap, textureDesc, texture));
     m_Textures.push_back(texture);
 
     if (access != nri::AccessBits::NONE) {
@@ -3048,7 +3050,7 @@ void Sample::CreateBuffer(std::vector<DescriptorDesc>& descriptorDescs, const ch
     bufferDesc.usage = usage;
 
     nri::Buffer* buffer = nullptr;
-    NRI_ABORT_ON_FAILURE(NRI.CreatePlacedBuffer(*m_Device, nullptr, 0, bufferDesc, buffer));
+    NRI_ABORT_ON_FAILURE(NRI.CreatePlacedBuffer(*m_Device, NriDeviceHeap, bufferDesc, buffer));
     m_Buffers.push_back(buffer);
 
     if (!(usage & nri::BufferUsageBits::SCRATCH_BUFFER))
