@@ -85,6 +85,7 @@
 #define SHARC_STALE_FRAME_NUM_MIN           32 // new version uses 8 by default, old value offers more stability in voxels with low number of samples ( critical for glass )
 #define SHARC_SEPARATE_EMISSIVE             1
 #define SHARC_MATERIAL_DEMODULATION         1
+#define SHARC_USE_FP16                      0
 
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking

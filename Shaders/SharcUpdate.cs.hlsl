@@ -1,10 +1,9 @@
 // © 2024 NVIDIA Corporation
 
+#define SHARC_UPDATE 1
+
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
-
-#define SHARC_UPDATE 1
-#include "SharcCommon.h"
 
 float3 GetAmbientBRDF( GeometryProps geometryProps, MaterialProps materialProps, bool approximate = false )
 {
@@ -42,9 +41,10 @@ void Trace( GeometryProps geometryProps )
     SharcParameters sharcParams;
     sharcParams.gridParameters = hashGridParams;
     sharcParams.hashMapData = hashMapData;
+    sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
     sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-    sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-    sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+    sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
+    sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
     SharcState sharcState;
     SharcInit( sharcState );
@@ -68,7 +68,7 @@ void Trace( GeometryProps geometryProps )
 
     // Secondary rays
     [loop]
-    for( uint bounce = 1; bounce <= SHARC_PROPOGATION_DEPTH; bounce++ )
+    for( uint bounce = 1; bounce <= SHARC_PROPAGATION_DEPTH; bounce++ )
     {
         //=============================================================================================================================================================
         // Origin point

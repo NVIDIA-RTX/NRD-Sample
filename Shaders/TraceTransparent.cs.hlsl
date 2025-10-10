@@ -3,9 +3,6 @@
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
 
-#define SHARC_QUERY 1
-#include "SharcCommon.h"
-
 // Inputs
 NRI_RESOURCE( Texture2D<float3>, gIn_ComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_ComposedSpec_ViewZ, t, 1, SET_OTHER );
@@ -134,9 +131,10 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         SharcParameters sharcParams;
         sharcParams.gridParameters = hashGridParams;
         sharcParams.hashMapData = hashMapData;
+        sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
         sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-        sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-        sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+        sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
+        sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
         bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
         isSharcAllowed &= geometryProps.hitT > voxelSize; // voxel angular size is acceptable // TODO: can be skipped to get flat ambient in some cases

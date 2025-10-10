@@ -3,8 +3,6 @@
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
 
-#include "SharcCommon.h"
-
 [numthreads( LINEAR_BLOCK_SIZE, 1, 1 )]
 void main( uint threadIndex : SV_DispatchThreadID )
 {
@@ -21,9 +19,10 @@ void main( uint threadIndex : SV_DispatchThreadID )
     SharcParameters sharcParams;
     sharcParams.gridParameters = hashGridParams;
     sharcParams.hashMapData = hashMapData;
+    sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
     sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-    sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-    sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+    sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
+    sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
     SharcResolveParameters sharcResolveParameters;
     sharcResolveParameters.cameraPositionPrev = gCameraGlobalPosPrev.xyz;

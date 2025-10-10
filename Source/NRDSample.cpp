@@ -104,8 +104,8 @@ enum class Buffer : uint32_t {
     // DEVICE
     PrimitiveData,
     SharcHashEntries,
-    SharcVoxelDataPing,
-    SharcVoxelDataPong,
+    SharcAccumulated,
+    SharcResolved,
 
     // DEVICE (scratch)
     WorldScratch,
@@ -182,8 +182,8 @@ enum class Descriptor : uint32_t {
     PrimitiveData_Buffer,
     PrimitiveData_StorageBuffer,
     SharcHashEntries_StorageBuffer,
-    SharcVoxelDataPing_StorageBuffer,
-    SharcVoxelDataPong_StorageBuffer,
+    SharcAccumulated_StorageBuffer,
+    SharcResolved_StorageBuffer,
 
     ViewZ_Texture,
     ViewZ_StorageTexture,
@@ -276,13 +276,10 @@ enum class DescriptorSet : uint32_t {
     DlssAfter,
 
     // SET_RAY_TRACING
-    RayTracing,
+    RayTracing, // must be first after "SET_OTHER"
 
     // SET_SHARC
-    SharcPing,
-    SharcPong,
-
-    MAX_NUM
+    Sharc,
 };
 
 // NRD sample doesn't use several instances of the same denoiser in one NRD instance (like REBLUR_DIFFUSE x 3),
@@ -590,7 +587,7 @@ public:
     void CreateBuffer(std::vector<DescriptorDesc>& descriptorDescs, const char* debugName, nri::Format format, uint64_t elements, uint32_t stride, nri::BufferUsageBits usage);
     void UploadStaticData();
     void UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor);
-    void RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven);
+    void RestoreBindings(nri::CommandBuffer& commandBuffer);
     void GatherInstanceData();
     uint16_t BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions);
 
@@ -2028,7 +2025,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         uint32_t setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
 
-        setNum = (uint32_t)DescriptorSet::MAX_NUM - 3; // exclude non-SET_OTHER sets
+        setNum = (uint32_t)DescriptorSet::RayTracing;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
         descriptorPoolDesc.textureMaxNum += otherRanges[0].descriptorNum * setNum;
         descriptorPoolDesc.storageTextureMaxNum += otherRanges[1].descriptorNum * setNum;
@@ -2429,11 +2426,11 @@ void Sample::CreateAccelerationStructures() {
                 blases.push_back(desc.dst);
             }
 
-            nri::BarrierDesc barrierGroupDesc = {};
-            barrierGroupDesc.bufferNum = (uint32_t)bufferBarriers.size();
-            barrierGroupDesc.buffers = bufferBarriers.data();
+            nri::BarrierDesc barrierDesc = {};
+            barrierDesc.bufferNum = (uint32_t)bufferBarriers.size();
+            barrierDesc.buffers = bufferBarriers.data();
 
-            NRI.CmdBarrier(*commandBuffer, barrierGroupDesc);
+            NRI.CmdBarrier(*commandBuffer, barrierDesc);
 
             // Build everything in one go
             NRI.CmdBuildBottomLevelAccelerationStructures(*commandBuffer, buildBottomLevelAccelerationStructureDescs.data(), (uint32_t)buildBottomLevelAccelerationStructureDescs.size());
@@ -2444,7 +2441,7 @@ void Sample::CreateAccelerationStructures() {
                 bufferBarrier.after = {nri::AccessBits::ACCELERATION_STRUCTURE_READ, nri::StageBits::ACCELERATION_STRUCTURE};
             }
 
-            NRI.CmdBarrier(*commandBuffer, barrierGroupDesc);
+            NRI.CmdBarrier(*commandBuffer, barrierDesc);
 
             // Emit sizes for compaction
             NRI.CmdResetQueries(*commandBuffer, *queryPool, 0, blasNum);
@@ -2617,9 +2614,9 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(descriptorDescs, "Buffer::SharcHashEntries", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint64_t),
         nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-    CreateBuffer(descriptorDescs, "Buffer::SharcVoxelDataPing", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint32_t) * 4,
+    CreateBuffer(descriptorDescs, "Buffer::SharcAccumulated", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint32_t) * 4,
         nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-    CreateBuffer(descriptorDescs, "Buffer::SharcVoxelDataPong", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint32_t) * 4,
+    CreateBuffer(descriptorDescs, "Buffer::SharcResolved", nri::Format::UNKNOWN, SHARC_CAPACITY, sizeof(uint32_t) * 4,
         nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(descriptorDescs, "Buffer::WorldScratch", nri::Format::UNKNOWN, worldScratchBufferSize, 1,
         nri::BufferUsageBits::SCRATCH_BUFFER);
@@ -2973,28 +2970,11 @@ void Sample::CreateDescriptorSets() {
         NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
-    { // DescriptorSet::SharcPing
+    { // DescriptorSet::Sharc
         const nri::Descriptor* storageResources[] = {
             Get(Descriptor::SharcHashEntries_StorageBuffer),
-            Get(Descriptor::SharcVoxelDataPing_StorageBuffer),
-            Get(Descriptor::SharcVoxelDataPong_StorageBuffer),
-        };
-
-        NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_SHARC, &descriptorSet, 1, 0));
-        m_DescriptorSets.push_back(descriptorSet);
-
-        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
-            {descriptorSet, 0, 0, storageResources, helper::GetCountOf(storageResources)},
-        };
-
-        NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
-    }
-
-    { // DescriptorSet::SharcPong
-        const nri::Descriptor* storageResources[] = {
-            Get(Descriptor::SharcHashEntries_StorageBuffer),
-            Get(Descriptor::SharcVoxelDataPong_StorageBuffer),
-            Get(Descriptor::SharcVoxelDataPing_StorageBuffer),
+            Get(Descriptor::SharcAccumulated_StorageBuffer),
+            Get(Descriptor::SharcResolved_StorageBuffer),
         };
 
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_SHARC, &descriptorSet, 1, 0));
@@ -3522,7 +3502,7 @@ uint16_t Sample::BuildOptimizedTransitions(const TextureState* states, uint32_t 
     return (uint16_t)n;
 }
 
-void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven) {
+void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
     NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
     NRI.CmdSetPipelineLayout(commandBuffer, nri::BindPoint::COMPUTE, *m_PipelineLayout);
 
@@ -3533,7 +3513,7 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer, bool isEven) {
     nri::SetDescriptorSetDesc rayTracingSet = {SET_RAY_TRACING, Get(DescriptorSet::RayTracing)};
     NRI.CmdSetDescriptorSet(commandBuffer, rayTracingSet);
 
-    nri::SetDescriptorSetDesc sharcSet = {SET_SHARC, isEven ? Get(DescriptorSet::SharcPing) : Get(DescriptorSet::SharcPong)};
+    nri::SetDescriptorSetDesc sharcSet = {SET_SHARC, Get(DescriptorSet::Sharc)};
     NRI.CmdSetDescriptorSet(commandBuffer, sharcSet);
 
     nri::SetRootDescriptorDesc root1 = {1, Get(Descriptor::World_AccelerationStructure)};
@@ -3622,19 +3602,22 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         helper::Annotation annotation(NRI, commandBuffer, "Streamer");
 
         { // Transitions
-            const nri::BufferBarrierDesc transition = {Get(Buffer::InstanceData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::COPY_DESTINATION}};
+            const nri::BufferBarrierDesc transitions[] = {
+                {Get(Buffer::InstanceData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::COPY_DESTINATION}},
+                {Get(Buffer::SharcAccumulated), {nri::AccessBits::NONE}, {nri::AccessBits::COPY_DESTINATION}},
+            };
 
-            nri::BarrierDesc barrierGroupDesc = {};
-            barrierGroupDesc.buffers = &transition;
-            barrierGroupDesc.bufferNum = 1;
+            nri::BarrierDesc barrierDesc = {};
+            barrierDesc.buffers = transitions;
+            barrierDesc.bufferNum = frameIndex == 0 ? 2 : 1;
 
-            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
+            NRI.CmdBarrier(commandBuffer, barrierDesc);
         }
 
         NRI.CmdCopyStreamedData(commandBuffer, *m_Streamer);
     }
 
-    { // TLAS
+    { // TLAS and SHARC clear
         helper::Annotation annotation(NRI, commandBuffer, "TLAS");
 
         nri::BuildTopLevelAccelerationStructureDesc buildTopLevelAccelerationStructureDescs[2] = {};
@@ -3656,14 +3639,20 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         NRI.CmdBuildTopLevelAccelerationStructures(commandBuffer, buildTopLevelAccelerationStructureDescs, helper::GetCountOf(buildTopLevelAccelerationStructureDescs));
 
+        if (frameIndex == 0)
+            NRI.CmdZeroBuffer(commandBuffer, *Get(Buffer::SharcAccumulated), 0, nri::WHOLE_SIZE);
+
         { // Transitions
-            const nri::BufferBarrierDesc transition = {Get(Buffer::InstanceData), {nri::AccessBits::COPY_DESTINATION}, {nri::AccessBits::SHADER_RESOURCE}};
+            const nri::BufferBarrierDesc transitions[] = {
+                {Get(Buffer::InstanceData), {nri::AccessBits::COPY_DESTINATION}, {nri::AccessBits::SHADER_RESOURCE}},
+                {Get(Buffer::SharcAccumulated), {nri::AccessBits::COPY_DESTINATION}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+            };
 
-            nri::BarrierDesc barrierGroupDesc = {};
-            barrierGroupDesc.buffers = &transition;
-            barrierGroupDesc.bufferNum = 1;
+            nri::BarrierDesc barrierDesc = {};
+            barrierDesc.buffers = transitions;
+            barrierDesc.bufferNum = frameIndex == 0 ? 2 : 1;
 
-            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
+            NRI.CmdBarrier(commandBuffer, barrierDesc);
         }
     }
 
@@ -3671,42 +3660,41 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     // Render resolution
     //======================================================================================================================================
 
-    RestoreBindings(commandBuffer, isEven);
+    RestoreBindings(commandBuffer);
 
     // SHARC
-    nri::Buffer* sharcBufferToClear = isEven ? Get(Buffer::SharcVoxelDataPong) : Get(Buffer::SharcVoxelDataPing);
     {
         helper::Annotation sharc(NRI, commandBuffer, "Radiance cache");
 
         const nri::BufferBarrierDesc transitions[] = {
             {Get(Buffer::SharcHashEntries), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-            {Get(Buffer::SharcVoxelDataPing), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-            {Get(Buffer::SharcVoxelDataPong), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+            {Get(Buffer::SharcAccumulated), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+            {Get(Buffer::SharcResolved), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
         };
 
-        nri::BarrierDesc barrierGroupDesc = {};
-        barrierGroupDesc.buffers = transitions;
-        barrierGroupDesc.bufferNum = (uint16_t)helper::GetCountOf(transitions);
+        nri::BarrierDesc barrierDesc = {};
+        barrierDesc.buffers = transitions;
+        barrierDesc.bufferNum = (uint16_t)helper::GetCountOf(transitions);
 
         { // Update
             helper::Annotation annotation(NRI, commandBuffer, "SHARC - Update");
-
-            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
 
             uint32_t w = (m_RenderResolution.x / SHARC_DOWNSCALE + 15) / 16;
             uint32_t h = (m_RenderResolution.y / SHARC_DOWNSCALE + 15) / 16;
 
             NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcUpdate));
             NRI.CmdDispatch(commandBuffer, {w, h, 1});
+
+            NRI.CmdBarrier(commandBuffer, barrierDesc);
         }
 
         { // Resolve
             helper::Annotation annotation(NRI, commandBuffer, "SHARC - Resolve");
 
-            NRI.CmdBarrier(commandBuffer, barrierGroupDesc);
-
             NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcResolve));
             NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
+
+            NRI.CmdBarrier(commandBuffer, barrierDesc);
         }
     }
 
@@ -3811,7 +3799,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         }
     }
 
-    RestoreBindings(commandBuffer, isEven);
+    RestoreBindings(commandBuffer);
 
     { // Composition
         helper::Annotation annotation(NRI, commandBuffer, "Composition");
@@ -3881,7 +3869,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         Denoise(&denoiser, 1, commandBuffer);
 
-        RestoreBindings(commandBuffer, isEven);
+        RestoreBindings(commandBuffer);
     }
 
     //======================================================================================================================================
@@ -3975,7 +3963,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 NRI.CmdDispatchUpscale(commandBuffer, *m_DLSR, dispatchUpscaleDesc);
             }
 
-            RestoreBindings(commandBuffer, isEven);
+            RestoreBindings(commandBuffer);
         }
 
         { // After DLSS
@@ -4025,11 +4013,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {Texture::PreFinal, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
 
-        const nri::BufferBarrierDesc buffers[] = {
-            {sharcBufferToClear, {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::COPY_DESTINATION}},
-        };
-
-        nri::BarrierDesc transitionBarriers = {nullptr, 0, buffers, helper::GetCountOf(buffers), optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
+        nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
         nri::DispatchUpscaleDesc dispatchUpscaleDesc = {};
@@ -4046,13 +4030,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         NRI.CmdDispatchUpscale(commandBuffer, *m_NIS[m_SdrScale > 1.0f ? 1 : 0], dispatchUpscaleDesc);
 
-        RestoreBindings(commandBuffer, isEven);
-    }
-
-    { // SHARC clear (for the next frame)
-        helper::Annotation annotation(NRI, commandBuffer, "SHARC - Clear");
-
-        NRI.CmdZeroBuffer(commandBuffer, *sharcBufferToClear, 0, SHARC_CAPACITY * sizeof(uint32_t) * 4);
+        RestoreBindings(commandBuffer);
     }
 
     //======================================================================================================================================

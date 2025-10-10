@@ -75,7 +75,7 @@ set(DEPS)
 FetchContent_Declare(
     sharc
     GIT_REPOSITORY https://github.com/NVIDIA-RTX/SHARC.git
-    GIT_TAG v1.5.1.0
+    GIT_TAG v1.6.0.0
     GIT_SHALLOW 1
 )
 list(APPEND DEPS sharc)

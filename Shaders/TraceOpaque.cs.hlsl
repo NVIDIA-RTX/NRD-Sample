@@ -3,9 +3,6 @@
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
 
-#define SHARC_QUERY 1
-#include "SharcCommon.h"
-
 // Inputs
 NRI_RESOURCE( Texture2D<float3>, gIn_PrevComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevComposedSpec_PrevViewZ, t, 1, SET_OTHER );
@@ -166,9 +163,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         SharcParameters sharcParams;
         sharcParams.gridParameters = hashGridParams;
         sharcParams.hashMapData = hashMapData;
+        sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
         sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-        sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-        sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+        sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
+        sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
     #if( USE_SHARC_DEBUG == 2 )
         result.diffRadiance = HashGridDebugColoredHash( sharcHitData.positionWorld, hashGridParams );
@@ -437,9 +435,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 SharcParameters sharcParams;
                 sharcParams.gridParameters = hashGridParams;
                 sharcParams.hashMapData = hashMapData;
+                    sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
                 sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-                sharcParams.voxelDataBuffer = gInOut_SharcVoxelDataBuffer;
-                sharcParams.voxelDataBufferPrev = gInOut_SharcVoxelDataBufferPrev;
+                    sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
+                    sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
                 float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
                 bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
