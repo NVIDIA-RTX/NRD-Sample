@@ -4168,14 +4168,14 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.isBaseColorMetalnessAvailable = true;
     commonSettings.enableValidation = m_ShowValidationOverlay;
 
-#if (NRD_NORMAL_ENCODING == 2)
+    const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
+    if (nrdLibraryDesc.normalEncoding == nrd::NormalEncoding::R10_G10_B10_A2_UNORM) {
     commonSettings.strandMaterialID = MATERIAL_ID_HAIR;
     commonSettings.strandThickness = STRAND_THICKNESS;
-
 #    if (USE_CAMERA_ATTACHED_REFLECTION_TEST == 1)
     commonSettings.cameraAttachedReflectionMaterialID = MATERIAL_ID_SELF_REFLECTION;
 #    endif
-#endif
+    }
 
     m_NRD.NewFrame();
     m_NRD.SetCommonSettings(commonSettings);
@@ -4419,9 +4419,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         helper::Annotation sharc(NRI, commandBuffer, "Radiance cache");
 
         const nri::BufferBarrierDesc transitions[] = {
+            {Get(Buffer::SharcHashEntries), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
             {Get(Buffer::SharcAccumulated), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
             {Get(Buffer::SharcResolved), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-            {Get(Buffer::SharcHashEntries), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
         };
 
         nri::BarrierDesc barrierDesc = {};
