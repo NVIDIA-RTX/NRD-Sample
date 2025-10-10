@@ -1,4 +1,6 @@
 
+#include "SharcCommon.h"
+
 NRI_RESOURCE( RaytracingAccelerationStructure, gWorldTlas, t, 0, SET_ROOT );
 NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_ROOT );
 NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_ROOT );
@@ -8,8 +10,8 @@ NRI_RESOURCE( StructuredBuffer<MorphedPrimitivePrevPositions>, gIn_MorphedPrimit
 NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 0, SET_RAY_TRACING );
 
 NRI_RESOURCE( RWStructuredBuffer<uint64_t>, gInOut_SharcHashEntriesBuffer, u, 0, SET_SHARC );
-NRI_RESOURCE( RWStructuredBuffer<uint4>, gInOut_SharcVoxelDataBuffer, u, 1, SET_SHARC );
-NRI_RESOURCE( RWStructuredBuffer<uint4>, gInOut_SharcVoxelDataBufferPrev, u, 2, SET_SHARC );
+NRI_RESOURCE( RWStructuredBuffer<SharcAccumulationData>, gInOut_SharcAccumulated, u, 1, SET_SHARC );
+NRI_RESOURCE( RWStructuredBuffer<SharcPackedData>, gInOut_SharcResolved, u, 2, SET_SHARC );
 
 #if( USE_STOCHASTIC_SAMPLING == 1 )
     #define TEX_SAMPLER gNearestMipmapNearestSampler

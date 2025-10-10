@@ -3,8 +3,6 @@
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
 
-#include "SharcCommon.h"
-
 [numthreads( LINEAR_BLOCK_SIZE, 1, 1 )]
 void main( uint threadIndex : SV_DispatchThreadID )
 {
