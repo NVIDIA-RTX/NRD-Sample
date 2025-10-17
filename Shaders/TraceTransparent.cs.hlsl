@@ -112,7 +112,6 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         float3 Xglobal = GetGlobalPos( geometryProps.X );
         uint level = HashGridGetLevel( Xglobal, hashGridParams );
         float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
-        float smc = GetSpecMagicCurve( materialProps.roughness );
 
         float footprint = saturate( geometryProps.hitT / voxelSize );
 

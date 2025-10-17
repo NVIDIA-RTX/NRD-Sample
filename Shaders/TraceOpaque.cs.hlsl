@@ -463,7 +463,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                     float3 Xglobal = GetGlobalPos( geometryProps.X );
                     uint level = HashGridGetLevel( Xglobal, hashGridParams );
                     float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
-                    float smc = GetSpecMagicCurve( materialProps.roughness );
 
                     float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
                     footprint = saturate( footprint / voxelSize );
