@@ -416,7 +416,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 float3 Xglobal = GetGlobalPos( geometryProps.X );
                 uint level = HashGridGetLevel( Xglobal, hashGridParams );
                 float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
-                float smc = GetSpecMagicCurve( materialProps.roughness );
 
                 float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
                 footprint = saturate( footprint / voxelSize );
@@ -424,7 +423,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * USE_SHARC_DITHERING;
                 rndScaled *= voxelSize;
                 rndScaled *= footprint; // reduce dithering for short hits
-                rndScaled *= 1.0 - smc; // reduce dithering if scattering is high
 
                 float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
                 Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
