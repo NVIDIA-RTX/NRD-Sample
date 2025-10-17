@@ -742,9 +742,9 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
 
     { // Create streamer
         nri::StreamerDesc streamerDesc = {};
-        streamerDesc.constantBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
+        streamerDesc.constantBufferMemoryLocation = nri::MemoryLocation::DEVICE_UPLOAD;
         streamerDesc.constantBufferSize = DYNAMIC_CONSTANT_BUFFER_SIZE;
-        streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
+        streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::DEVICE_UPLOAD;
         streamerDesc.dynamicBufferUsageBits = nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER | nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT;
         streamerDesc.queuedFrameNum = GetQueuedFrameNum();
         NRI_ABORT_ON_FAILURE(NRI.CreateStreamer(*m_Device, streamerDesc, m_Streamer));
