@@ -418,8 +418,15 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
                 float smc = GetSpecMagicCurve( materialProps.roughness );
 
+                float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
+                footprint = saturate( footprint / voxelSize );
+
+                float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * USE_SHARC_DITHERING;
+                rndScaled *= voxelSize;
+                rndScaled *= footprint; // reduce dithering for short hits
+                rndScaled *= 1.0 - smc; // reduce dithering if scattering is high
+
                 float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-                float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
                 Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
 
                 SharcHitData sharcHitData;
@@ -435,14 +442,13 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 SharcParameters sharcParams;
                 sharcParams.gridParameters = hashGridParams;
                 sharcParams.hashMapData = hashMapData;
-                    sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
+                sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
                 sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-                    sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
-                    sharcParams.resolvedBuffer = gInOut_SharcResolved;
+                sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
+                sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
-                float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
-                bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
-                isSharcAllowed &= footprint > voxelSize; // voxel angular size is acceptable
+                bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
+                isSharcAllowed &= Rng::Hash::GetFloat( ) < footprint; // is voxel size acceptable?
 
                 float3 sharcRadiance;
                 if( isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false ) )
