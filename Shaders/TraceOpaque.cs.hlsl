@@ -465,8 +465,14 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                     float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
                     float smc = GetSpecMagicCurve( materialProps.roughness );
 
+                    float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
+                    footprint = saturate( footprint / voxelSize );
+
+                    float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * USE_SHARC_DITHERING;
+                    rndScaled *= voxelSize;
+                    rndScaled *= footprint; // reduce dithering for short hits
+
                     float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-                    float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING;
                     Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
 
                     SharcHitData sharcHitData;
@@ -487,10 +493,9 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                     sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
                     sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
-                    float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
                     bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
-                    isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
-                    isSharcAllowed &= footprint > voxelSize; // voxel angular size is acceptable
+                    isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
+                    isSharcAllowed &= Rng::Hash::GetFloat( ) < footprint; // is voxel size acceptable?
 
                     float3 sharcRadiance;
                     if( isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false ) )

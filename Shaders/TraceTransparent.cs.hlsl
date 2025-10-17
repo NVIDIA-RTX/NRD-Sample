@@ -114,8 +114,13 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
         float smc = GetSpecMagicCurve( materialProps.roughness );
 
+        float footprint = saturate( geometryProps.hitT / voxelSize );
+
+        float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * USE_SHARC_DITHERING * float( USE_SHARC_DEBUG == 0 );
+        rndScaled *= voxelSize;
+        rndScaled *= footprint; // reduce dithering for short hits
+
         float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-        float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * voxelSize * USE_SHARC_DITHERING * float( USE_SHARC_DEBUG == 0 );
         Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
 
         SharcHitData sharcHitData;
@@ -137,8 +142,8 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
         bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
-        isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // probabilistically estimate the need
-        isSharcAllowed &= geometryProps.hitT > voxelSize; // voxel angular size is acceptable // TODO: can be skipped to get flat ambient in some cases
+        isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
+        isSharcAllowed &= Rng::Hash::GetFloat( ) < footprint; // is voxel size acceptable?
 
         float3 sharcRadiance;
         if (isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false))
