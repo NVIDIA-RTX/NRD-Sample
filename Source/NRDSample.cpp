@@ -1220,7 +1220,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         ImGui::Begin(buf, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
         {
             float avgFrameTime = m_Timer.GetVerySmoothedFrameTime();
-            snprintf(buf, sizeof(buf), "%.1f FPS (%.2f ms)", 1000.0f / avgFrameTime, avgFrameTime);
+            snprintf(buf, sizeof(buf), "%.1f FPS (%.2f ms) @ %up", 1000.0f / avgFrameTime, avgFrameTime, m_OutputResolution.y);
 
             ImVec4 colorFps = UI_GREEN;
             if (avgFrameTime > 1000.0f / 59.5f)

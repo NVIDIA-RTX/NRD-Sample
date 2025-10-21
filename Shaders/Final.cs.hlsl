@@ -24,8 +24,8 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     if( gIsSrgb )
         input = Color::ToSrgb( saturate( input ) );
 
-    // Upsampling
-    float3 upsampled = BicubicFilterNoCorners( gIn_PostAA, gLinearSampler, pixelUv * gOutputSize, gInvOutputSize, 0.66 ).xyz;
+    // Upsamped
+    float3 upsampled = gIn_PostAA[ pixelPos ].xyz;
 
     // Split screen - noisy input / denoised output
     float3 result = pixelUv.x < gSeparator ? input : upsampled;
