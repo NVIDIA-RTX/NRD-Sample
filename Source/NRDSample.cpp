@@ -745,7 +745,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
         streamerDesc.constantBufferMemoryLocation = nri::MemoryLocation::DEVICE_UPLOAD;
         streamerDesc.constantBufferSize = DYNAMIC_CONSTANT_BUFFER_SIZE;
         streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::DEVICE_UPLOAD;
-        streamerDesc.dynamicBufferUsageBits = nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER | nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT;
+        streamerDesc.dynamicBufferDesc = {0, 0, nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER | nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT};
         streamerDesc.queuedFrameNum = GetQueuedFrameNum();
         NRI_ABORT_ON_FAILURE(NRI.CreateStreamer(*m_Device, streamerDesc, m_Streamer));
     }
@@ -1472,7 +1472,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
                 ImGui::PushID("TESTS");
                 if (isUnfolded) {
-                    float buttonWidth = 25.0f * float(GetWindowResolution().x) / float(GetOutputResolution().x);
+                    const float buttonWidth = 25.0f;
 
                     char s[64];
                     std::string sceneName = std::string(utils::GetFileName(m_SceneFile));
@@ -1898,8 +1898,8 @@ nri::Format Sample::CreateSwapChain() {
     swapChainDesc.queue = m_GraphicsQueue;
     swapChainDesc.format = ALLOW_HDR ? nri::SwapChainFormat::BT709_G10_16BIT : nri::SwapChainFormat::BT709_G22_8BIT;
     swapChainDesc.flags = (m_Vsync ? nri::SwapChainBits::VSYNC : nri::SwapChainBits::NONE) | nri::SwapChainBits::ALLOW_TEARING;
-    swapChainDesc.width = (uint16_t)GetWindowResolution().x;
-    swapChainDesc.height = (uint16_t)GetWindowResolution().y;
+    swapChainDesc.width = (uint16_t)GetOutputResolution().x;
+    swapChainDesc.height = (uint16_t)GetOutputResolution().y;
     swapChainDesc.textureNum = GetOptimalSwapChainTextureNum();
     swapChainDesc.queuedFrameNum = GetQueuedFrameNum();
 
@@ -2677,7 +2677,7 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
 
     CreateTexture(descriptorDescs, "Texture::PreFinal", criticalColorFormat, (uint16_t)GetOutputResolution().x, (uint16_t)GetOutputResolution().y, 1, 1,
         nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::SHADER_RESOURCE_STORAGE, nri::AccessBits::SHADER_RESOURCE_STORAGE);
-    CreateTexture(descriptorDescs, "Texture::Final", swapChainFormat, (uint16_t)GetWindowResolution().x, (uint16_t)GetWindowResolution().y, 1, 1,
+    CreateTexture(descriptorDescs, "Texture::Final", swapChainFormat, (uint16_t)GetOutputResolution().x, (uint16_t)GetOutputResolution().y, 1, 1,
         nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::SHADER_RESOURCE_STORAGE, nri::AccessBits::COPY_SOURCE);
 
 #if (NRD_MODE == SH)
@@ -3381,7 +3381,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
 
     float2 renderSize = float2(float(m_RenderResolution.x), float(m_RenderResolution.y));
     float2 outputSize = float2(float(GetOutputResolution().x), float(GetOutputResolution().y));
-    float2 windowSize = float2(float(GetWindowResolution().x), float(GetWindowResolution().y));
     float2 rectSize = float2(float(rectW), float(rectH));
     float2 rectSizePrev = float2(float(rectWprev), float(rectHprev));
     float2 jitter = (m_Settings.cameraJitter ? m_Camera.state.viewportJitter : 0.0f) / rectSize;
@@ -3438,11 +3437,9 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gViewDirection = float4(viewDir, 0.0f);
         constants.gHairBaseColor = pow(m_HairBaseColor, float4(2.2f));
         constants.gHairBetas = m_HairBetas;
-        constants.gWindowSize = windowSize;
         constants.gOutputSize = outputSize;
         constants.gRenderSize = renderSize;
         constants.gRectSize = rectSize;
-        constants.gInvWindowSize = float2(1.0f, 1.0f) / windowSize;
         constants.gInvOutputSize = float2(1.0f, 1.0f) / outputSize;
         constants.gInvRenderSize = float2(1.0f, 1.0f) / renderSize;
         constants.gInvRectSize = float2(1.0f, 1.0f) / rectSize;
@@ -3545,8 +3542,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     uint32_t rectGridH = (rectH + 15) / 16;
     uint32_t outputGridW = (GetOutputResolution().x + 15) / 16;
     uint32_t outputGridH = (GetOutputResolution().y + 15) / 16;
-    uint32_t windowGridW = (GetWindowResolution().x + 15) / 16;
-    uint32_t windowGridH = (GetWindowResolution().y + 15) / 16;
 
     // NRD common settings
     nrd::CommonSettings commonSettings = {};
@@ -4031,10 +4026,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         RestoreBindings(commandBuffer);
     }
 
-    //======================================================================================================================================
-    // Window resolution
-    //======================================================================================================================================
-
     { // Final
         helper::Annotation annotation(NRI, commandBuffer, "Final");
 
@@ -4053,7 +4044,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
         NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::Final));
-        NRI.CmdDispatch(commandBuffer, {windowGridW, windowGridH, 1});
+        NRI.CmdDispatch(commandBuffer, {outputGridW, outputGridH, 1});
     }
 
     // Acquire a swap chain texture

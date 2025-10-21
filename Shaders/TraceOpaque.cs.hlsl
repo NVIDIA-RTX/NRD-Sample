@@ -198,6 +198,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         //=============================================================================================================================================================
 
         bool isDiffuse = false;
+        float lobeTanHalfAngleAtOrigin = 0.0;
         {
             // Estimate diffuse probability
             float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps ) * float( !geometryProps.Has( FLAG_HAIR ) );
@@ -387,6 +388,9 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             // Trace to the next hit
             //=========================================================================================================================================================
 
+            float roughnessTemp = isDiffuse ? 1.0 : materialProps.roughness;
+            lobeTanHalfAngleAtOrigin = roughnessTemp * roughnessTemp / ( 1.0 + roughnessTemp * roughnessTemp );
+
             geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
             materialProps = GetMaterialProps( geometryProps ); // TODO: try to read metrials only if L1- and L2- lighting caches failed
         }
@@ -417,12 +421,13 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 uint level = HashGridGetLevel( Xglobal, hashGridParams );
                 float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
 
-                float footprint = geometryProps.hitT * ImportanceSampling::GetSpecularLobeTanHalfAngle( ( isDiffuse || bounce == gBounceNum ) ? 1.0 : materialProps.roughness, 0.5 );
-                footprint = saturate( footprint / voxelSize );
+                float footprint = geometryProps.hitT * lobeTanHalfAngleAtOrigin * 2.0;
+                float footprintNorm = saturate( footprint / voxelSize );
 
-                float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * USE_SHARC_DITHERING;
+                float2 rndScaled = ImportanceSampling::Cosine::GetRay( Rng::Hash::GetFloat2( ) ).xy;
+                rndScaled *= 1.0 - footprintNorm; // reduce dithering if cone is already wide
                 rndScaled *= voxelSize;
-                rndScaled *= footprint; // reduce dithering for short hits
+                rndScaled *= USE_SHARC_DITHERING;
 
                 float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
                 Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
@@ -446,7 +451,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
                 bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
-                isSharcAllowed &= Rng::Hash::GetFloat( ) < footprint; // is voxel size acceptable?
+                isSharcAllowed &= Rng::Hash::GetFloat( ) < ( bounce == gBounceNum ? 1.0 : footprintNorm ); // is voxel size acceptable?
 
                 float3 sharcRadiance;
                 if( isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false ) )

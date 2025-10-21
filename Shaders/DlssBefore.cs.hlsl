@@ -24,12 +24,12 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     float viewZ = gInOut_ViewZ[ pixelPos ];
     float3 Xv = Geometry::ReconstructViewPosition( pixelUv, gCameraFrustum, viewZ, gOrthoMode );
 
-    // Recalculate viewZ to depth ( needed for SR )
+    // SR specific
     if( gSR )
     {
         float4 clipPos = Geometry::ProjectiveTransform( gViewToClip, Xv );
 
-        gInOut_ViewZ[ pixelPos ] = clipPos.z / clipPos.w;
+        gInOut_ViewZ[ pixelPos ] = clipPos.z / clipPos.w; // SR doesn't support linear viewZ
     }
 
     // RR specific
@@ -55,9 +55,9 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
         bool isSky = abs( viewZ ) == INF;
 
-        gOut_DiffAlbedo[ pixelPos ] = isSky ? 0.0 : albedo * ( 1.0 - Fenv ); // TODO: NGX doesn't support sRGB, manual linearization needed
+        gOut_DiffAlbedo[ pixelPos ] = isSky ? 0.0 : albedo * ( 1.0 - Fenv ); // NGX doesn't support sRGB, manual linearization needed
         gOut_SpecAlbedo[ pixelPos ] = isSky ? 0.0 : Fenv;
         gOut_SpecHitDistance[ pixelPos ] = isSky ? 0.0 : specHitDistance;
-        gOut_Normal_Roughness[ pixelPos ] = float4( N, roughness ); // TODO: NGX supports only this encoding
+        gOut_Normal_Roughness[ pixelPos ] = float4( N, roughness ); // NGX supports only this encoding
     }
 }

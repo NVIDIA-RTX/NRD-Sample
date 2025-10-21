@@ -5,26 +5,6 @@
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
 
-float3 GetAmbientBRDF( GeometryProps geometryProps, MaterialProps materialProps, bool approximate = false )
-{
-    float3 albedo, Rf0;
-    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-    float3 Fenv = Rf0;
-    if( !approximate )
-    {
-        float NoV = abs( dot( materialProps.N, geometryProps.V ) );
-        Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
-    }
-
-    Fenv *= GetSpecMagicCurve( materialProps.roughness );
-
-    float3 ambBRDF = albedo * ( 1.0 - Fenv ) + Fenv;
-    ambBRDF *= float( !geometryProps.IsSky( ) );
-
-    return ambBRDF;
-}
-
 void Trace( GeometryProps geometryProps )
 {
     // SHARC state

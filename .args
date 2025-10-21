@@ -39,20 +39,6 @@
       ]
     },
     {
-      "Command": "DPI",
-      "Items": [
-        {
-          "Command": "--dpiMode=0"
-        },
-        {
-          "Command": "--dpiMode=1"
-        },
-        {
-          "Command": "--dpiMode=2"
-        }
-      ]
-    },
-    {
       "Command": "OTHER",
       "Items": [
         {
