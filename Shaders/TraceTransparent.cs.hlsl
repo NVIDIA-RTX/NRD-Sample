@@ -113,11 +113,9 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         uint level = HashGridGetLevel( Xglobal, hashGridParams );
         float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
 
-        float footprint = saturate( geometryProps.hitT / voxelSize );
-
-        float2 rndScaled = ( Rng::Hash::GetFloat2( ) - 0.5 ) * USE_SHARC_DITHERING * float( USE_SHARC_DEBUG == 0 );
+        float2 rndScaled = ImportanceSampling::Cosine::GetRay( Rng::Hash::GetFloat2( ) ).xy;
         rndScaled *= voxelSize;
-        rndScaled *= footprint; // reduce dithering for short hits
+        rndScaled *= USE_SHARC_DITHERING * float( USE_SHARC_DEBUG == 0 );
 
         float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
         Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
@@ -142,7 +140,6 @@ float3 TraceTransparent( TraceTransparentDesc desc )
 
         bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
         isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
-        isSharcAllowed &= Rng::Hash::GetFloat( ) < footprint; // is voxel size acceptable?
 
         float3 sharcRadiance;
         if (isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false))

@@ -18,7 +18,7 @@
 
 // Default = 1
 #define USE_IMPORTANCE_SAMPLING             1
-#define USE_SHARC_DITHERING                 1 // must be in [0; 1] range
+#define USE_SHARC_DITHERING                 1.5 // radius in voxels
 #define USE_TRANSLUCENCY                    1 // translucent foliage
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
 
@@ -247,11 +247,9 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float4 gViewDirection;
     float4 gHairBaseColor;
     float2 gHairBetas;
-    float2 gWindowSize; // represents DPI handling ( >= gOutputSize )
     float2 gOutputSize; // represents native resolution ( >= gRenderSize )
     float2 gRenderSize; // up to native resolution ( >= gRectSize )
     float2 gRectSize; // dynamic resolution scaling
-    float2 gInvWindowSize;
     float2 gInvOutputSize;
     float2 gInvRenderSize;
     float2 gInvRectSize;

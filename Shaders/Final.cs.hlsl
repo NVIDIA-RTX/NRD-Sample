@@ -11,7 +11,7 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_Final, u, 0, SET_O
 [numthreads( 16, 16, 1 )]
 void main( uint2 pixelPos : SV_DispatchThreadId )
 {
-    float2 pixelUv = float2( pixelPos + 0.5 ) * gInvWindowSize;
+    float2 pixelUv = float2( pixelPos + 0.5 ) * gInvOutputSize;
 
     // Do not generate NANs for unused threads
     if( pixelUv.x > 1.0 || pixelUv.y > 1.0 )
@@ -37,7 +37,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     result += ( rnd - 0.5 ) / ( gIsSrgb ? 256.0 : 1024.0 );
 
     // Split screen - vertical line
-    float verticalLine = saturate( 1.0 - abs( pixelUv.x - gSeparator ) * gWindowSize.x / 3.5 );
+    float verticalLine = saturate( 1.0 - abs( pixelUv.x - gSeparator ) * gOutputSize.x / 3.5 );
     verticalLine = saturate( verticalLine / 0.5 );
     verticalLine *= float( gSeparator != 0.0 );
 
