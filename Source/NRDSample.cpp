@@ -1643,7 +1643,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     // Animate scene and update camera
     cBoxf cameraLimits = m_Scene.aabb;
-    cameraLimits.Scale(2.0f);
+    cameraLimits.Scale(4.0f);
 
     CameraDesc desc = {};
     desc.limits = cameraLimits;
@@ -2667,7 +2667,7 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     CreateBuffer(descriptorDescs, "Buffer::LightScratch", nri::Format::UNKNOWN, lightScratchBufferSize, 1,
         nri::BufferUsageBits::SCRATCH_BUFFER);
 
-    // Textures (DEVICE)
+    // Textures
     CreateTexture(descriptorDescs, "Texture::ViewZ", nri::Format::R32_SFLOAT, w, h, 1, 1,
         nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::SHADER_RESOURCE_STORAGE, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(descriptorDescs, "Texture::Mv", nri::Format::RGBA16_SFLOAT, w, h, 1, 1,
@@ -2740,7 +2740,7 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     for (const utils::Texture* texture : m_Scene.textures)
         CreateTexture(descriptorDescs, "", texture->GetFormat(), texture->GetWidth(), texture->GetHeight(), texture->GetMipNum(), texture->GetArraySize(), nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::NONE);
 
-    // Create descriptors
+    // Descriptors: constant buffers
     nri::Descriptor* descriptor = nullptr;
     {
         const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
@@ -2754,11 +2754,10 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
         m_Descriptors.push_back(descriptor);
     }
 
+    // Descriptors: everything else
     for (const DescriptorDesc& desc : descriptorDescs) {
         if (desc.textureUsage == nri::TextureUsageBits::NONE) {
-            if (desc.bufferUsage == nri::BufferUsageBits::CONSTANT_BUFFER) {
-                // Constant buffer views are not stored in m_Descriptors
-            } else {
+            if (desc.bufferUsage != nri::BufferUsageBits::CONSTANT_BUFFER) {
                 NRI.SetDebugName((nri::Object*)desc.resource, desc.debugName);
 
                 if (desc.bufferUsage & nri::BufferUsageBits::SHADER_RESOURCE) {
