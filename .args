@@ -71,6 +71,9 @@
           "Command": "--scene=Bistro/BistroExterior.gltf"
         },
         {
+          "Command": "--scene=Claire/Claire.gltf"
+        },
+        {
           "Command": "--scene=Hair/Hair.gltf"
         },
         {

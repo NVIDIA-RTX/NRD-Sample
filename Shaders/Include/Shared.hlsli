@@ -105,15 +105,17 @@
 #define GARBAGE                             sqrt( -1.0 ) // sqrt( -1.0 ) or -log( 0.0 ) or 32768.0
 
 // Instance flags
-#define FLAG_FIRST_BIT                      25 // this + number of flags must be <= 32
+#define FLAG_FIRST_BIT                      24 // this + number of flags must be <= 32
 #define NON_FLAG_MASK                       ( ( 1 << FLAG_FIRST_BIT ) - 1 )
 
 #define FLAG_NON_TRANSPARENT                0x01 // geometry flag: non-transparent
 #define FLAG_TRANSPARENT                    0x02 // geometry flag: transparent
 #define FLAG_FORCED_EMISSION                0x04 // animated emissive cube
 #define FLAG_STATIC                         0x08 // no velocity
-#define FLAG_HAIR                           0x20 // hair
-#define FLAG_LEAF                           0x40 // leaf
+#define FLAG_HAIR                           0x10 // hair
+#define FLAG_LEAF                           0x20 // leaf
+#define FLAG_SKIN                           0x40 // skin
+#define FLAG_MORPH                          0x80 // morph
 
 #define GEOMETRY_ALL                        ( FLAG_NON_TRANSPARENT | FLAG_TRANSPARENT )
 
@@ -143,22 +145,18 @@ struct PrimitiveData
 struct InstanceData
 {
     // For static: mObjectToWorld
-    // For rigid dynamic: mWorldToWorldPrev
-    // For deformable dynamic: mObjectToWorldPrev
+    // For dynamic: mWorldToWorldPrev
     float4 mOverloadedMatrix0;
     float4 mOverloadedMatrix1;
     float4 mOverloadedMatrix2;
 
-    float4 baseColorAndMetalnessScale;
-    float4 emissionAndRoughnessScale;
+    float16_t4 baseColorAndMetalnessScale;
+    float16_t4 emissionAndRoughnessScale;
 
+    float16_t2 normalUvScale;
     uint32_t textureOffsetAndFlags;
     uint32_t primitiveOffset;
-    uint32_t unused;
-
-    // TODO: handling object scale embedded into the transformation matrix (assuming uniform scale)
-    // TODO: sign represents triangle winding
-    float scale;
+    float scale; // TODO: handling object scale embedded into the transformation matrix (assuming uniform scale), sign represents triangle winding
 };
 
 //===============================================================

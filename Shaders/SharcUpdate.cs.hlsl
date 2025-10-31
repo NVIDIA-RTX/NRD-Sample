@@ -41,7 +41,7 @@ void Trace( GeometryProps geometryProps )
 
         SharcSetThroughput( sharcState, 1.0 );
 
-        float3 L = GetShadowedLighting( geometryProps, materialProps, SKIP_EMISSIVE );
+        float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW );
         if( !SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, 1.0 ) )
             return;
     }
@@ -199,7 +199,7 @@ void Trace( GeometryProps geometryProps )
                 sharcHitData.normalWorld = geometryProps.N;
                 sharcHitData.emissive = materialProps.Lemi;
 
-                float3 L = GetShadowedLighting( geometryProps, materialProps, SKIP_EMISSIVE );
+                float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW );
                 if( !SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, Rng::Hash::GetFloat( ) ) )
                     break;
             }
