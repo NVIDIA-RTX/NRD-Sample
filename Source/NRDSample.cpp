@@ -114,9 +114,9 @@ enum class Buffer : uint32_t {
     MorphMeshVertices,
 
     // DEVICE
-    MorphedPositions,
-    MorphedAttributes,
-    MorphedPrimitivePrevPositions,
+    MorphPositions,
+    MorphAttributes,
+    MorphPrimitivePrevPositions,
     PrimitiveData,
     SharcHashEntries,
     SharcAccumulated,
@@ -201,12 +201,12 @@ enum class Descriptor : uint32_t {
     InstanceData_Buffer,
     MorphMeshIndices_Buffer,
     MorphMeshVertices_Buffer,
-    MorphedPositions_Buffer,
-    MorphedPositions_StorageBuffer,
-    MorphedAttributes_Buffer,
-    MorphedAttributes_StorageBuffer,
-    MorphedPrimitivePrevData_Buffer,
-    MorphedPrimitivePrevData_StorageBuffer,
+    MorphPositions_Buffer,
+    MorphPositions_StorageBuffer,
+    MorphAttributes_Buffer,
+    MorphAttributes_StorageBuffer,
+    MorphPrimitivePrevData_Buffer,
+    MorphPrimitivePrevData_StorageBuffer,
     PrimitiveData_Buffer,
     PrimitiveData_StorageBuffer,
     SharcHashEntries_StorageBuffer,
@@ -432,6 +432,26 @@ struct AnimatedInstance {
         return transform;
     }
 };
+
+static inline nri::TextureBarrierDesc TextureBarrierFromUnknown(nri::Texture* texture, nri::AccessLayoutStage after)
+{
+    nri::TextureBarrierDesc textureBarrier = {};
+    textureBarrier.texture = texture;
+    textureBarrier.before.access = nri::AccessBits::NONE;
+    textureBarrier.before.layout = nri::Layout::UNDEFINED;
+    textureBarrier.before.stages = nri::StageBits::NONE;
+    textureBarrier.after = after;
+
+    return textureBarrier;
+}
+
+static inline nri::TextureBarrierDesc TextureBarrierFromState(nri::TextureBarrierDesc& prevState, nri::AccessLayoutStage after)
+{
+    prevState.before = prevState.after;
+    prevState.after = after;
+
+    return prevState;
+}
 
 class Sample : public SampleBase {
 public:
@@ -682,7 +702,7 @@ public:
     void UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor);
     void RestoreBindings(nri::CommandBuffer& commandBuffer);
     void GatherInstanceData();
-    uint16_t BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions);
+    uint32_t BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions);
 
 private:
     // NRD
@@ -726,9 +746,9 @@ private:
     Settings m_SettingsDefault = {};
     const std::vector<uint32_t>* m_checkMeTests = nullptr;
     const std::vector<uint32_t>* m_improveMeTests = nullptr;
-    float4 m_HairBaseColor = float4(0.510f, 0.395f, 0.218f, 1.0f);
+    float4 m_HairBaseColor = float4(0.1f, 0.1f, 0.1f, 1.0f);
     float3 m_PrevLocalPos = {};
-    float2 m_HairBetas = float2(0.25f, 0.6f);
+    float2 m_HairBetas = float2(0.25f, 0.3f);
     uint2 m_RenderResolution = {};
     uint64_t m_MorphMeshScratchSize = 0;
     nri::BufferOffset m_WorldTlasDataLocation = {};
@@ -1355,7 +1375,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                 ImGui::PopID();
 
                 // "Hair" section
-                if (m_SceneFile.find("Hair") != std::string::npos) {
+                if (m_SceneFile.find("Claire") != std::string::npos) {
                     ImGui::PushStyleColor(ImGuiCol_Text, UI_HEADER);
                     ImGui::PushStyleColor(ImGuiCol_Header, UI_HEADER_BACKGROUND);
                     isUnfolded = ImGui::CollapsingHeader("HAIR", ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_DefaultOpen);
@@ -1805,7 +1825,9 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 " -I " STRINGIFY(ML_SOURCE_DIR)
                                 " -I " STRINGIFY(NRD_SOURCE_DIR)
                                 " -I " STRINGIFY(NRI_SOURCE_DIR)
-                                " -I " STRINGIFY(SHARC_SOURCE_DIR);
+                                " -I " STRINGIFY(SHARC_SOURCE_DIR)
+                                " -I " STRINGIFY(RTXCR_SOURCE_DIR)
+                                " -D RTXCR_INTEGRATION=" STRINGIFY(RTXCR_INTEGRATION);
                             // clang-format on
 
                             if (NRI.GetDeviceDesc(*m_Device).graphicsAPI == nri::GraphicsAPI::D3D12)
@@ -2029,7 +2051,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     // Animate scene and update camera
     cBoxf cameraLimits = m_Scene.aabb;
-    cameraLimits.Scale(2.0f);
+    cameraLimits.Scale(4.0f);
 
     CameraDesc desc = {};
     desc.limits = cameraLimits;
@@ -2283,8 +2305,21 @@ void Sample::LoadScene() {
     m_ProxyInstancesNum = helper::GetCountOf(m_Scene.instances);
 
     // The scene
-    sceneFile = utils::GetFullPath(m_SceneFile, utils::DataFolder::SCENES);
-    NRI_ABORT_ON_FALSE(utils::LoadScene(sceneFile, m_Scene, !ALLOW_BLAS_MERGING));
+    if (m_SceneFile.find("Claire") != std::string::npos) {
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/Claire_PonyTail.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/Claire_HairMain_less_strands.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/Claire_BabyHairFront.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/Claire_BabyHairBack.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/ClaireCombined_No_Hair.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/brow/eyebrows.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/hairtie/hairtie.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/glass_lens/glass_lens.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/glass_frame/glass_frame.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/shirt/shirt.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+    } else {
+        sceneFile = utils::GetFullPath(m_SceneFile, utils::DataFolder::SCENES);
+        NRI_ABORT_ON_FALSE(utils::LoadScene(sceneFile, m_Scene, !ALLOW_BLAS_MERGING));
+    }
 
     // Some scene dependent settings
     m_ReblurSettings = GetDefaultReblurSettings();
@@ -2298,8 +2333,12 @@ void Sample::LoadScene() {
     } else if (m_SceneFile.find("BistroExterior") != std::string::npos)
         m_Settings.exposure = 50.0f;
     else if (m_SceneFile.find("Hair") != std::string::npos) {
-        m_Settings.exposure = 2.0f;
+        m_Settings.exposure = 1.3f;
         m_Settings.bounceNum = 4;
+    } else if (m_SceneFile.find("Claire") != std::string::npos) {
+        m_Settings.exposure = 1.3f;
+        m_Settings.bounceNum = 4;
+        m_Settings.meterToUnitsMultiplier = 100.0f;
     } else if (m_SceneFile.find("ShaderBalls") != std::string::npos)
         m_Settings.exposure = 1.7f;
 }
@@ -3121,17 +3160,17 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     // Buffers (DEVICE, read-only)
     CreateBuffer(descriptorDescs, "Buffer::InstanceData", nri::Format::UNKNOWN, instanceDataSize / sizeof(InstanceData), sizeof(InstanceData),
         nri::BufferUsageBits::SHADER_RESOURCE);
-    CreateBuffer(descriptorDescs, "Buffer::MorphMeshIndices", nri::Format::UNKNOWN, m_Scene.morphMeshTotalIndicesNum, sizeof(utils::Index),
+    CreateBuffer(descriptorDescs, "Buffer::MorphMeshIndices", nri::Format::UNKNOWN, m_Scene.morphIndexNum, sizeof(utils::Index),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
     CreateBuffer(descriptorDescs, "Buffer::MorphMeshVertices", nri::Format::UNKNOWN, m_Scene.morphVertices.size(), sizeof(utils::MorphVertex),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
 
     // Buffers (DEVICE)
-    CreateBuffer(descriptorDescs, "Buffer::MorphedPositions", nri::Format::UNKNOWN, m_Scene.morphedVerticesNum * MAX_ANIMATION_HISTORY_FRAME_NUM, sizeof(float16_t4),
+    CreateBuffer(descriptorDescs, "Buffer::MorphPositions", nri::Format::UNKNOWN, m_Scene.morphVertexNum * MAX_ANIMATION_HISTORY_FRAME_NUM, sizeof(float16_t4),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
-    CreateBuffer(descriptorDescs, "Buffer::MorphedAttributes", nri::Format::UNKNOWN, m_Scene.morphedVerticesNum, sizeof(MorphedAttributes),
+    CreateBuffer(descriptorDescs, "Buffer::MorphAttributes", nri::Format::UNKNOWN, m_Scene.morphVertexNum, sizeof(MorphAttributes),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-    CreateBuffer(descriptorDescs, "Buffer::MorphedPrimitivePrevPositions", nri::Format::UNKNOWN, m_Scene.morphedPrimitivesNum, sizeof(MorphedPrimitivePrevPositions),
+    CreateBuffer(descriptorDescs, "Buffer::MorphPrimitivePrevPositions", nri::Format::UNKNOWN, m_Scene.morphPrimitiveNum, sizeof(MorphPrimitivePrevPositions),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(descriptorDescs, "Buffer::PrimitiveData", nri::Format::UNKNOWN, m_Scene.totalInstancedPrimitivesNum, sizeof(PrimitiveData),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
@@ -3546,7 +3585,7 @@ void Sample::CreateTexture(std::vector<DescriptorDesc>& descriptorDescs, const c
         else if (access & nri::AccessBits::SHADER_RESOURCE_STORAGE)
             layout = nri::Layout::SHADER_RESOURCE_STORAGE;
 
-        nri::TextureBarrierDesc transition = nri::TextureBarrierFromUnknown(texture, {access, layout});
+        nri::TextureBarrierDesc transition = TextureBarrierFromUnknown(texture, {access, layout});
         m_TextureStates.push_back(transition);
     }
 
@@ -3649,7 +3688,7 @@ void Sample::UploadStaticData() {
         textureUploadDescs.push_back(desc);
     }
 
-    std::vector<utils::Index> morphMeshIndices(m_Scene.morphMeshTotalIndicesNum);
+    std::vector<utils::Index> morphMeshIndices(m_Scene.morphIndexNum);
     uint32_t morphMeshIndexOffset = 0;
 
     // Compact static base pose data
@@ -3749,10 +3788,8 @@ void Sample::GatherInstanceData() {
             } else if (mode == (uint32_t)AccelerationStructure::BLAS_MergedEmissive) {
                 if (instance.allowUpdate || !material.IsEmissive())
                     continue;
-            } else {
-                if (!instance.allowUpdate)
-                    continue;
-            }
+            } else if (!instance.allowUpdate)
+                continue;
 
             float4x4 mObjectToWorld = float4x4::Identity();
             float4x4 mOverloadedMatrix = float4x4::Identity();
@@ -3817,20 +3854,23 @@ void Sample::GatherInstanceData() {
             const utils::MeshInstance& meshInstance = m_Scene.meshInstances[instance.meshInstanceIndex];
             uint32_t baseTextureIndex = instance.materialIndex * TEXTURES_PER_MATERIAL;
             float3 scale = instance.rotation.GetScale();
+            bool isForcedEmission = m_Settings.emission && m_Settings.emissiveObjects && (i % 3 == 0);
 
             uint32_t flags = 0;
             if (!instance.allowUpdate)
                 flags |= FLAG_STATIC;
-            if (meshInstance.morphedVertexOffset != utils::InvalidIndex)
-                flags |= FLAG_DEFORMABLE;
+            if (meshInstance.morphVertexOffset != utils::InvalidIndex)
+                flags |= FLAG_MORPH;
             if (material.isHair)
                 flags |= FLAG_HAIR;
             if (material.isLeaf)
                 flags |= FLAG_LEAF;
+            if (material.isSkin)
+                flags |= FLAG_SKIN;
             if (material.IsTransparent())
                 flags |= FLAG_TRANSPARENT;
             if (i >= staticInstanceCount) {
-                if (m_Settings.emission && m_Settings.emissiveObjects && (i % 3 == 0))
+                if (isForcedEmission)
                     flags |= FLAG_FORCED_EMISSION;
                 else if (m_GlassObjects && (i % 4 == 0))
                     flags |= FLAG_TRANSPARENT;
@@ -3844,11 +3884,12 @@ void Sample::GatherInstanceData() {
             instanceData.mOverloadedMatrix0 = mOverloadedMatrix.Col(0);
             instanceData.mOverloadedMatrix1 = mOverloadedMatrix.Col(1);
             instanceData.mOverloadedMatrix2 = mOverloadedMatrix.Col(2);
-            instanceData.baseColorAndMetalnessScale = material.baseColorAndMetalnessScale;
-            instanceData.emissionAndRoughnessScale = material.emissiveAndRoughnessScale;
+            instanceData.baseColorAndMetalnessScale = Packing::float4_to_float16_t4(material.baseColorAndMetalnessScale);
+            instanceData.emissionAndRoughnessScale = Packing::float4_to_float16_t4(material.emissiveAndRoughnessScale);
+            instanceData.normalUvScale = Packing::float2_to_float16_t2(material.normalUvScale);
             instanceData.textureOffsetAndFlags = baseTextureIndex | (flags << FLAG_FIRST_BIT);
             instanceData.primitiveOffset = meshInstance.primitiveOffset;
-            instanceData.morphedPrimitiveOffset = meshInstance.morphedPrimitiveOffset;
+            instanceData.morphPrimitiveOffset = meshInstance.morphPrimitiveOffset;
             instanceData.scale = (isLeftHanded ? -1.0f : 1.0f) * max(scale.x, max(scale.y, scale.z));
 
             // Add dynamic geometry
@@ -3863,7 +3904,7 @@ void Sample::GatherInstanceData() {
 
                 m_WorldTlasData.push_back(topLevelInstance);
 
-                if (flags == FLAG_FORCED_EMISSION || material.IsEmissive())
+                if (isForcedEmission || material.IsEmissive())
                     m_LightTlasData.push_back(topLevelInstance);
             }
         }
@@ -3911,7 +3952,7 @@ void Sample::GatherInstanceData() {
     }
 }
 
-void GetBasis(float3 N, float3& T, float3& B) {
+static inline void GetBasis(float3 N, float3& T, float3& B) {
     float sz = sign(N.z);
     float a = 1.0f / (sz + N.z);
     float ya = N.y * a;
@@ -4005,7 +4046,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gCameraGlobalPos = float4(cameraGlobalPos, CAMERA_RELATIVE);
         constants.gCameraGlobalPosPrev = float4(cameraGlobalPosPrev, 0.0f);
         constants.gViewDirection = float4(viewDir, 0.0f);
-        constants.gHairBaseColor = pow(m_HairBaseColor, float4(2.2f));
+        constants.gHairBaseColor = m_HairBaseColor;
         constants.gHairBetas = m_HairBetas;
         constants.gOutputSize = outputSize;
         constants.gRenderSize = renderSize;
@@ -4060,7 +4101,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     m_GlobalConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
 }
 
-uint16_t Sample::BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions) {
+uint32_t Sample::BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions) {
     uint32_t n = 0;
 
     for (uint32_t i = 0; i < stateNum; i++) {
@@ -4070,10 +4111,10 @@ uint16_t Sample::BuildOptimizedTransitions(const TextureState* states, uint32_t 
         bool isStateChanged = transition.after.access != state.after.access || transition.after.layout != state.after.layout;
         bool isStorageBarrier = transition.after.access == nri::AccessBits::SHADER_RESOURCE_STORAGE && state.after.access == nri::AccessBits::SHADER_RESOURCE_STORAGE;
         if (isStateChanged || isStorageBarrier)
-            transitions[n++] = nri::TextureBarrierFromState(transition, {state.after.access, state.after.layout});
+            transitions[n++] = TextureBarrierFromState(transition, {state.after.access, state.after.layout});
     }
 
-    return (uint16_t)n;
+    return n;
 }
 
 void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
@@ -4102,7 +4143,7 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
     nri::SetRootDescriptorDesc root4 = {4, Get(Descriptor::PrimitiveData_Buffer)};
     NRI.CmdSetRootDescriptor(commandBuffer, root4);
 
-    nri::SetRootDescriptorDesc root5 = {5, Get(Descriptor::MorphedPrimitivePrevData_Buffer)};
+    nri::SetRootDescriptorDesc root5 = {5, Get(Descriptor::MorphPrimitivePrevData_Buffer)};
     NRI.CmdSetRootDescriptor(commandBuffer, root5);
 }
 
@@ -4163,11 +4204,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
     const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
     if (nrdLibraryDesc.normalEncoding == nrd::NormalEncoding::R10_G10_B10_A2_UNORM) {
-    commonSettings.strandMaterialID = MATERIAL_ID_HAIR;
-    commonSettings.strandThickness = STRAND_THICKNESS;
-#    if (USE_CAMERA_ATTACHED_REFLECTION_TEST == 1)
-    commonSettings.cameraAttachedReflectionMaterialID = MATERIAL_ID_SELF_REFLECTION;
-#    endif
+        commonSettings.strandMaterialID = MATERIAL_ID_HAIR;
+        commonSettings.strandThickness = STRAND_THICKNESS;
+#if (USE_CAMERA_ATTACHED_REFLECTION_TEST == 1)
+        commonSettings.cameraAttachedReflectionMaterialID = MATERIAL_ID_SELF_REFLECTION;
+#endif
     }
 
     m_NRD.NewFrame();
@@ -4214,8 +4255,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             { // Transitions
                 const nri::BufferBarrierDesc bufferTransitions[] = {
                     // Output
-                    {Get(Buffer::MorphedPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                    {Get(Buffer::MorphedAttributes), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                    {Get(Buffer::MorphPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                    {Get(Buffer::MorphAttributes), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
                 };
 
                 nri::BarrierDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
@@ -4246,8 +4287,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                     }
                     constants.gNumWeights = numShaderMorphTargets;
                     constants.gNumVertices = mesh.vertexNum;
-                    constants.gPositionCurrFrameOffset = m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset;
-                    constants.gAttributesOutputOffset = meshInstance.morphedVertexOffset;
+                    constants.gPositionCurrFrameOffset = m_Scene.morphVertexNum * animCurrBufferIndex + meshInstance.morphVertexOffset;
+                    constants.gAttributesOutputOffset = meshInstance.morphVertexOffset;
                 }
 
                 uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
@@ -4260,12 +4301,12 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             { // Transitions
                 const nri::BufferBarrierDesc bufferTransitions[] = {
                     // Input
-                    {Get(Buffer::MorphedPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                    {Get(Buffer::MorphedAttributes), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
+                    {Get(Buffer::MorphPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
+                    {Get(Buffer::MorphAttributes), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
 
                     // Output
                     {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                    {Get(Buffer::MorphedPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                    {Get(Buffer::MorphPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
                 };
 
                 nri::BarrierDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
@@ -4285,13 +4326,13 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
                 MorphMeshUpdatePrimitivesConstants constants = {};
                 {
-                    constants.gPositionFrameOffsets.x = m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset;
-                    constants.gPositionFrameOffsets.y = m_Scene.morphedVerticesNum * animPrevBufferIndex + meshInstance.morphedVertexOffset;
+                    constants.gPositionFrameOffsets.x = m_Scene.morphVertexNum * animCurrBufferIndex + meshInstance.morphVertexOffset;
+                    constants.gPositionFrameOffsets.y = m_Scene.morphVertexNum * animPrevBufferIndex + meshInstance.morphVertexOffset;
                     constants.gNumPrimitives = numPrimitives;
                     constants.gIndexOffset = mesh.morphMeshIndexOffset;
-                    constants.gAttributesOffset = meshInstance.morphedVertexOffset;
+                    constants.gAttributesOffset = meshInstance.morphVertexOffset;
                     constants.gPrimitiveOffset = meshInstance.primitiveOffset;
-                    constants.gMorphedPrimitiveOffset = meshInstance.morphedPrimitiveOffset;
+                    constants.gMorphPrimitiveOffset = meshInstance.morphPrimitiveOffset;
                 }
 
                 uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
@@ -4320,9 +4361,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 nri::BottomLevelGeometryDesc bottomLevelGeometry = {};
                 bottomLevelGeometry.type = nri::BottomLevelGeometryType::TRIANGLES;
                 bottomLevelGeometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY; // TODO: naively assumed
-                bottomLevelGeometry.triangles.vertexBuffer = Get(Buffer::MorphedPositions);
+                bottomLevelGeometry.triangles.vertexBuffer = Get(Buffer::MorphPositions);
                 bottomLevelGeometry.triangles.vertexStride = sizeof(float16_t4);
-                bottomLevelGeometry.triangles.vertexOffset = bottomLevelGeometry.triangles.vertexStride * (m_Scene.morphedVerticesNum * animCurrBufferIndex + meshInstance.morphedVertexOffset);
+                bottomLevelGeometry.triangles.vertexOffset = bottomLevelGeometry.triangles.vertexStride * (m_Scene.morphVertexNum * animCurrBufferIndex + meshInstance.morphVertexOffset);
                 bottomLevelGeometry.triangles.vertexNum = mesh.vertexNum;
                 bottomLevelGeometry.triangles.vertexFormat = nri::Format::RGBA16_SFLOAT;
                 bottomLevelGeometry.triangles.indexBuffer = Get(Buffer::MorphMeshIndices);
@@ -4353,7 +4394,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             { // Transitions
                 const nri::BufferBarrierDesc bufferTransitions[] = {
                     {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                    {Get(Buffer::MorphedPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
+                    {Get(Buffer::MorphPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
                 };
 
                 nri::BarrierDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
@@ -4844,8 +4885,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         helper::Annotation annotation(NRI, commandBuffer, "Copy to back buffer");
 
         const nri::TextureBarrierDesc transitions[] = {
-            nri::TextureBarrierFromState(GetState(Texture::Final), {nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE}),
-            nri::TextureBarrierFromUnknown(swapChainTexture.texture, {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION}),
+            TextureBarrierFromState(GetState(Texture::Final), {nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE}),
+            TextureBarrierFromUnknown(swapChainTexture.texture, {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION}),
         };
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, transitions, (uint16_t)helper::GetCountOf(transitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
@@ -4874,7 +4915,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         }
         NRI.CmdEndRendering(commandBuffer);
 
-        const nri::TextureBarrierDesc after = nri::TextureBarrierFromState(before, {nri::AccessBits::NONE, nri::Layout::PRESENT, nri::StageBits::ALL});
+        const nri::TextureBarrierDesc after = TextureBarrierFromState(before, {nri::AccessBits::NONE, nri::Layout::PRESENT, nri::StageBits::NONE});
         transitionBarriers = {nullptr, 0, nullptr, 0, &after, 1};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
     }

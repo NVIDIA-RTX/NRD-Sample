@@ -7,8 +7,8 @@
 NRI_RESOURCE( StructuredBuffer<MorphVertex>, gIn_MorphMeshVertices, t, 0, SET_MORPH );
 
 // Outputs
-NRI_RESOURCE( RWStructuredBuffer<float16_t4>, gOut_MorphedPositions, u, 0, SET_MORPH );
-NRI_RESOURCE( RWStructuredBuffer<MorphedAttributes>, gOut_MorphedAttributes, u, 1, SET_MORPH );
+NRI_RESOURCE( RWStructuredBuffer<float16_t4>, gOut_MorphPositions, u, 0, SET_MORPH );
+NRI_RESOURCE( RWStructuredBuffer<MorphAttributes>, gOut_MorphAttributes, u, 1, SET_MORPH );
 
 [numthreads( LINEAR_BLOCK_SIZE, 1, 1 )]
 void main( uint vertexIndex : SV_DispatchThreadId )
@@ -38,11 +38,11 @@ void main( uint vertexIndex : SV_DispatchThreadId )
         T += Packing::DecodeUnitVector( ( float2 )v.T, true, true ) * weight;
     }
 
-    gOut_MorphedPositions[ gPositionCurrFrameOffset + vertexIndex] = float16_t4( position, 1.0 );
+    gOut_MorphPositions[ gPositionCurrFrameOffset + vertexIndex] = float16_t4( position, 1.0 );
 
-    MorphedAttributes attributes = ( MorphedAttributes )0;
+    MorphAttributes attributes = ( MorphAttributes )0;
     attributes.N = ( float16_t2 )Packing::EncodeUnitVector( normalize( N ), true );
     attributes.T = ( float16_t2 )Packing::EncodeUnitVector( normalize( T ), true );
 
-    gOut_MorphedAttributes[ gAttributesOutputOffset + vertexIndex ] = attributes;
+    gOut_MorphAttributes[ gAttributesOutputOffset + vertexIndex ] = attributes;
 }

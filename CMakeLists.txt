@@ -11,6 +11,7 @@ endif()
 
 # Options
 option(USE_MINIMAL_DATA "Use minimal '_Data' (90MB)" OFF)
+option(RTXCR_INTEGRATION "Use RTXCR for hair and skin rendering, download sample scene" ON)
 
 set(SHADER_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/_Shaders" CACHE STRING "")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/_Bin" CACHE STRING "")
@@ -79,6 +80,26 @@ FetchContent_Declare(
     GIT_SHALLOW 1
 )
 list(APPEND DEPS sharc)
+
+# RTXCR
+if(RTXCR_INTEGRATION)
+    FetchContent_Declare(
+        rtxcr
+        GIT_REPOSITORY https://github.com/NVIDIA-RTX/RTXCR-Material-Library.git
+        GIT_TAG v1.1.0
+        GIT_SHALLOW 1
+    )
+    list(APPEND DEPS rtxcr)
+
+    FetchContent_Declare(
+        claire
+        GIT_REPOSITORY https://github.com/NVIDIA-RTX/RTXCR-Assets.git
+        GIT_TAG v1.1.0
+        GIT_SHALLOW 1
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_Data/Scenes/Claire"
+    )
+    list(APPEND DEPS claire)
+endif()
 
 if(DEPS)
     message("Downloading dependencies:")
@@ -176,6 +197,8 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     NRI_SOURCE_DIR=${NRI_SOURCE_DIR}/Include
     NRD_SOURCE_DIR=${NRD_SOURCE_DIR}/Shaders/Include
     SHARC_SOURCE_DIR=${sharc_SOURCE_DIR}/include
+    RTXCR_SOURCE_DIR=${rtxcr_SOURCE_DIR}/shaders/include/rtxcr
+    RTXCR_INTEGRATION=$<BOOL:${RTXCR_INTEGRATION}>
 )
 target_compile_options(${PROJECT_NAME} PRIVATE ${COMPILE_OPTIONS})
 
@@ -226,6 +249,10 @@ set(SHADERMAKE_GENERAL_ARGS
     -I "${NRD_SOURCE_DIR}/Shaders/Include"
     -I "${NRI_SOURCE_DIR}/Include"
     -I "${sharc_SOURCE_DIR}/include"
+    -I "${rtxcr_SOURCE_DIR}/shaders/include/rtxcr"
+    -D RTXCR_INTEGRATION=$<BOOL:${RTXCR_INTEGRATION}>
+    --relaxedInclude "HairFarFieldBCSDF.hlsli"
+    --relaxedInclude "SubsurfaceScattering.hlsli"
 )
 
 set(SHADERMAKE_COMMANDS)

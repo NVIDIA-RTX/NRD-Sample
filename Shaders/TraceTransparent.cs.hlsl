@@ -82,9 +82,9 @@ float3 TraceTransparent( TraceTransparentDesc desc )
 
         // TODO: ideally each "medium" should have "eta" and "extinction" parameters in "TraceTransparentDesc" and "TraceOpaqueDesc"
         bool isAir = eta < 1.0;
-        float extinction = isAir ? 0.0 : 1.0; // TODO: tint color? // TODO: 0.01 for "transparent machines"
+        float extinction = isAir ? 0.0 : 1.0; // TODO: tint color?
         if( !geometryProps.IsSky() ) // TODO: fix for non-convex geometry
-            pathThroughput *= exp( -extinction * geometryProps.hitT );
+            pathThroughput *= exp( -extinction * geometryProps.hitT * gUnitToMetersMultiplier );
 
         // Is opaque hit found?
         if( !geometryProps.Has( FLAG_TRANSPARENT ) ) // TODO: stop if pathThroughput is low
@@ -148,7 +148,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         // Cache miss - compute lighting, if not found in caches
         if( Rng::Hash::GetFloat( ) > Lcached.w )
         {
-            float3 L = GetShadowedLighting( geometryProps, materialProps );
+            float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW ) + materialProps.Lemi;
             Lcached.xyz = max( Lcached.xyz, L );
         }
     }
@@ -195,7 +195,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     if( !geometryPropsT.IsSky( ) && geometryPropsT.hitT < tmin0 && gOnScreen == SHOW_FINAL )
     {
         // Append "glass" mask to "hair" mask
-        viewZAndTaaMask = viewZAndTaaMask < 0.0 ? viewZAndTaaMask : -viewZAndTaaMask;
+        viewZAndTaaMask = -abs( viewZAndTaaMask );
 
         // Patch motion vectors replacing MV for the background with MV for the closest glass layer.
         // IMPORTANT: surface-based motion can be used only if the object is curved.

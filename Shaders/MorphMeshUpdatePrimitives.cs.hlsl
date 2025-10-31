@@ -5,12 +5,12 @@
 
 // Inputs
 NRI_RESOURCE( StructuredBuffer<uint>, gIn_MorphMeshIndices, t, 0, SET_MORPH );
-NRI_RESOURCE( StructuredBuffer<float16_t4>, gIn_MorphedPositions, t, 1, SET_MORPH );
-NRI_RESOURCE( StructuredBuffer<MorphedAttributes>, gIn_MorphedAttributes, t, 2, SET_MORPH );
+NRI_RESOURCE( StructuredBuffer<float16_t4>, gIn_MorphPositions, t, 1, SET_MORPH );
+NRI_RESOURCE( StructuredBuffer<MorphAttributes>, gIn_MorphAttributes, t, 2, SET_MORPH );
 
 // Outputs
 NRI_RESOURCE( RWStructuredBuffer<PrimitiveData>, gInOut_PrimitiveData, u, 0, SET_MORPH );
-NRI_RESOURCE( RWStructuredBuffer<MorphedPrimitivePrevPositions>, gOut_PrimitivePrevPositions, u, 1, SET_MORPH );
+NRI_RESOURCE( RWStructuredBuffer<MorphPrimitivePrevPositions>, gOut_PrimitivePrevPositions, u, 1, SET_MORPH );
 
 float ComputeWorldArea( float3 p0, float3 p1, float3 p2 )
 {
@@ -60,17 +60,17 @@ void main( uint primitiveIndex : SV_DispatchThreadId )
     uint i1 = gIn_MorphMeshIndices[ gIndexOffset + primitiveIndex * 3 + 1 ];
     uint i2 = gIn_MorphMeshIndices[ gIndexOffset + primitiveIndex * 3 + 2 ];
 
-    MorphedAttributes a0 = gIn_MorphedAttributes[ gAttributesOffset + i0 ];
-    MorphedAttributes a1 = gIn_MorphedAttributes[ gAttributesOffset + i1 ];
-    MorphedAttributes a2 = gIn_MorphedAttributes[ gAttributesOffset + i2 ];
+    MorphAttributes a0 = gIn_MorphAttributes[ gAttributesOffset + i0 ];
+    MorphAttributes a1 = gIn_MorphAttributes[ gAttributesOffset + i1 ];
+    MorphAttributes a2 = gIn_MorphAttributes[ gAttributesOffset + i2 ];
 
     PrimitiveData result = gInOut_PrimitiveData[ gPrimitiveOffset + primitiveIndex ];
 
     // TODO: not needed for hair because in any case the curvature defined ONLY by hair thickness will be found (not very useful)
     #if 0
-        float3 p0 = gIn_MorphedPositions[ gPositionFrameOffsets.x + i0 ].xyz;
-        float3 p1 = gIn_MorphedPositions[ gPositionFrameOffsets.x + i1 ].xyz;
-        float3 p2 = gIn_MorphedPositions[ gPositionFrameOffsets.x + i2 ].xyz;
+        float3 p0 = gIn_MorphPositions[ gPositionFrameOffsets.x + i0 ].xyz;
+        float3 p1 = gIn_MorphPositions[ gPositionFrameOffsets.x + i1 ].xyz;
+        float3 p2 = gIn_MorphPositions[ gPositionFrameOffsets.x + i2 ].xyz;
 
         float2 uv0 = ( float2 )result.uv0;
         float2 uv1 = ( float2 )result.uv1;
@@ -98,8 +98,8 @@ void main( uint primitiveIndex : SV_DispatchThreadId )
 
     gInOut_PrimitiveData[ gPrimitiveOffset + primitiveIndex ] = result;
 
-    uint index = gMorphedPrimitiveOffset + primitiveIndex;
-    gOut_PrimitivePrevPositions[ index ].pos0 = gIn_MorphedPositions[ gPositionFrameOffsets.y + i0 ];
-    gOut_PrimitivePrevPositions[ index ].pos1 = gIn_MorphedPositions[ gPositionFrameOffsets.y + i1 ];
-    gOut_PrimitivePrevPositions[ index ].pos2 = gIn_MorphedPositions[ gPositionFrameOffsets.y + i2 ];
+    uint index = gMorphPrimitiveOffset + primitiveIndex;
+    gOut_PrimitivePrevPositions[ index ].pos0 = gIn_MorphPositions[ gPositionFrameOffsets.y + i0 ];
+    gOut_PrimitivePrevPositions[ index ].pos1 = gIn_MorphPositions[ gPositionFrameOffsets.y + i1 ];
+    gOut_PrimitivePrevPositions[ index ].pos2 = gIn_MorphPositions[ gPositionFrameOffsets.y + i2 ];
 }
