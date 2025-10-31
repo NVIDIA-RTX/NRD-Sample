@@ -206,8 +206,7 @@ struct PrimitiveData
 struct InstanceData
 {
     // For static: mObjectToWorld
-    // For rigid dynamic: mWorldToWorldPrev
-    // For deformable dynamic: mObjectToWorldPrev
+    // For dynamic: mWorldToWorldPrev
     float4 mOverloadedMatrix0;
     float4 mOverloadedMatrix1;
     float4 mOverloadedMatrix2;
@@ -221,9 +220,9 @@ struct InstanceData
     float scale; // TODO: handling object scale embedded into the transformation matrix (assuming uniform scale), sign represents triangle winding
 
     uint32_t morphPrimitiveOffset;
-    float16_t2 unused1;
-    float16_t2 unused2;
-    float16_t2 unused3;
+    uint32_t unused1;
+    uint32_t unused2;
+    uint32_t unused3;
 };
 
 //===============================================================

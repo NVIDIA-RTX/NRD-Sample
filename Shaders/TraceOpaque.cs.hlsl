@@ -507,10 +507,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                     sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
                     sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
-                    bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
-                    isSharcAllowed &= !geometryProps.Has( FLAG_HAIR ); // ignore if the hit is hair // TODO: if hair don't allow if hitT is too short
+                    bool isSharcAllowed = !geometryProps.Has( FLAG_HAIR ); // ignore if the hit is hair // TODO: if hair don't allow if hitT is too short
                     isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
                     isSharcAllowed &= Rng::Hash::GetFloat( ) < ( bounce == gBounceNum ? 1.0 : footprintNorm ); // is voxel size acceptable?
+                    isSharcAllowed &= gSHARC && NRD_MODE < OCCLUSION; // trivial
 
                     float3 sharcRadiance;
                     if( isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false ) )

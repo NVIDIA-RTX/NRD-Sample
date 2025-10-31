@@ -138,8 +138,8 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
         sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
-        bool isSharcAllowed = gSHARC && NRD_MODE < OCCLUSION; // trivial
-        isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
+        bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
+        isSharcAllowed &= gSHARC && NRD_MODE < OCCLUSION; // trivial
 
         float3 sharcRadiance;
         if (isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false))
