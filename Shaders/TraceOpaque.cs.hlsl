@@ -206,7 +206,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
         bool isDiffusePath = false;
 
         [loop]
-        for( uint bounce = 1; bounce <= gBounceNum && !geometryProps.IsSky( ); bounce++ )
+        for( uint bounce = 1; bounce <= gBounceNum && !geometryProps.IsMiss( ); bounce++ )
         {
             //=============================================================================================================================================================
             // Origin point
@@ -462,7 +462,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                 //=============================================================================================================================================================
 
                 float4 Lcached = float4( materialProps.Lemi, 0.0 );
-                if( !geometryProps.IsSky( ) )
+                if( !geometryProps.IsMiss( ) )
                 {
                     // L1 cache - reproject previous frame, carefully treating specular
                     Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos );
@@ -554,7 +554,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                 // TODO: better find a generic solution for tracking of reflections for objects attached to the camera
                 if( bounce == 1 && !isDiffuse && desc.materialProps.roughness < 0.01 )
                 {
-                    if( !geometryProps.IsSky( ) && !geometryProps.Has( FLAG_STATIC ) )
+                    if( !geometryProps.IsMiss( ) && !geometryProps.Has( FLAG_STATIC ) )
                         gOut_Normal_Roughness[ desc.pixelPos ].w = MATERIAL_ID_SELF_REFLECTION;
                 }
             #endif
@@ -715,11 +715,11 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     float3 V0 = geometryProps0.V;
     float viewZ0 = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
 
-    bool isTaa5x5 = geometryProps0.Has( FLAG_HAIR | FLAG_SKIN ) || geometryProps0.IsSky( ); // switched TAA to "higher quality & slower response" mode
+    bool isTaa5x5 = geometryProps0.Has( FLAG_HAIR | FLAG_SKIN ) || geometryProps0.IsMiss( ); // switched TAA to "higher quality & slower response" mode
     float viewZAndTaaMask0 = abs( viewZ0 ) * FP16_VIEWZ_SCALE * ( isTaa5x5 ? -1.0 : 1.0 );
 
     [loop]
-    while( bounceNum && !geometryProps0.IsSky( ) && IsDelta( materialProps0 ) && gPSR )
+    while( bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) && gPSR )
     {
         { // Origin point
             // Accumulate curvature
@@ -767,7 +767,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
     // ViewZ
     float viewZ = Geometry::AffineTransform( gWorldToView, Xvirtual ).z;
-    viewZ = geometryProps0.IsSky( ) ? Math::Sign( viewZ ) * INF : viewZ;
+    viewZ = geometryProps0.IsMiss( ) ? Math::Sign( viewZ ) * INF : viewZ;
 
     gOut_ViewZ[ pixelPos ] = viewZ;
 
@@ -775,7 +775,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     gOut_DirectEmission[ pixelPos ] = materialProps0.Lemi * psrThroughput;
 
     // Early out
-    if( geometryProps0.IsSky( ) )
+    if( geometryProps0.IsMiss( ) )
     {
     #if( USE_INF_STRESS_TEST == 1 )
         WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
@@ -840,7 +840,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
     // Lighting at PSR hit, if found
     float4 Lpsr = 0;
-    if( !geometryProps0.IsSky( ) && bounceNum != PT_PSR_BOUNCES_NUM )
+    if( !geometryProps0.IsMiss( ) && bounceNum != PT_PSR_BOUNCES_NUM )
     {
         // L1 cache - reproject previous frame, carefully treating specular
         Lpsr = GetRadianceFromPreviousFrame( geometryProps0, materialProps0, pixelPos );
@@ -904,7 +904,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         shadowHitDist += geometryPropsShadow.hitT;
 
         // Terminate on miss ( before updating translucency! )
-        if( geometryPropsShadow.IsSky( ) )
+        if( geometryPropsShadow.IsMiss( ) )
             break;
 
         // ( Biased ) Cheap approximation of shadows through glass

@@ -186,7 +186,7 @@ void Trace( GeometryProps geometryProps )
         { // Update SHARC cache
             SharcSetThroughput( sharcState, throughput );
 
-            if( geometryProps.IsSky( ) )
+            if( geometryProps.IsMiss( ) )
             {
                 SharcUpdateMiss( sharcParams, sharcState, materialProps.Lemi );
                 break;
@@ -238,7 +238,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         bool isGlass = geometryProps.Has( FLAG_TRANSPARENT );
         bool isDelta = IsDelta( materialProps ); // TODO: verify corner cases
 
-        if( !( isGlass || isDelta ) || geometryProps.IsSky( ) )
+        if( !( isGlass || isDelta ) || geometryProps.IsMiss( ) )
             break;
 
         // Reflection or refraction?
@@ -251,6 +251,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     }
 
     // Opaque path
-    if( !geometryProps.IsSky( ) )
+    if( !geometryProps.IsMiss( ) )
         Trace( geometryProps ); // TODO: looping this for 4-8 iterations helps to improve cache quality, but it's expensive
 }

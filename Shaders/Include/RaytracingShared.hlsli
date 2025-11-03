@@ -111,7 +111,7 @@ struct GeometryProps
     float3 GetForcedEmissionColor( )
     { return ( ( textureOffsetAndFlags >> 2 ) & 0x1 ) ? float3( 1.0, 0.0, 0.0 ) : float3( 0.0, 1.0, 0.0 ); }
 
-    bool IsSky( )
+    bool IsMiss( )
     { return hitT == INF; }
 };
 
@@ -411,7 +411,7 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
 
     // Fast path for miss and hair
     [branch]
-    if( geometryProps.IsSky( ) )
+    if( geometryProps.IsMiss( ) )
     {
         props.Lemi = GetSkyIntensity( -geometryProps.V );
 
@@ -623,7 +623,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, 0.0 );
                 geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS ); // TODO: project to g-buffer?
 
-                if( !geometryProps.IsSky( ) && geometryProps.Has( FLAG_SKIN ) ) // TODO: another try is needed if this fails, but we can fallback to diffuse without SSS
+                if( !geometryProps.IsMiss( ) && geometryProps.Has( FLAG_SKIN ) ) // TODO: another try is needed if this fails, but we can fallback to diffuse without SSS
                 {
                     Xshadow = geometryProps.X;
                     materialProps = GetMaterialProps( geometryProps );
@@ -793,7 +793,7 @@ float ReprojectIrradiance(
     }
 
     // Ignore sky
-    weight *= float( !geometryProps.IsSky( ) );
+    weight *= float( !geometryProps.IsMiss( ) );
 
     // Use only if radiance is on the screen
     weight *= float( gOnScreen < SHOW_AMBIENT_OCCLUSION );

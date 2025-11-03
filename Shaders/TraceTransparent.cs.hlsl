@@ -83,7 +83,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         // TODO: ideally each "medium" should have "eta" and "extinction" parameters in "TraceTransparentDesc" and "TraceOpaqueDesc"
         bool isAir = eta < 1.0;
         float extinction = isAir ? 0.0 : 1.0; // TODO: tint color?
-        if( !geometryProps.IsSky() ) // TODO: fix for non-convex geometry
+        if( !geometryProps.IsMiss() ) // TODO: fix for non-convex geometry
             pathThroughput *= exp( -extinction * geometryProps.hitT * gUnitToMetersMultiplier );
 
         // Is opaque hit found?
@@ -95,7 +95,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
     MaterialProps materialProps = GetMaterialProps( geometryProps );
 
     float4 Lcached = float4( materialProps.Lemi, 0.0 );
-    if( !geometryProps.IsSky( ) )
+    if( !geometryProps.IsMiss( ) )
     {
         // L1 cache - reproject previous frame, carefully treating specular
         float3 prevLdiff, prevLspec;
@@ -192,7 +192,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmin0, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_TRANSPARENT, 0 );
 
     // Trace delta events
-    if( !geometryPropsT.IsSky( ) && geometryPropsT.hitT < tmin0 && gOnScreen == SHOW_FINAL )
+    if( !geometryPropsT.IsMiss( ) && geometryPropsT.hitT < tmin0 && gOnScreen == SHOW_FINAL )
     {
         // Append "glass" mask to "hair" mask
         viewZAndTaaMask = -abs( viewZAndTaaMask );
