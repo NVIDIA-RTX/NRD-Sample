@@ -248,7 +248,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                 // Choose a ray
                 float3 ray = 0;
                 {
-
                     float3x3 mLocalBasis = geometryProps.Has( FLAG_HAIR ) ? Hair_GetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
                     float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
 
@@ -274,8 +273,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                         if( geometryProps.Has( FLAG_HAIR ) )
                         {
                             float2 rand[2] = { Rng::Hash::GetFloat2( ), Rng::Hash::GetFloat2( ) };
-                            float h = 2.0 * Rng::Hash::GetFloat( ) - 1.0;
-                            float lobeRandom = Rng::Hash::GetFloat( );
 
                             float3 specular = 0.0;
                             float3 diffuse = 0.0;
@@ -283,7 +280,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
 
                             RTXCR_HairInteractionSurface hairSurface = Hair_GetSurface( Vlocal );
                             RTXCR_HairMaterialInteractionBcsdf hairMaterial = Hair_GetMaterial( );
-                            RTXCR_SampleFarFieldBcsdf( hairSurface, hairMaterial, Vlocal, h, lobeRandom, rand, candidateRayLocal, specular, diffuse, pdf );
+                        RTXCR_SampleFarFieldBcsdf( hairSurface, hairMaterial, Vlocal, 2.0 * rnd.x - 1.0, rnd.y, rand, candidateRayLocal, specular, diffuse, pdf );
                         }
                         else
                     #endif
@@ -314,7 +311,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                     }
 
                     // Adjust throughput by percentage of rays hitting any emissive surface
-                    // IMPORTANT: do not modify throughput if there is no a hit, it's needed to cast a non-IS ray and get correct AO / SO at least
+                    // IMPORTANT: do not modify throughput if there is no an emissive hit, it's needed for a non-IS ray
                     if( samplesNum != 0 )
                         pathThroughput *= float( samplesNum ) / float( importanceSampleMaxNum );
 
