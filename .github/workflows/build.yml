@@ -38,7 +38,9 @@ jobs:
         uses: seanmiddleditch/gha-setup-ninja@master
 
       - name: Install dependencies
-        run: sudo apt install -y xserver-xorg-dev libwayland-dev
+        run: |
+          sudo apt-get install -y xserver-xorg-dev libwayland-dev
+          sudo apt-get update
 
       - name: Deploy
         run: bash 1-Deploy.sh
