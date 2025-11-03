@@ -129,17 +129,17 @@ struct PrimitiveData
     float16_t2 uv0;
     float16_t2 uv1;
     float16_t2 uv2;
-    float16_t2 n0;
+    float worldArea;
 
+    float16_t2 n0;
     float16_t2 n1;
     float16_t2 n2;
+    float uvArea;
+
     float16_t2 t0;
     float16_t2 t1;
-
     float16_t2 t2;
-    float16_t2 bitangentSign_unused;
-    float worldArea;
-    float uvArea;
+    float bitangentSign;
 };
 
 struct InstanceData

@@ -57,7 +57,10 @@ RTXCR_HairMaterialInteractionBcsdf Hair_GetMaterial( )
     hairMaterialData.eta = 1.0 / hairMaterialData.ior;
     hairMaterialData.fresnelApproximation = 1;
 
-    return RTXCR_CreateHairMaterialInteractionBcsdf( hairMaterialData, 0.01, 0.35, hairMaterialData.longitudinalRoughness );
+    const float3 diffuseTint = gHairBaseColor.xyz;
+    const float diffuseWeight = 0.2;
+
+    return RTXCR_CreateHairMaterialInteractionBcsdf( hairMaterialData, diffuseTint, diffuseWeight, hairMaterialData.longitudinalRoughness );
 }
 
 RTXCR_HairInteractionSurface Hair_GetSurface( float3 Vlocal )
@@ -368,7 +371,7 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
         float3 T = barycentrics.x * t0 + barycentrics.y * t1 + barycentrics.z * t2;
         T = Geometry::RotateVector( mObjectToWorld, T );
         T = normalize( T );
-        props.T = float4( T, primitiveData.bitangentSign_unused.x );
+        props.T = float4( T, primitiveData.bitangentSign );
 
         props.X = origin + direction * props.hitT;
         if( !props.Has( FLAG_STATIC ) )
@@ -599,7 +602,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
                 RTXCR_SubsurfaceMaterialData sssMaterial = ( RTXCR_SubsurfaceMaterialData )0;
                 sssMaterial.transmissionColor = albedo;
                 sssMaterial.scatteringColor = float3( 1.0, 0.3, 0.1 );
-                sssMaterial.scale = 40.0; // TODO: cm, units dependent!
+                sssMaterial.scale = 0.4 / gUnitToMetersMultiplier; // TODO: units dependent! cm!
                 sssMaterial.g = 0.0;
 
                 float3 Xoffset = geometryProps.GetXoffset( geometryProps.N, PT_SHADOW_RAY_OFFSET );
@@ -609,7 +612,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
                 const bool TRANSMISSION = false; // no expensive transmission, i.e. single scattering
 
                 RTXCR_SubsurfaceSample sssSample;
-                RTXCR_EvalBurleyDiffusionProfile( sssMaterial, sssGeometry, 0.4, TRANSMISSION, Rng::Hash::GetFloat2( ), sssSample ); // TODO: 0.4 m, units dependent!
+                RTXCR_EvalBurleyDiffusionProfile( sssMaterial, sssGeometry, 0.004 / gUnitToMetersMultiplier, TRANSMISSION, Rng::Hash::GetFloat2( ), sssSample ); // TODO: units dependent! m?
 
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, 0.0 );
                 geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS ); // TODO: project to g-buffer?

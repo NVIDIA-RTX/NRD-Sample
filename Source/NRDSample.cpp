@@ -170,7 +170,7 @@ enum class Descriptor : uint32_t {
     World_AccelerationStructure,
     Light_AccelerationStructure,
 
-    Global_ConstantBuffer,
+    Constant_Buffer,
     InstanceData_Buffer,
     PrimitiveData_Buffer,
     PrimitiveData_StorageBuffer,
@@ -2745,15 +2745,17 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     for (const utils::Texture* texture : m_Scene.textures)
         CreateTexture(descriptorDescs, "", texture->GetFormat(), texture->GetWidth(), texture->GetHeight(), texture->GetMipNum(), texture->GetArraySize(), nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::NONE);
 
-    // Descriptors: constant buffers
+    // Descriptors: Constant_Buffer
     nri::Descriptor* descriptor = nullptr;
     {
         const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
 
+        size_t maxSize = sizeof(GlobalConstants);
+
         nri::BufferViewDesc constantBufferViewDesc = {};
         constantBufferViewDesc.viewType = nri::BufferViewType::CONSTANT;
         constantBufferViewDesc.buffer = NRI.GetStreamerConstantBuffer(*m_Streamer);
-        constantBufferViewDesc.size = helper::Align(sizeof(GlobalConstants), deviceDesc.memoryAlignment.constantBufferOffset);
+        constantBufferViewDesc.size = helper::Align((uint32_t)maxSize, deviceDesc.memoryAlignment.constantBufferOffset);
 
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
         m_Descriptors.push_back(descriptor);
@@ -3109,23 +3111,22 @@ void Sample::UploadStaticData() {
             float2 t2 = Packing::EncodeUnitVector(float3(v2.T) + 1e-6f, true);
 
             PrimitiveData& data = primitiveData[meshInstance.primitiveOffset + j];
+            const utils::Primitive& primitive = m_Scene.primitives[staticPrimitiveIndex];
+
             data.uv0 = Packing::float2_to_float16_t2(float2(v0.uv[0], v0.uv[1]));
             data.uv1 = Packing::float2_to_float16_t2(float2(v1.uv[0], v1.uv[1]));
             data.uv2 = Packing::float2_to_float16_t2(float2(v2.uv[0], v2.uv[1]));
+            data.worldArea = primitive.worldArea;
 
             data.n0 = Packing::float2_to_float16_t2(float2(n0.x, n0.y));
             data.n1 = Packing::float2_to_float16_t2(float2(n1.x, n1.y));
             data.n2 = Packing::float2_to_float16_t2(float2(n2.x, n2.y));
+            data.uvArea = primitive.uvArea;
 
             data.t0 = Packing::float2_to_float16_t2(float2(t0.x, t0.y));
             data.t1 = Packing::float2_to_float16_t2(float2(t1.x, t1.y));
             data.t2 = Packing::float2_to_float16_t2(float2(t2.x, t2.y));
-
-            data.bitangentSign_unused = Packing::float2_to_float16_t2(float2(v0.T[3], 0.0f));
-
-            const utils::Primitive& primitive = m_Scene.primitives[staticPrimitiveIndex];
-            data.worldArea = primitive.worldArea;
-            data.uvArea = primitive.uvArea;
+            data.bitangentSign = v0.T[3];
         }
     }
 
@@ -3553,7 +3554,7 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
     NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
     NRI.CmdSetPipelineLayout(commandBuffer, nri::BindPoint::COMPUTE, *m_PipelineLayout);
 
-    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::Global_ConstantBuffer), m_GlobalConstantBufferOffset};
+    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::Constant_Buffer), m_GlobalConstantBufferOffset};
     NRI.CmdSetRootDescriptor(commandBuffer, root0);
 
     // TODO: ray tracing related resources are not always needed, but absence of root descriptors leads to a silent crash inside VK validation
