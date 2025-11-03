@@ -428,8 +428,7 @@ struct AnimatedInstance {
     }
 };
 
-static inline nri::TextureBarrierDesc TextureBarrierFromUnknown(nri::Texture* texture, nri::AccessLayoutStage after)
-{
+static inline nri::TextureBarrierDesc TextureBarrierFromUnknown(nri::Texture* texture, nri::AccessLayoutStage after) {
     nri::TextureBarrierDesc textureBarrier = {};
     textureBarrier.texture = texture;
     textureBarrier.before.access = nri::AccessBits::NONE;
@@ -440,8 +439,7 @@ static inline nri::TextureBarrierDesc TextureBarrierFromUnknown(nri::Texture* te
     return textureBarrier;
 }
 
-static inline nri::TextureBarrierDesc TextureBarrierFromState(nri::TextureBarrierDesc& prevState, nri::AccessLayoutStage after)
-{
+static inline nri::TextureBarrierDesc TextureBarrierFromState(nri::TextureBarrierDesc& prevState, nri::AccessLayoutStage after) {
     prevState.before = prevState.after;
     prevState.after = after;
 
@@ -3558,13 +3556,10 @@ void Sample::CreateDescriptorSets() {
     }
 
     { // DescriptorSet::MorphTargetPose
-        const nri::Descriptor* resources[] =
-        {
-            Get(Descriptor::MorphMeshVertices_Buffer)
-        };
+        const nri::Descriptor* resources[] = {
+            Get(Descriptor::MorphMeshVertices_Buffer)};
 
-        const nri::Descriptor* storageResources[] =
-        {
+        const nri::Descriptor* storageResources[] = {
             Get(Descriptor::MorphPositions_StorageBuffer),
             Get(Descriptor::MorphAttributes_StorageBuffer),
         };
@@ -3572,37 +3567,29 @@ void Sample::CreateDescriptorSets() {
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_MORPH, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] =
-        {
-            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources) },
-            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources) }
-        };
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)}};
 
         NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }
 
     { // DescriptorSet::MorphTargetUpdatePrimitives
-        const nri::Descriptor* resources[] =
-        {
+        const nri::Descriptor* resources[] = {
             Get(Descriptor::MorphMeshIndices_Buffer),
             Get(Descriptor::MorphPositions_Buffer),
-            Get(Descriptor::MorphAttributes_Buffer)
-        };
+            Get(Descriptor::MorphAttributes_Buffer)};
 
-        const nri::Descriptor* storageResources[] =
-        {
+        const nri::Descriptor* storageResources[] = {
             Get(Descriptor::PrimitiveData_StorageBuffer),
-            Get(Descriptor::MorphPrimitivePrevData_StorageBuffer)
-        };
+            Get(Descriptor::MorphPrimitivePrevData_StorageBuffer)};
 
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_MORPH, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
 
-        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] =
-        {
-            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources) },
-            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources) }
-        };
+        const nri::UpdateDescriptorRangeDesc descriptorRangeUpdateDesc[] = {
+            {descriptorSet, 0, 0, resources, helper::GetCountOf(resources)},
+            {descriptorSet, 1, 0, storageResources, helper::GetCountOf(storageResources)}};
 
         NRI.UpdateDescriptorRanges(descriptorRangeUpdateDesc, helper::GetCountOf(descriptorRangeUpdateDesc));
     }

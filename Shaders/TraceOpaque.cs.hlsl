@@ -145,31 +145,31 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
         }
     }
 
-    if( USE_SHARC_DEBUG != 0 )
-    {
-        HashGridParameters hashGridParams;
-        hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-        hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-        hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-        hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+    // SHARC debug visualization
+#if( USE_SHARC_DEBUG != 0 )
+    HashGridParameters hashGridParams;
+    hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
+    hashGridParams.sceneScale = SHARC_SCENE_SCALE;
+    hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+    hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
 
-        SharcHitData sharcHitData;
-        sharcHitData.positionWorld = GetGlobalPos( geometryProps0.X );
-        sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps0, materialProps0 );
-        sharcHitData.normalWorld = geometryProps0.N;
-        sharcHitData.emissive = materialProps0.Lemi;
+    SharcHitData sharcHitData;
+    sharcHitData.positionWorld = GetGlobalPos( geometryProps0.X );
+    sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps0, materialProps0 );
+    sharcHitData.normalWorld = geometryProps0.N;
+    sharcHitData.emissive = materialProps0.Lemi;
 
-        HashMapData hashMapData;
-        hashMapData.capacity = SHARC_CAPACITY;
-        hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+    HashMapData hashMapData;
+    hashMapData.capacity = SHARC_CAPACITY;
+    hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
 
-        SharcParameters sharcParams;
-        sharcParams.gridParameters = hashGridParams;
-        sharcParams.hashMapData = hashMapData;
-        sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-        sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
-        sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
-        sharcParams.resolvedBuffer = gInOut_SharcResolved;
+    SharcParameters sharcParams;
+    sharcParams.gridParameters = hashGridParams;
+    sharcParams.hashMapData = hashMapData;
+    sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
+    sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
+    sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
+    sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
     #if( USE_SHARC_DEBUG == 2 )
         result.diffRadiance = HashGridDebugColoredHash( sharcHitData.positionWorld, hashGridParams );
@@ -180,10 +180,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
         // result.diffRadiance = isValid ?  result.diffRadiance : float3( 1.0, 0.0, 0.0 );
     #endif
 
-        result.diffRadiance /= diffFactor0;
+    result.diffRadiance /= diffFactor0;
 
-        return result;
-    }
+    return result;
+#endif
 
     uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
     uint pathNum = gSampleNum << (gTracingMode == RESOLUTION_FULL ? 1 : 0);
@@ -407,7 +407,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                 }
             #endif
 
-                // Abort if expected contribution of the current bounce is low
+                // Abort tracing if the current bounce contribution is low
             #if( USE_RUSSIAN_ROULETTE == 1 )
                 /*
                 BAD PRACTICE:
@@ -568,7 +568,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
             Lsum = Color::ColorizeZucconi( mipNorm );
         }
 
-        // Normalize hit distances for REBLUR and REFERENCE ( needed only for AO ) before averaging
+        // Normalize hit distances for REBLUR before averaging ( needed only for AO for REFERENCE )
         float normHitDist = accumulatedHitDist;
         if( gDenoiserType != DENOISER_RELAX )
             normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistParams, isDiffusePath ? 1.0 : materialProps0.roughness );
