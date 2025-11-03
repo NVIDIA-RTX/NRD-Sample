@@ -4,7 +4,7 @@ NRI_RESOURCE( RaytracingAccelerationStructure, gWorldTlas, t, 0, SET_ROOT );
 NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_ROOT );
 NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_ROOT );
 NRI_RESOURCE( StructuredBuffer<PrimitiveData>, gIn_PrimitiveData, t, 3, SET_ROOT );
-NRI_RESOURCE( StructuredBuffer<MorphPrimitivePrevPositions>, gIn_MorphPrimitivePrevPositions, t, 4, SET_ROOT );
+NRI_RESOURCE( StructuredBuffer<MorphPrimitivePositions>, gIn_MorphPrimitivePositionsPrev, t, 4, SET_ROOT );
 
 NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 0, SET_RAY_TRACING );
 
@@ -58,7 +58,10 @@ RTXCR_HairMaterialInteractionBcsdf Hair_GetMaterial( )
     hairMaterialData.eta = 1.0 / hairMaterialData.ior;
     hairMaterialData.fresnelApproximation = 1;
 
-    return RTXCR_CreateHairMaterialInteractionBcsdf( hairMaterialData, 0.01, 0.35, hairMaterialData.longitudinalRoughness );
+    const float3 diffuseTint = gHairBaseColor.xyz;
+    const float diffuseWeight = 0.2;
+
+    return RTXCR_CreateHairMaterialInteractionBcsdf( hairMaterialData, diffuseTint, diffuseWeight, hairMaterialData.longitudinalRoughness );
 }
 
 RTXCR_HairInteractionSurface Hair_GetSurface( float3 Vlocal )
@@ -369,12 +372,12 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
         float3 T = barycentrics.x * t0 + barycentrics.y * t1 + barycentrics.z * t2;
         T = Geometry::RotateVector( mObjectToWorld, T );
         T = normalize( T );
-        props.T = float4( T, primitiveData.bitangentSign_unused.x );
+        props.T = float4( T, primitiveData.bitangentSign );
 
         props.X = origin + direction * props.hitT;
         if( props.Has( FLAG_MORPH ) )
         {
-            MorphPrimitivePrevPositions prev = gIn_MorphPrimitivePrevPositions[ instanceData.morphPrimitiveOffset + rayQuery.CommittedPrimitiveIndex( ) ];
+            MorphPrimitivePositions prev = gIn_MorphPrimitivePositionsPrev[ instanceData.morphPrimitiveOffset + rayQuery.CommittedPrimitiveIndex( ) ];
 
             float3 XprevLocal = barycentrics.x * prev.pos0.xyz + barycentrics.y * prev.pos1.xyz + barycentrics.z * prev.pos2.xyz;
             props.Xprev = Geometry::AffineTransform( mOverloaded, XprevLocal );
@@ -608,7 +611,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
                 RTXCR_SubsurfaceMaterialData sssMaterial = ( RTXCR_SubsurfaceMaterialData )0;
                 sssMaterial.transmissionColor = albedo;
                 sssMaterial.scatteringColor = float3( 1.0, 0.3, 0.1 );
-                sssMaterial.scale = 40.0; // TODO: cm, units dependent!
+                sssMaterial.scale = 0.4 / gUnitToMetersMultiplier; // TODO: units dependent! cm!
                 sssMaterial.g = 0.0;
 
                 float3 Xoffset = geometryProps.GetXoffset( geometryProps.N, PT_SHADOW_RAY_OFFSET );
@@ -618,7 +621,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
                 const bool TRANSMISSION = false; // no expensive transmission, i.e. single scattering
 
                 RTXCR_SubsurfaceSample sssSample;
-                RTXCR_EvalBurleyDiffusionProfile( sssMaterial, sssGeometry, 0.4, TRANSMISSION, Rng::Hash::GetFloat2( ), sssSample ); // TODO: 0.4 m, units dependent!
+                RTXCR_EvalBurleyDiffusionProfile( sssMaterial, sssGeometry, 0.004 / gUnitToMetersMultiplier, TRANSMISSION, Rng::Hash::GetFloat2( ), sssSample ); // TODO: units dependent! m?
 
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, 0.0 );
                 geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS ); // TODO: project to g-buffer?

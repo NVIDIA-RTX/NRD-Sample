@@ -252,6 +252,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                     float3x3 mLocalBasis = geometryProps.Has( FLAG_HAIR ) ? Hair_GetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
                     float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
 
+                    // This is not needed in case of "RESOLUTION_FULL_PROBABILISTIC", since hair doesn't have diffuse component
+                    if( geometryProps.Has( FLAG_HAIR ) && isDiffuse )
+                        break;
+
                     // Importance sampling
                     float3 rayLocal = 0;
                     uint samplesNum = 0;
@@ -269,9 +273,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                     #if( RTXCR_INTEGRATION == 1 )
                         if( geometryProps.Has( FLAG_HAIR ) )
                         {
-                            if( isDiffuse )
-                                break; // TODO: this is not needed in case of "RESOLUTION_FULL_PROBABILISTIC", since hair doesn't have diffuse component
-
                             float2 rand[2] = { Rng::Hash::GetFloat2( ), Rng::Hash::GetFloat2( ) };
                             float h = 2.0 * Rng::Hash::GetFloat( ) - 1.0;
                             float lobeRandom = Rng::Hash::GetFloat( );

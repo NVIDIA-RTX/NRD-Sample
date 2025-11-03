@@ -112,7 +112,7 @@ enum class Buffer : uint32_t {
     MorphMeshVertices,
     MorphPositions,
     MorphAttributes,
-    MorphPrimitivePrevPositions,
+    MorphPrimitivePositions,
     MorphMeshScratch,
     InstanceData,
     PrimitiveData,
@@ -190,17 +190,15 @@ enum class Descriptor : uint32_t {
     World_AccelerationStructure,
     Light_AccelerationStructure,
 
-    Global_ConstantBuffer,
-    MorphTargetPose_ConstantBuffer,
-    MorphTargetUpdatePrimitives_ConstantBuffer,
+    Constant_buffer,
     MorphMeshIndices_Buffer,
     MorphMeshVertices_Buffer,
     MorphPositions_Buffer,
     MorphPositions_StorageBuffer,
     MorphAttributes_Buffer,
     MorphAttributes_StorageBuffer,
-    MorphPrimitivePrevData_Buffer,
-    MorphPrimitivePrevData_StorageBuffer,
+    MorphPrimitivePositions_Buffer,
+    MorphPrimitivePositions_StorageBuffer,
     InstanceData_Buffer,
     PrimitiveData_Buffer,
     PrimitiveData_StorageBuffer,
@@ -3165,7 +3163,7 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
     CreateBuffer(descriptorDescs, "Buffer::MorphAttributes", nri::Format::UNKNOWN, m_Scene.morphVertexNum, sizeof(MorphAttributes),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-    CreateBuffer(descriptorDescs, "Buffer::MorphPrimitivePrevPositions", nri::Format::UNKNOWN, m_Scene.morphPrimitiveNum, sizeof(MorphPrimitivePrevPositions),
+    CreateBuffer(descriptorDescs, "Buffer::MorphPrimitivePositions", nri::Format::UNKNOWN, m_Scene.morphPrimitiveNum, sizeof(MorphPrimitivePositions),
         nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(descriptorDescs, "Buffer::MorphMeshScratch", nri::Format::UNKNOWN, m_MorphMeshScratchSize, 1,
         nri::BufferUsageBits::SCRATCH_BUFFER);
@@ -3257,24 +3255,20 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     for (const utils::Texture* texture : m_Scene.textures)
         CreateTexture(descriptorDescs, "", texture->GetFormat(), texture->GetWidth(), texture->GetHeight(), texture->GetMipNum(), texture->GetArraySize(), nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::NONE);
 
-    // Descriptors: constant buffers
+    // Descriptors: Constant_buffer
     nri::Descriptor* descriptor = nullptr;
     {
         const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
 
+        size_t maxSize = sizeof(GlobalConstants);
+        maxSize = std::max(maxSize, sizeof(MorphMeshUpdateVerticesConstants));
+        maxSize = std::max(maxSize, sizeof(MorphMeshUpdatePrimitivesConstants));
+
         nri::BufferViewDesc constantBufferViewDesc = {};
         constantBufferViewDesc.viewType = nri::BufferViewType::CONSTANT;
         constantBufferViewDesc.buffer = NRI.GetStreamerConstantBuffer(*m_Streamer);
-        constantBufferViewDesc.size = helper::Align(sizeof(GlobalConstants), deviceDesc.memoryAlignment.constantBufferOffset);
+        constantBufferViewDesc.size = helper::Align((uint32_t)maxSize, deviceDesc.memoryAlignment.constantBufferOffset);
 
-        NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
-        m_Descriptors.push_back(descriptor);
-
-        constantBufferViewDesc.size = helper::Align(sizeof(MorphMeshUpdateVerticesConstants), deviceDesc.memoryAlignment.constantBufferOffset);
-        NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
-        m_Descriptors.push_back(descriptor);
-
-        constantBufferViewDesc.size = helper::Align(sizeof(MorphMeshUpdatePrimitivesConstants), deviceDesc.memoryAlignment.constantBufferOffset);
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(constantBufferViewDesc, descriptor));
         m_Descriptors.push_back(descriptor);
     }
@@ -3582,7 +3576,7 @@ void Sample::CreateDescriptorSets() {
 
         const nri::Descriptor* storageResources[] = {
             Get(Descriptor::PrimitiveData_StorageBuffer),
-            Get(Descriptor::MorphPrimitivePrevData_StorageBuffer)};
+            Get(Descriptor::MorphPrimitivePositions_StorageBuffer)};
 
         NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_MORPH, &descriptorSet, 1, 0));
         m_DescriptorSets.push_back(descriptorSet);
@@ -3668,23 +3662,22 @@ void Sample::UploadStaticData() {
             float2 t2 = Packing::EncodeUnitVector(float3(v2.T) + 1e-6f, true);
 
             PrimitiveData& data = primitiveData[meshInstance.primitiveOffset + j];
+            const utils::Primitive& primitive = m_Scene.primitives[staticPrimitiveIndex];
+
             data.uv0 = Packing::float2_to_float16_t2(float2(v0.uv[0], v0.uv[1]));
             data.uv1 = Packing::float2_to_float16_t2(float2(v1.uv[0], v1.uv[1]));
             data.uv2 = Packing::float2_to_float16_t2(float2(v2.uv[0], v2.uv[1]));
+            data.worldArea = primitive.worldArea;
 
             data.n0 = Packing::float2_to_float16_t2(float2(n0.x, n0.y));
             data.n1 = Packing::float2_to_float16_t2(float2(n1.x, n1.y));
             data.n2 = Packing::float2_to_float16_t2(float2(n2.x, n2.y));
+            data.uvArea = primitive.uvArea;
 
             data.t0 = Packing::float2_to_float16_t2(float2(t0.x, t0.y));
             data.t1 = Packing::float2_to_float16_t2(float2(t1.x, t1.y));
             data.t2 = Packing::float2_to_float16_t2(float2(t2.x, t2.y));
-
-            data.bitangentSign_unused = Packing::float2_to_float16_t2(float2(v0.T[3], 0.0f));
-
-            const utils::Primitive& primitive = m_Scene.primitives[staticPrimitiveIndex];
-            data.worldArea = primitive.worldArea;
-            data.uvArea = primitive.uvArea;
+            data.bitangentSign = v0.T[3];
         }
     }
 
@@ -4156,7 +4149,7 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
     NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
     NRI.CmdSetPipelineLayout(commandBuffer, nri::BindPoint::COMPUTE, *m_PipelineLayout);
 
-    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::Global_ConstantBuffer), m_GlobalConstantBufferOffset};
+    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::Constant_buffer), m_GlobalConstantBufferOffset};
     NRI.CmdSetRootDescriptor(commandBuffer, root0);
 
     // TODO: ray tracing related resources are not always needed, but absence of root descriptors leads to a silent crash inside VK validation
@@ -4178,7 +4171,7 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
     nri::SetRootDescriptorDesc root4 = {4, Get(Descriptor::PrimitiveData_Buffer)};
     NRI.CmdSetRootDescriptor(commandBuffer, root4);
 
-    nri::SetRootDescriptorDesc root5 = {5, Get(Descriptor::MorphPrimitivePrevData_Buffer)};
+    nri::SetRootDescriptorDesc root5 = {5, Get(Descriptor::MorphPrimitivePositions_Buffer)};
     NRI.CmdSetRootDescriptor(commandBuffer, root5);
 }
 
@@ -4326,9 +4319,10 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                     constants.gAttributesOutputOffset = meshInstance.morphVertexOffset;
                 }
 
-                uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
                 NRI.CmdSetDescriptorSet(commandBuffer, {SET_MORPH, Get(DescriptorSet::MorphTargetPose)});
-                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::MorphTargetPose_ConstantBuffer), dynamicConstantBufferOffset});
+
+                uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
+                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::Constant_buffer), dynamicConstantBufferOffset});
 
                 NRI.CmdDispatch(commandBuffer, {(mesh.vertexNum + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
             }
@@ -4341,7 +4335,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
                     // Output
                     {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
-                    {Get(Buffer::MorphPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
+                    {Get(Buffer::MorphPrimitivePositions), {nri::AccessBits::SHADER_RESOURCE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
                 };
 
                 nri::BarrierDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};
@@ -4370,9 +4364,10 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                     constants.gMorphPrimitiveOffset = meshInstance.morphPrimitiveOffset;
                 }
 
-                uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
                 NRI.CmdSetDescriptorSet(commandBuffer, {SET_MORPH, Get(DescriptorSet::MorphTargetUpdatePrimitives)});
-                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::MorphTargetPose_ConstantBuffer), dynamicConstantBufferOffset});
+
+                uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
+                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::Constant_buffer), dynamicConstantBufferOffset});
 
                 NRI.CmdDispatch(commandBuffer, {(numPrimitives + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
             }
@@ -4429,7 +4424,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             { // Transitions
                 const nri::BufferBarrierDesc bufferTransitions[] = {
                     {Get(Buffer::PrimitiveData), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
-                    {Get(Buffer::MorphPrimitivePrevPositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
+                    {Get(Buffer::MorphPrimitivePositions), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE}},
                 };
 
                 nri::BarrierDesc transitionBarriers = {nullptr, 0, bufferTransitions, helper::GetCountOf(bufferTransitions), nullptr, 0};

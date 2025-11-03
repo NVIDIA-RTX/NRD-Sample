@@ -10,7 +10,7 @@ NRI_RESOURCE( StructuredBuffer<MorphAttributes>, gIn_MorphAttributes, t, 2, SET_
 
 // Outputs
 NRI_RESOURCE( RWStructuredBuffer<PrimitiveData>, gInOut_PrimitiveData, u, 0, SET_MORPH );
-NRI_RESOURCE( RWStructuredBuffer<MorphPrimitivePrevPositions>, gOut_PrimitivePrevPositions, u, 1, SET_MORPH );
+NRI_RESOURCE( RWStructuredBuffer<MorphPrimitivePositions>, gOut_MorphPrimitivePositions, u, 1, SET_MORPH );
 
 float ComputeWorldArea( float3 p0, float3 p1, float3 p2 )
 {
@@ -99,7 +99,7 @@ void main( uint primitiveIndex : SV_DispatchThreadId )
     gInOut_PrimitiveData[ gPrimitiveOffset + primitiveIndex ] = result;
 
     uint index = gMorphPrimitiveOffset + primitiveIndex;
-    gOut_PrimitivePrevPositions[ index ].pos0 = gIn_MorphPositions[ gPositionFrameOffsets.y + i0 ];
-    gOut_PrimitivePrevPositions[ index ].pos1 = gIn_MorphPositions[ gPositionFrameOffsets.y + i1 ];
-    gOut_PrimitivePrevPositions[ index ].pos2 = gIn_MorphPositions[ gPositionFrameOffsets.y + i2 ];
+    gOut_MorphPrimitivePositions[ index ].pos0 = gIn_MorphPositions[ gPositionFrameOffsets.y + i0 ];
+    gOut_MorphPrimitivePositions[ index ].pos1 = gIn_MorphPositions[ gPositionFrameOffsets.y + i1 ];
+    gOut_MorphPrimitivePositions[ index ].pos2 = gIn_MorphPositions[ gPositionFrameOffsets.y + i2 ];
 }
