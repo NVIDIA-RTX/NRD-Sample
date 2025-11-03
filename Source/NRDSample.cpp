@@ -831,16 +831,21 @@ Sample::~Sample() {
 bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
     Rng::Hash::Initialize(m_RngState, 106937, 69);
 
-    nri::AdapterDesc bestAdapterDesc = {};
-    uint32_t adapterDescsNum = 1;
-    NRI_ABORT_ON_FAILURE(nri::nriEnumerateAdapters(&bestAdapterDesc, adapterDescsNum));
+    // Adapters
+    nri::AdapterDesc adapterDesc[4] = {};
+    uint32_t adapterDescsNum = helper::GetCountOf(adapterDesc);
+    NRI_ABORT_ON_FAILURE(nri::nriEnumerateAdapters(adapterDesc, adapterDescsNum));
 
+    // Device
     nri::DeviceCreationDesc deviceCreationDesc = {};
     deviceCreationDesc.graphicsAPI = graphicsAPI;
     deviceCreationDesc.enableGraphicsAPIValidation = m_DebugAPI;
     deviceCreationDesc.enableNRIValidation = m_DebugNRI;
+    deviceCreationDesc.enableD3D11CommandBufferEmulation = D3D11_ENABLE_COMMAND_BUFFER_EMULATION;
+    deviceCreationDesc.disableD3D12EnhancedBarriers = D3D12_DISABLE_ENHANCED_BARRIERS;
     deviceCreationDesc.vkBindingOffsets = VK_BINDING_OFFSETS;
-    deviceCreationDesc.adapterDesc = &bestAdapterDesc;
+    deviceCreationDesc.adapterDesc = &adapterDesc[std::min(m_AdapterIndex, adapterDescsNum - 1)];
+    deviceCreationDesc.allocationCallbacks = m_AllocationCallbacks;
     NRI_ABORT_ON_FAILURE(nri::nriCreateDevice(deviceCreationDesc, m_Device));
 
     NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::CoreInterface), (nri::CoreInterface*)&NRI));

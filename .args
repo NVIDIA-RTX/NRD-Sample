@@ -55,6 +55,12 @@
         },
         {
           "Command": "--alwaysActive"
+        },
+        {
+          "Command": "--adapter=0"
+        },
+        {
+          "Command": "--adapter=1"
         }
       ]
     },
