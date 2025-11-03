@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.30)
 
 include(FetchContent)
+include(CMakeDependentOption)
 
 # Architecture
 if((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64") OR (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64"))
@@ -9,7 +10,7 @@ else()
     set(IS_ARM64 FALSE)
 endif()
 
-# Check for the GITHUB_ACTIONS environment variable
+# GitHub actions?
 if("$ENV{GITHUB_ACTIONS}" STREQUAL "")
     set(GITHUB_CI FALSE CACHE BOOL "GitHub Actions runner" FORCE)
 else()
@@ -18,8 +19,8 @@ else()
 endif()
 
 # Options
-option(USE_MINIMAL_DATA "Use minimal '_Data' (90MB)" GITHUB_CI)
-option(RTXCR_INTEGRATION "Use RTXCR for hair and skin rendering, download sample scene" NOT GITHUB_CI)
+cmake_dependent_option(USE_MINIMAL_DATA "Use minimal '_Data' (90MB)" OFF "GITHUB_CI" ON)
+cmake_dependent_option(RTXCR_INTEGRATION "Use RTXCR for hair and skin rendering, download sample scene" ON "GITHUB_CI" OFF)
 
 set(SHADER_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/_Shaders" CACHE STRING "")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/_Bin" CACHE STRING "")

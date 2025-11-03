@@ -32,7 +32,7 @@ jobs:
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: '3.30.x'
+          cmake-version: 'latest'
 
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@master
