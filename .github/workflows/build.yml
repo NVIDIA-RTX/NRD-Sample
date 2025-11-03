@@ -40,7 +40,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libwayland-dev libxrandr-dev libxinerama-dev libxcursor-dev
+          sudo apt-get install -y libx11-dev libwayland-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
 
       - name: Deploy
         run: bash 1-Deploy.sh
