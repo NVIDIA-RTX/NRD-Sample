@@ -9,9 +9,17 @@ else()
     set(IS_ARM64 FALSE)
 endif()
 
+# Check for the GITHUB_ACTIONS environment variable
+if("$ENV{GITHUB_ACTIONS}" STREQUAL "")
+    set(GITHUB_CI FALSE CACHE BOOL "GitHub Actions runner" FORCE)
+else()
+    set(GITHUB_CI TRUE CACHE BOOL "GitHub Actions runner" FORCE)
+    message(STATUS "Detected environment: GitHub Actions...")
+endif()
+
 # Options
-option(USE_MINIMAL_DATA "Use minimal '_Data' (90MB)" OFF)
-option(RTXCR_INTEGRATION "Use RTXCR for hair and skin rendering, download sample scene" ON)
+option(USE_MINIMAL_DATA "Use minimal '_Data' (90MB)" GITHUB_CI)
+option(RTXCR_INTEGRATION "Use RTXCR for hair and skin rendering, download sample scene" NOT GITHUB_CI)
 
 set(SHADER_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/_Shaders" CACHE STRING "")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/_Bin" CACHE STRING "")
