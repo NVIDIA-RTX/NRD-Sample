@@ -190,7 +190,7 @@ enum class Descriptor : uint32_t {
     World_AccelerationStructure,
     Light_AccelerationStructure,
 
-    Constant_buffer,
+    Constant_Buffer,
     MorphMeshIndices_Buffer,
     MorphMeshVertices_Buffer,
     MorphPositions_Buffer,
@@ -3255,7 +3255,7 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
     for (const utils::Texture* texture : m_Scene.textures)
         CreateTexture(descriptorDescs, "", texture->GetFormat(), texture->GetWidth(), texture->GetHeight(), texture->GetMipNum(), texture->GetArraySize(), nri::TextureUsageBits::SHADER_RESOURCE, nri::AccessBits::NONE);
 
-    // Descriptors: Constant_buffer
+    // Descriptors: Constant_Buffer
     nri::Descriptor* descriptor = nullptr;
     {
         const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
@@ -4149,7 +4149,7 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
     NRI.CmdSetDescriptorPool(commandBuffer, *m_DescriptorPool);
     NRI.CmdSetPipelineLayout(commandBuffer, nri::BindPoint::COMPUTE, *m_PipelineLayout);
 
-    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::Constant_buffer), m_GlobalConstantBufferOffset};
+    nri::SetRootDescriptorDesc root0 = {0, Get(Descriptor::Constant_Buffer), m_GlobalConstantBufferOffset};
     NRI.CmdSetRootDescriptor(commandBuffer, root0);
 
     // TODO: ray tracing related resources are not always needed, but absence of root descriptors leads to a silent crash inside VK validation
@@ -4322,7 +4322,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 NRI.CmdSetDescriptorSet(commandBuffer, {SET_MORPH, Get(DescriptorSet::MorphTargetPose)});
 
                 uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
-                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::Constant_buffer), dynamicConstantBufferOffset});
+                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::Constant_Buffer), dynamicConstantBufferOffset});
 
                 NRI.CmdDispatch(commandBuffer, {(mesh.vertexNum + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
             }
@@ -4367,7 +4367,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 NRI.CmdSetDescriptorSet(commandBuffer, {SET_MORPH, Get(DescriptorSet::MorphTargetUpdatePrimitives)});
 
                 uint32_t dynamicConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
-                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::Constant_buffer), dynamicConstantBufferOffset});
+                NRI.CmdSetRootDescriptor(commandBuffer, {0, Get(Descriptor::Constant_Buffer), dynamicConstantBufferOffset});
 
                 NRI.CmdDispatch(commandBuffer, {(numPrimitives + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
             }
