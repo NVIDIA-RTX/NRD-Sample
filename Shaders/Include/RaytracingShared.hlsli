@@ -656,7 +656,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
 // Compile-time flags for "GenerateRayAndUpdateThroughput"
 #define HAIR 0x1
 
-float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout MaterialProps materialProps, inout float3 throughput, uint sampleMaxNum, bool isDiffuse, uint flags )
+float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout MaterialProps materialProps, inout float3 throughput, uint sampleMaxNum, bool isDiffuse, float2 rnd, uint flags )
 {
     bool isHair = ( flags & HAIR ) != 0 && RTXCR_INTEGRATION == 1 && geometryProps.Has( FLAG_HAIR );
     float3x3 mLocalBasis = isHair ? Hair_GetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
@@ -668,8 +668,6 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 
     for( uint sampleIndex = 0; sampleIndex < sampleMaxNum; sampleIndex++ )
     {
-        float2 rnd = Rng::Hash::GetFloat2( ); // TODO: blue noise?
-
         // Generate a ray in local space
         float3 candidateRayLocal;
     #if( RTXCR_INTEGRATION == 1 )
@@ -723,6 +721,8 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         // Save either the first ray or the last ray hitting an emissive
         if( isEmissiveHit || sampleIndex == 0 )
             rayLocal = candidateRayLocal;
+
+        rnd = Rng::Hash::GetFloat2( );
     }
 
     // Adjust throughput by percentage of rays hitting any emissive surface

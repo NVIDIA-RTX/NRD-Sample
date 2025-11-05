@@ -221,7 +221,8 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
             sampleMaxNum = max( sampleMaxNum, 1 );
 
-            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, HAIR );
+            float2 rnd2 = Rng::Hash::GetFloat2( );
+            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, rnd2, HAIR );
 
             // Special case for primary surface ( 1st bounce starts here )
             if( bounce == 1 )

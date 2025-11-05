@@ -3620,7 +3620,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.viewZScale = 1.0f;
     commonSettings.denoisingRange = GetDenoisingRange();
     commonSettings.disocclusionThreshold = 0.01f;
-    commonSettings.disocclusionThresholdAlternate = 0.2f;
+    commonSettings.disocclusionThresholdAlternate = 0.15f;
     commonSettings.splitScreen = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR || USE_SHARC_DEBUG != 0) ? 1.0f : m_Settings.separator;
     commonSettings.debug = m_Settings.debug;
     commonSettings.frameIndex = frameIndex;
