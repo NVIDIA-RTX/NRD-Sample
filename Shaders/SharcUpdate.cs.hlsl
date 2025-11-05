@@ -62,123 +62,21 @@ void Trace( GeometryProps geometryProps )
 
             // Diffuse or specular?
             bool isDiffuse = Rng::Hash::GetFloat( ) < diffuseProbability;
-            throughput /= abs( float( !isDiffuse ) - diffuseProbability );
+            throughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
 
-            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
+            // Importance sampling
+            uint sampleMaxNum = 0;
+            if( bounce == 1 && gDisableShadowsAndEnableImportanceSampling )
+                sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
+            sampleMaxNum = max( sampleMaxNum, 1 );
 
-            // Choose a ray
-            float3x3 mLocalBasis = Geometry::GetBasis( materialProps.N );
-
-            float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
-            float3 ray = 0;
-            uint samplesNum = 0;
-
-            // If IS is enabled, generate up to PT_IMPORTANCE_SAMPLES_NUM rays depending on roughness
-            // If IS is disabled, there is no need to generate up to PT_IMPORTANCE_SAMPLES_NUM rays for specular because VNDF v3 doesn't produce rays pointing inside the surface
-            uint maxSamplesNum = 0;
-            if( bounce == 1 && gDisableShadowsAndEnableImportanceSampling ) // TODO: use IS in each bounce?
-                maxSamplesNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : materialProps.roughness );
-            maxSamplesNum = max( maxSamplesNum, 1 );
-
-            for( uint sampleIndex = 0; sampleIndex < maxSamplesNum; sampleIndex++ )
-            {
-                float2 rnd = Rng::Hash::GetFloat2( );
-
-                // Generate a ray in local space
-                float3 r;
-                {
-                    if( isDiffuse )
-                        r = ImportanceSampling::Cosine::GetRay( rnd );
-                    else
-                    {
-                        float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, PT_SPEC_LOBE_ENERGY );
-                        r = reflect( -Vlocal, Hlocal );
-                    }
-                }
-
-                // Transform to world space
-                r = Geometry::RotateVectorInverse( mLocalBasis, r );
-
-                // Importance sampling for direct lighting
-                // TODO: move direct lighting tracing into a separate pass:
-                // - currently AO and SO get replaced with useless distances to closest lights if IS is on
-                // - better separate direct and indirect lighting denoising
-
-                //   1. If IS enabled, check the ray in LightBVH
-                bool isMiss = false;
-                if( gDisableShadowsAndEnableImportanceSampling && maxSamplesNum != 1 )
-                    isMiss = CastVisibilityRay_AnyHit( geometryProps.GetXoffset( geometryProps.N ), r, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, 0 );
-
-                //   2. Count rays hitting emissive surfaces
-                if( !isMiss )
-                    samplesNum++;
-
-                //   3. Save either the first ray or the current ray hitting an emissive
-                if( !isMiss || sampleIndex == 0 )
-                    ray = r;
-            }
-
-            // Adjust throughput by percentage of rays hitting any emissive surface
-            // IMPORTANT: do not modify throughput if there is no a hit, it's needed to cast a non-IS ray and get correct AO / SO at least
-            if( samplesNum != 0 )
-                throughput *= float( samplesNum ) / float( maxSamplesNum );
-
-            // ( Optional ) Helpful insignificant fixes
-            float a = dot( geometryProps.N, ray );
-            if( a < 0.0 )
-            {
-                if( isDiffuse )
-                {
-                    // Terminate diffuse paths pointing inside the surface
-                    throughput = 0.0;
-                }
-                else
-                {
-                    // Patch ray direction to avoid self-intersections: https://arxiv.org/pdf/1705.01263.pdf ( Appendix 3 )
-                    float b = dot( geometryProps.N, materialProps.N );
-                    ray = normalize( ray + materialProps.N * Math::Sqrt01( 1.0 - a * a ) / b );
-                }
-            }
-
-            // Update path throughput
-            float3 albedo, Rf0;
-            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-            float3 H = normalize( geometryProps.V + ray );
-            float VoH = abs( dot( geometryProps.V, H ) );
-            float NoL = saturate( dot( materialProps.N, ray ) );
-
-            if( isDiffuse )
-            {
-                float NoV = abs( dot( materialProps.N, geometryProps.V ) );
-                throughput *= saturate( albedo * Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ) );
-            }
-            else
-            {
-                float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
-                throughput *= F;
-
-                // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
-                throughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
-            }
-
-            // Translucency
-            if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
-            {
-                if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
-                {
-                    ray = -ray;
-                    geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
-                    throughput /= LEAF_TRANSLUCENCY;
-                }
-                else
-                    throughput /= 1.0 - LEAF_TRANSLUCENCY;
-            }
+            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, throughput, sampleMaxNum, isDiffuse, 0 );
 
             //=========================================================================================================================================================
             // Trace to the next hit
             //=========================================================================================================================================================
 
+            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
             geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
             materialProps = GetMaterialProps( geometryProps );
         }

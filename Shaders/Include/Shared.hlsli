@@ -28,6 +28,7 @@
 #define USE_LOAD                            0 // Load vs SampleLevel
 #define USE_SHARC_DEBUG                     0 // 1 - show cache, 2 - show grid (NRD sample recompile required)
 #define USE_TAA_DEBUG                       0 // 1 - show weight
+#define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
 
 //=============================================================================================
 // CONSTANTS
@@ -250,7 +251,7 @@ float3 GetGlobalPos( float3 X )
 float GetSpecMagicCurve( float roughness )
 {
     float f = 1.0 - exp2( -200.0 * roughness * roughness );
-    f *= Math::Pow01( roughness, 0.25 );
+    f *= Math::Pow01( roughness, 0.5 );
 
     return f;
 }

@@ -3620,7 +3620,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.viewZScale = 1.0f;
     commonSettings.denoisingRange = GetDenoisingRange();
     commonSettings.disocclusionThreshold = 0.01f;
-    commonSettings.disocclusionThresholdAlternate = 0.05f;
+    commonSettings.disocclusionThresholdAlternate = 0.2f;
     commonSettings.splitScreen = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR || USE_SHARC_DEBUG != 0) ? 1.0f : m_Settings.separator;
     commonSettings.debug = m_Settings.debug;
     commonSettings.frameIndex = frameIndex;
@@ -3631,7 +3631,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
     if (nrdLibraryDesc.normalEncoding == nrd::NormalEncoding::R10_G10_B10_A2_UNORM) {
         commonSettings.strandMaterialID = MATERIAL_ID_HAIR;
-        commonSettings.strandThickness = STRAND_THICKNESS;
+        commonSettings.strandThickness = STRAND_THICKNESS * m_Settings.meterToUnitsMultiplier;
     }
 
     m_NRD.NewFrame();
