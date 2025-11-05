@@ -195,8 +195,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
         GeometryProps geometryProps = geometryProps0;
         MaterialProps materialProps = materialProps0;
 
-        uint2 blueNoisePos = pixelPos + uint2( Sequence::Weyl2D( 0.0, path ) * ( BLUE_NOISE_SPATIAL_DIM - 1 ) );
-
         float accumulatedHitDist = 0;
         float accumulatedDiffuseLikeMotion = 0;
         float accumulatedCurvature = 0;
@@ -233,177 +231,43 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                 else
                     isDiffuse = gTracingMode == RESOLUTION_HALF ? checkerboard : ( path & 0x1 );
 
+                // This is not needed in case of "RESOLUTION_FULL_PROBABILISTIC", since hair doesn't have diffuse component
+                if( geometryProps.Has( FLAG_HAIR ) && isDiffuse )
+                    break;
+
+                // Importance sampling
+                uint sampleMaxNum = 0;
+                if( bounce == 1 && gDisableShadowsAndEnableImportanceSampling && NRD_MODE < OCCLUSION )
+                    sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
+                sampleMaxNum = max( sampleMaxNum, 1 );
+
+            #if( NRD_MODE < OCCLUSION )
+                float2 rnd2 = Rng::Hash::GetFloat2( );
+            #else
+                uint2 blueNoisePos = pixelPos + uint2( Sequence::Weyl2D( 0.0, path * gBounceNum + bounce ) * ( BLUE_NOISE_SPATIAL_DIM - 1 ) );
+                float2 rnd2 = GetBlueNoise( blueNoisePos, gTracingMode == RESOLUTION_HALF );
+            #endif
+
+                float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, rnd2, HAIR );
+
                 // Special case for primary surface ( 1st bounce starts here )
-                uint importanceSampleMaxNum = 0;
                 if( bounce == 1 )
                 {
                     isDiffusePath = isDiffuse;
+
                     if( gTracingMode == RESOLUTION_FULL )
                         Lsum *= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
-                    if( gDisableShadowsAndEnableImportanceSampling && NRD_MODE < OCCLUSION )
-                        importanceSampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
-                }
-                importanceSampleMaxNum = max( importanceSampleMaxNum, 1 );
 
-                // Choose a ray
-                float3 ray = 0;
-                {
-                    float3x3 mLocalBasis = geometryProps.Has( FLAG_HAIR ) ? Hair_GetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
-                    float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
+                    // ( Optional ) Save sampling direction for the 1st bounce
+                    #if( NRD_MODE == SH )
+                        float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
 
-                    // This is not needed in case of "RESOLUTION_FULL_PROBABILISTIC", since hair doesn't have diffuse component
-                    if( geometryProps.Has( FLAG_HAIR ) && isDiffuse )
-                        break;
-
-                    // Importance sampling
-                    float3 rayLocal = 0;
-                    uint samplesNum = 0;
-
-                    for( uint sampleIndex = 0; sampleIndex < importanceSampleMaxNum; sampleIndex++ )
-                    {
-                    #if( NRD_MODE < OCCLUSION )
-                        float2 rnd = Rng::Hash::GetFloat2( ); // TODO: blue noise?
-                    #else
-                        float2 rnd = GetBlueNoise( blueNoisePos, gTracingMode == RESOLUTION_HALF );
-                    #endif
-
-                        // Generate a ray in local space
-                        float3 candidateRayLocal;
-                    #if( RTXCR_INTEGRATION == 1 )
-                        if( geometryProps.Has( FLAG_HAIR ) )
-                        {
-                            float2 rand[2] = { Rng::Hash::GetFloat2( ), Rng::Hash::GetFloat2( ) };
-
-                            float3 specular = 0.0;
-                            float3 diffuse = 0.0;
-                            float pdf = 0.0;
-
-                            RTXCR_HairInteractionSurface hairSurface = Hair_GetSurface( Vlocal );
-                            RTXCR_HairMaterialInteractionBcsdf hairMaterial = Hair_GetMaterial( );
-                        RTXCR_SampleFarFieldBcsdf( hairSurface, hairMaterial, Vlocal, 2.0 * rnd.x - 1.0, rnd.y, rand, candidateRayLocal, specular, diffuse, pdf );
-                        }
-                        else
-                    #endif
                         if( isDiffuse )
-                            candidateRayLocal = ImportanceSampling::Cosine::GetRay( rnd );
+                            result.diffDirection += psrRay;
                         else
-                        {
-                            float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, gTrimLobe ? PT_SPEC_LOBE_ENERGY : 1.0 );
-                            candidateRayLocal = reflect( -Vlocal, Hlocal );
-                        }
-
-                        // If IS enabled, check the ray in LightBVH
-                        bool isMiss = false;
-                        if( gDisableShadowsAndEnableImportanceSampling && importanceSampleMaxNum != 1 )
-                        {
-                            float3 candidateRay = Geometry::RotateVectorInverse( mLocalBasis, candidateRayLocal );
-                            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-                            isMiss = CastVisibilityRay_AnyHit( geometryProps.GetXoffset( geometryProps.N ), candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
-                        }
-
-                        // Count rays hitting emissive surfaces
-                        if( !isMiss )
-                            samplesNum++;
-
-                        // Save either the first ray or the current ray hitting an emissive
-                        if( !isMiss || sampleIndex == 0 )
-                            rayLocal = candidateRayLocal;
-                    }
-
-                    // Adjust throughput by percentage of rays hitting any emissive surface
-                    // IMPORTANT: do not modify throughput if there is no an emissive hit, it's needed for a non-IS ray
-                    if( samplesNum != 0 )
-                        pathThroughput *= float( samplesNum ) / float( importanceSampleMaxNum );
-
-                    // Update path throughput
-                #if( NRD_MODE < OCCLUSION )
-                    float3 albedo, Rf0;
-                    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-                    float3 Nlocal = float3( 0, 0, 1 );
-                    float3 Hlocal = normalize( Vlocal + rayLocal );
-
-                    float NoL = saturate( dot( Nlocal, rayLocal ) );
-                    float VoH = abs( dot( Vlocal, Hlocal ) );
-                    float NoV = abs( dot( Nlocal, Vlocal ) );
-
-                #if( RTXCR_INTEGRATION == 1 )
-                    if( geometryProps.Has( FLAG_HAIR ) )
-                    {
-                        float3 specular = 0.0;
-                        float3 diffuse = 0.0;
-                        float pdf = 0.0;
-
-                        RTXCR_HairInteractionSurface hairGeometry = Hair_GetSurface( Vlocal );
-                        RTXCR_HairMaterialInteractionBcsdf hairMaterial = Hair_GetMaterial( );
-                        RTXCR_HairFarFieldBcsdfEval( hairGeometry, hairMaterial, rayLocal, Vlocal, specular, diffuse, pdf );
-
-                        pathThroughput *= pdf > 0.0 ? ( specular + diffuse ) / pdf : 0.0;
-                    }
-                    else
-                #endif
-                    if( isDiffuse )
-                        pathThroughput *= saturate( albedo * Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ) );
-                    else
-                    {
-                        float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
-                        pathThroughput *= F;
-
-                        // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
-                        pathThroughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
-                    }
-
-                    // Translucency
-                    if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
-                    {
-                        if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
-                        {
-                            rayLocal = -rayLocal;
-                            geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
-                            pathThroughput /= LEAF_TRANSLUCENCY;
-                        }
-                        else
-                            pathThroughput /= 1.0 - LEAF_TRANSLUCENCY;
-                    }
-                #endif
-
-                    // Transform to world space
-                    ray = Geometry::RotateVectorInverse( mLocalBasis, rayLocal );
-
-                    // ( Optional ) Helpful insignificant fixes
-                #if( RTXCR_INTEGRATION == 1 )
-                    NoL = geometryProps.Has( FLAG_HAIR | FLAG_SKIN ) ? 0.0 : NoL;
-                #endif
-                    if( NoL < 0.0 )
-                    {
-                        if( isDiffuse )
-                        {
-                            // Terminate diffuse paths pointing inside the surface
-                            pathThroughput = 0.0;
-                        }
-                        else
-                        {
-                            // Patch ray direction and shading normal to avoid self-intersections: https://arxiv.org/pdf/1705.01263.pdf ( Appendix 3 )
-                            float b = abs( dot( geometryProps.N, materialProps.N ) ) * 0.99;
-
-                            ray = normalize( ray + geometryProps.N * abs( NoL ) * Math::PositiveRcp( b ) );
-                            materialProps.N = normalize( geometryProps.V + ray );
-                        }
-                    }
+                            result.specDirection += psrRay;
+                    #endif
                 }
-
-                // ( Optional ) Save sampling direction for the 1st bounce
-            #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
-                if( bounce == 1 )
-                {
-                    float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
-
-                    if( isDiffuse )
-                        result.diffDirection += psrRay;
-                    else
-                        result.specDirection += psrRay;
-                }
-            #endif
 
                 // Abort tracing if the current bounce contribution is low
             #if( USE_RUSSIAN_ROULETTE == 1 )
@@ -792,7 +656,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         float3 n = normalize( cross( geometryProps0.T.xyz, B ) );
 
         float pixelSize = gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
-        float f = NRD_GetNormalizedStrandThickness( STRAND_THICKNESS, pixelSize );
+        float f = NRD_GetNormalizedStrandThickness( STRAND_THICKNESS / gUnitToMetersMultiplier, pixelSize );
         f = lerp( 0.0, 0.25, f );
 
         N = normalize( lerp( n, N, f ) );

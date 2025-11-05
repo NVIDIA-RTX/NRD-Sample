@@ -4219,7 +4219,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.viewZScale = 1.0f;
     commonSettings.denoisingRange = GetDenoisingRange();
     commonSettings.disocclusionThreshold = 0.01f;
-    commonSettings.disocclusionThresholdAlternate = 0.05f;
+    commonSettings.disocclusionThresholdAlternate = 0.15f;
     commonSettings.splitScreen = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR || USE_SHARC_DEBUG != 0) ? 1.0f : m_Settings.separator;
     commonSettings.printfAt[0] = wantPrintf ? (uint16_t)ImGui::GetIO().MousePos.x : 9999;
     commonSettings.printfAt[1] = wantPrintf ? (uint16_t)ImGui::GetIO().MousePos.y : 9999;
@@ -4233,7 +4233,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
     if (nrdLibraryDesc.normalEncoding == nrd::NormalEncoding::R10_G10_B10_A2_UNORM) {
         commonSettings.strandMaterialID = MATERIAL_ID_HAIR;
-        commonSettings.strandThickness = STRAND_THICKNESS;
+        commonSettings.strandThickness = STRAND_THICKNESS * m_Settings.meterToUnitsMultiplier;
 #if (USE_CAMERA_ATTACHED_REFLECTION_TEST == 1)
         commonSettings.cameraAttachedReflectionMaterialID = MATERIAL_ID_SELF_REFLECTION;
 #endif
