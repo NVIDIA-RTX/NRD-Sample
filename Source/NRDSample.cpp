@@ -4219,7 +4219,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.viewZScale = 1.0f;
     commonSettings.denoisingRange = GetDenoisingRange();
     commonSettings.disocclusionThreshold = 0.01f;
-    commonSettings.disocclusionThresholdAlternate = 0.15f;
+    commonSettings.disocclusionThresholdAlternate = 0.1f; // for hair
     commonSettings.splitScreen = (m_Settings.denoiser == DENOISER_REFERENCE || m_Settings.RR || USE_SHARC_DEBUG != 0) ? 1.0f : m_Settings.separator;
     commonSettings.printfAt[0] = wantPrintf ? (uint16_t)ImGui::GetIO().MousePos.x : 9999;
     commonSettings.printfAt[1] = wantPrintf ? (uint16_t)ImGui::GetIO().MousePos.y : 9999;
