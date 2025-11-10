@@ -800,18 +800,18 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     // Transform to world space
     float3 ray = Geometry::RotateVectorInverse( mLocalBasis, rayLocal );
 
-    // ( Optional ) Helpful insignificant fixes
+    // Path termination or ray direction fix
     float NoLgeom = dot( geometryProps.N, ray );
+    float roughnessThreshold = saturate( materialProps.roughness / 0.15 );
+
     if( !isHair && NoLgeom < 0.0 )
     {
-        if( isDiffuse )
-        {
-            // Terminate diffuse paths pointing inside the surface
-            throughput = 0.0;
-        }
+        if( isDiffuse || Rng::Hash::GetFloat( ) < roughnessThreshold )
+            throughput = 0.0; // terminate ray pointing inside the surface
         else
         {
-            // Patch ray direction and shading normal to avoid self-intersections ( https://arxiv.org/pdf/1705.01263.pdf, Appendix 3 )
+            // If roughness is low, patch ray direction and shading normal to avoid self-intersections
+            // ( https://arxiv.org/pdf/1705.01263.pdf, Appendix 3 )
             float b = abs( dot( geometryProps.N, materialProps.N ) ) * 0.99;
 
             ray = normalize( ray + geometryProps.N * abs( NoLgeom ) * Math::PositiveRcp( b ) );
