@@ -522,9 +522,6 @@ public:
             resourceSnapshot.SetResource(nrd::ResourceType::IN_NORMAL_ROUGHNESS, GetNrdResource(Texture::Normal_Roughness));
             resourceSnapshot.SetResource(nrd::ResourceType::IN_VIEWZ, GetNrdResource(Texture::ViewZ));
 
-            // (Optional) Needed to allow IN_MV modification on the NRD side
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_BASECOLOR_METALNESS, GetNrdResource(Texture::BaseColor_Metalness));
-
             // (Optional) Validation
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_VALIDATION, GetNrdResource(Texture::Validation));
 
@@ -532,38 +529,18 @@ public:
             resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST, GetNrdResource(Texture::Diff));
 
-            // Diffuse occlusion
-#if (NRD_MODE == OCCLUSION)
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
-            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_HITDIST, GetNrdResource(Texture::Diff));
-#endif
-
-            // Diffuse SH
-#if (NRD_MODE == SH)
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_SH0, GetNrdResource(Texture::Unfiltered_Diff));
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_SH1, GetNrdResource(Texture::Unfiltered_DiffSh));
-            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_SH0, GetNrdResource(Texture::Diff));
-            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_SH1, GetNrdResource(Texture::DiffSh));
-#endif
-
-            // Diffuse directional occlusion
-#if (NRD_MODE == DIRECTIONAL_OCCLUSION)
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
-            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Diff));
-#endif
-
             // Specular
             resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST, GetNrdResource(Texture::Unfiltered_Spec));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST, GetNrdResource(Texture::Spec));
 
-            // Specular occlusion
-#if (NRD_MODE == OCCLUSION)
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_HITDIST, GetNrdResource(Texture::Unfiltered_Spec));
-            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_HITDIST, GetNrdResource(Texture::Spec));
-#endif
+#if (NRD_MODE == SH)
+            // Diffuse SH
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_SH0, GetNrdResource(Texture::Unfiltered_Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_SH1, GetNrdResource(Texture::Unfiltered_DiffSh));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_SH0, GetNrdResource(Texture::Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_SH1, GetNrdResource(Texture::DiffSh));
 
             // Specular SH
-#if (NRD_MODE == SH)
             resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_SH0, GetNrdResource(Texture::Unfiltered_Spec));
             resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_SH1, GetNrdResource(Texture::Unfiltered_SpecSh));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_SH0, GetNrdResource(Texture::Spec));
@@ -578,6 +555,25 @@ public:
             // REFERENCE
             resourceSnapshot.SetResource(nrd::ResourceType::IN_SIGNAL, GetNrdResource(Texture::Composed));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_SIGNAL, GetNrdResource(Texture::Composed));
+
+            // (Optional) Needed to allow IN_MV modification on the NRD side
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_BASECOLOR_METALNESS, GetNrdResource(Texture::BaseColor_Metalness));
+
+            // Diffuse directional occlusion
+#if (NRD_MODE == DIRECTIONAL_OCCLUSION)
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Diff));
+#endif
+
+#if (NRD_MODE == OCCLUSION)
+            // Diffuse occlusion
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_HITDIST, GetNrdResource(Texture::Diff));
+
+            // Specular occlusion
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_HITDIST, GetNrdResource(Texture::Unfiltered_Spec));
+            resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_HITDIST, GetNrdResource(Texture::Spec));
+#endif
         }
 
         // Denoise
