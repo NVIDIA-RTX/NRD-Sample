@@ -84,9 +84,10 @@ set(DEPS)
 # SHARC
 FetchContent_Declare(
     sharc
-    GIT_REPOSITORY https://github.com/NVIDIA-RTX/SHARC.git
-    GIT_TAG v1.6.0.0
-    GIT_SHALLOW 1
+    DOWNLOAD_EXTRACT_TIMESTAMP 1
+    DOWNLOAD_NO_PROGRESS 1
+    SOURCE_SUBDIR "ignore CMakeLists.txt"
+    URL https://github.com/NVIDIA-RTX/SHARC/archive/refs/tags/v1.6.0.0.zip
 )
 list(APPEND DEPS sharc)
 
@@ -94,9 +95,10 @@ list(APPEND DEPS sharc)
 if(RTXCR_INTEGRATION)
     FetchContent_Declare(
         rtxcr
-        GIT_REPOSITORY https://github.com/NVIDIA-RTX/RTXCR-Material-Library.git
-        GIT_TAG v1.1.0
-        GIT_SHALLOW 1
+        DOWNLOAD_EXTRACT_TIMESTAMP 1
+        DOWNLOAD_NO_PROGRESS 1
+        SOURCE_SUBDIR "ignore CMakeLists.txt"
+        URL https://github.com/NVIDIA-RTX/RTXCR-Material-Library/archive/refs/tags/v1.1.0.zip
     )
     list(APPEND DEPS rtxcr)
 
@@ -105,6 +107,7 @@ if(RTXCR_INTEGRATION)
         GIT_REPOSITORY https://github.com/NVIDIA-RTX/RTXCR-Assets.git
         GIT_TAG v1.1.0
         GIT_SHALLOW 1
+        SOURCE_SUBDIR "ignore CMakeLists.txt"
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_Data/Scenes/Claire"
     )
     list(APPEND DEPS claire)
