@@ -4134,13 +4134,13 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         nri::AttachmentDesc attachmentDesc = {};
         attachmentDesc.descriptor = swapChainTexture.colorAttachment;
 
-        nri::RenderingDesc desc = {};
-        desc.colors = &attachmentDesc;
-        desc.colorNum = 1;
+        nri::RenderingDesc renderingDesc = {};
+        renderingDesc.colors = &attachmentDesc;
+        renderingDesc.colorNum = 1;
 
         CmdCopyImguiData(commandBuffer, *m_Streamer);
 
-        NRI.CmdBeginRendering(commandBuffer, desc);
+        NRI.CmdBeginRendering(commandBuffer, renderingDesc);
         {
             CmdDrawImgui(commandBuffer, swapChainTexture.attachmentFormat, m_SdrScale, m_IsSrgb);
         }
