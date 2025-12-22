@@ -2779,13 +2779,13 @@ void Sample::CreateResources(nri::Format swapChainFormat) {
         } else {
             NRI.SetDebugName((nri::Object*)desc.resource, desc.debugName);
 
-            nri::Texture2DViewDesc viewDesc = {(nri::Texture*)desc.resource, desc.isArray ? nri::Texture2DViewType::SHADER_RESOURCE_2D_ARRAY : nri::Texture2DViewType::SHADER_RESOURCE_2D, desc.format};
+            nri::Texture2DViewDesc viewDesc = {(nri::Texture*)desc.resource, desc.isArray ? nri::Texture2DViewType::SHADER_RESOURCE_ARRAY : nri::Texture2DViewType::SHADER_RESOURCE, desc.format};
             NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(viewDesc, descriptor));
             m_Descriptors.push_back(descriptor);
 
             if (desc.textureUsage & nri::TextureUsageBits::SHADER_RESOURCE_STORAGE) {
                 viewDesc.format = ConvertFormatToTextureStorageCompatible(desc.format);
-                viewDesc.viewType = desc.isArray ? nri::Texture2DViewType::SHADER_RESOURCE_STORAGE_2D_ARRAY : nri::Texture2DViewType::SHADER_RESOURCE_STORAGE_2D;
+                viewDesc.viewType = desc.isArray ? nri::Texture2DViewType::SHADER_RESOURCE_STORAGE_ARRAY : nri::Texture2DViewType::SHADER_RESOURCE_STORAGE;
                 NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(viewDesc, descriptor));
                 m_Descriptors.push_back(descriptor);
             }
@@ -4131,8 +4131,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, &before, 1};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
 
-        nri::AttachmentsDesc desc = {};
-        desc.colors = &swapChainTexture.colorAttachment;
+        nri::AttachmentDesc attachmentDesc = {};
+        attachmentDesc.descriptor = swapChainTexture.colorAttachment;
+
+        nri::RenderingDesc desc = {};
+        desc.colors = &attachmentDesc;
         desc.colorNum = 1;
 
         CmdCopyImguiData(commandBuffer, *m_Streamer);
