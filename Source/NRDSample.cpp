@@ -562,9 +562,6 @@ public:
         defaults.maxFastAccumulatedFrameNum = m_ReblurSettings.maxFastAccumulatedFrameNum;
         defaults.maxStabilizedFrameNum = m_ReblurSettings.maxStabilizedFrameNum;
 
-        // Helps to mitigate fireflies emphasized by DLSS
-        defaults.enableAntiFirefly = m_DlssQuality != -1 && IsDlssEnabled();
-
         return defaults;
     }
 
