@@ -644,10 +644,7 @@ public:
         defaults.maxFastAccumulatedFrameNum = m_ReblurSettings.maxFastAccumulatedFrameNum;
         defaults.maxStabilizedFrameNum = m_ReblurSettings.maxStabilizedFrameNum;
 
-#if (NRD_MODE < OCCLUSION)
-        // Helps to mitigate fireflies emphasized by DLSS
-        defaults.enableAntiFirefly = m_DlssQuality != -1 && IsDlssEnabled();
-#else
+#if (NRD_MODE >= OCCLUSION)
         // Occlusion signal is cleaner by the definition
         defaults.historyFixFrameNum = 2;
 
