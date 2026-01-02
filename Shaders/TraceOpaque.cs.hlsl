@@ -375,9 +375,9 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
 
                     if( isSharcAllowed )
                     {
-                        // Try jittered position
-                        float3 sharcRadiance;
+                        float3 sharcRadiance = 0;
 
+                        // Try jittered position
                         sharcHitData.positionWorld = Xglobal + jitter;
                         bool isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
 

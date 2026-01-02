@@ -142,9 +142,9 @@ float3 TraceTransparent( TraceTransparentDesc desc )
 
         if( isSharcAllowed )
         {
-            // Try jittered position
-            float3 sharcRadiance;
+            float3 sharcRadiance = 0;
 
+            // Try jittered position
             sharcHitData.positionWorld = Xglobal + jitter;
             bool isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
 
