@@ -169,7 +169,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
     sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
     #if( USE_SHARC_DEBUG == 2 )
-        result.diffRadiance = HashGridDebugColoredHash( sharcHitData.positionWorld, hashGridParams );
+        result.diffRadiance = HashGridDebugColoredHash( sharcHitData.positionWorld, sharcHitData.normalWorld, hashGridParams );
     #else
         bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, result.diffRadiance, true );
 
@@ -291,10 +291,9 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 rndScaled *= USE_SHARC_DITHERING;
 
                 float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-                Xglobal += mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
+                float3 jitter = mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
 
                 SharcHitData sharcHitData;
-                sharcHitData.positionWorld = Xglobal;
                 sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
                 sharcHitData.normalWorld = geometryProps.N;
                 sharcHitData.emissive = materialProps.Lemi;
@@ -315,9 +314,24 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
                 isSharcAllowed &= Rng::Hash::GetFloat( ) < ( bounce == gBounceNum ? 1.0 : footprintNorm ); // is voxel size acceptable?
 
-                float3 sharcRadiance;
-                if( isSharcAllowed && SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false ) )
-                    Lcached = float4( sharcRadiance, 1.0 );
+                if( isSharcAllowed )
+                {
+                    float3 sharcRadiance = 0;
+
+                    // Try jittered position
+                    sharcHitData.positionWorld = Xglobal + jitter;
+                    bool isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
+
+                    if( !isFound )
+                    {
+                        // Slipped out of the surface or mismatched normals, try non-jittered position
+                        sharcHitData.positionWorld = Xglobal;
+                        isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
+                    }
+
+                    if( isFound )
+                        Lcached = float4( sharcRadiance, 1.0 );
+                }
 
                 // Cache miss - compute lighting, if not found in caches
                 if( Rng::Hash::GetFloat( ) > Lcached.w )
