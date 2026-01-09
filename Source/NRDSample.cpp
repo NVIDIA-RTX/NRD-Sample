@@ -3657,19 +3657,19 @@ void Sample::UploadStaticData() {
             PrimitiveData& data = primitiveData[meshInstance.primitiveOffset + j];
             const utils::Primitive& primitive = m_Scene.primitives[staticPrimitiveIndex];
 
-            data.uv0 = Packing::float2_to_float16_t2(float2(v0.uv[0], v0.uv[1]));
-            data.uv1 = Packing::float2_to_float16_t2(float2(v1.uv[0], v1.uv[1]));
-            data.uv2 = Packing::float2_to_float16_t2(float2(v2.uv[0], v2.uv[1]));
+            data.uv0 = float16_t2(float2(v0.uv[0], v0.uv[1]));
+            data.uv1 = float16_t2(float2(v1.uv[0], v1.uv[1]));
+            data.uv2 = float16_t2(float2(v2.uv[0], v2.uv[1]));
             data.worldArea = primitive.worldArea;
 
-            data.n0 = Packing::float2_to_float16_t2(float2(n0.x, n0.y));
-            data.n1 = Packing::float2_to_float16_t2(float2(n1.x, n1.y));
-            data.n2 = Packing::float2_to_float16_t2(float2(n2.x, n2.y));
+            data.n0 = float16_t2(float2(n0.x, n0.y));
+            data.n1 = float16_t2(float2(n1.x, n1.y));
+            data.n2 = float16_t2(float2(n2.x, n2.y));
             data.uvArea = primitive.uvArea;
 
-            data.t0 = Packing::float2_to_float16_t2(float2(t0.x, t0.y));
-            data.t1 = Packing::float2_to_float16_t2(float2(t1.x, t1.y));
-            data.t2 = Packing::float2_to_float16_t2(float2(t2.x, t2.y));
+            data.t0 = float16_t2(float2(t0.x, t0.y));
+            data.t1 = float16_t2(float2(t1.x, t1.y));
+            data.t2 = float16_t2(float2(t2.x, t2.y));
             data.bitangentSign = v0.T[3];
         }
     }
@@ -3905,9 +3905,9 @@ void Sample::GatherInstanceData() {
             instanceData.mOverloadedMatrix0 = mOverloadedMatrix.Col(0);
             instanceData.mOverloadedMatrix1 = mOverloadedMatrix.Col(1);
             instanceData.mOverloadedMatrix2 = mOverloadedMatrix.Col(2);
-            instanceData.baseColorAndMetalnessScale = Packing::float4_to_float16_t4(material.baseColorAndMetalnessScale);
-            instanceData.emissionAndRoughnessScale = Packing::float4_to_float16_t4(material.emissiveAndRoughnessScale);
-            instanceData.normalUvScale = Packing::float2_to_float16_t2(material.normalUvScale);
+            instanceData.baseColorAndMetalnessScale = float16_t4(material.baseColorAndMetalnessScale);
+            instanceData.emissionAndRoughnessScale = float16_t4(material.emissiveAndRoughnessScale);
+            instanceData.normalUvScale = float16_t2(material.normalUvScale);
             instanceData.textureOffsetAndFlags = baseTextureIndex | (flags << FLAG_FIRST_BIT);
             instanceData.primitiveOffset = meshInstance.primitiveOffset;
             instanceData.scale = (isLeftHanded ? -1.0f : 1.0f) * max(scale.x, max(scale.y, scale.z));
