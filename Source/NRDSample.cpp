@@ -34,7 +34,7 @@ constexpr bool CAMERA_RELATIVE = true;
 constexpr bool ALLOW_BLAS_MERGING = true;
 constexpr bool ALLOW_HDR = NRIF_PLATFORM == NRIF_WINDOWS && NRD_MODE < OCCLUSION; // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true;                               // saves a bit of memory and performance
-constexpr bool DLSS_PRESET = 0;
+constexpr uint8_t DLSS_PRESET = 0;
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
 constexpr int32_t MAX_HISTORY_FRAME_NUM = (int32_t)std::min(60u, std::min(nrd::REBLUR_MAX_HISTORY_FRAME_NUM, nrd::RELAX_MAX_HISTORY_FRAME_NUM));
 constexpr uint32_t TEXTURES_PER_MATERIAL = 4;
