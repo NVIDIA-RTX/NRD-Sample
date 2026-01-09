@@ -33,7 +33,7 @@ constexpr bool CAMERA_RELATIVE = true;
 constexpr bool ALLOW_BLAS_MERGING = true;
 constexpr bool ALLOW_HDR = NRIF_PLATFORM == NRIF_WINDOWS; // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true;       // saves a bit of memory and performance
-constexpr bool USE_DLSS_TNN = false;                      // replace CNN (legacy) with TNN (better)
+constexpr uint8_t DLSS_PRESET = 0;
 constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
 constexpr int32_t MAX_HISTORY_FRAME_NUM = (int32_t)std::min(60u, std::min(nrd::REBLUR_MAX_HISTORY_FRAME_NUM, nrd::RELAX_MAX_HISTORY_FRAME_NUM));
 constexpr uint32_t TEXTURES_PER_MATERIAL = 4;
@@ -800,7 +800,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
             upscalerDesc.type = upscalerType;
             upscalerDesc.mode = mode;
             upscalerDesc.flags = upscalerFlags;
-            upscalerDesc.preset = USE_DLSS_TNN ? 10 : 0;
+            upscalerDesc.preset = DLSS_PRESET;
             NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_DLSR));
 
             nri::UpscalerProps upscalerProps = {};
