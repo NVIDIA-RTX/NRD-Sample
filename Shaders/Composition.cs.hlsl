@@ -72,7 +72,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     BRDF::ConvertBaseColorMetalnessToAlbedoRf0( baseColorMetalness.xyz, baseColorMetalness.w, albedo, Rf0 );
 
     float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, viewZ, gOrthoMode );
-    float3 X = Geometry::AffineTransform( gViewToWorld, Xv );
     float3 V = gOrthoMode == 0 ? normalize( Geometry::RotateVector( gViewToWorld, 0 - Xv ) ) : gViewDirection.xyz;
 
     // Sample NRD outputs
