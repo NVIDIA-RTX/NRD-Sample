@@ -73,7 +73,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     BRDF::ConvertBaseColorMetalnessToAlbedoRf0( baseColorMetalness.xyz, baseColorMetalness.w, albedo, Rf0 );
 
     float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, viewZ, gOrthoMode );
-    float3 X = Geometry::AffineTransform( gViewToWorld, Xv );
     float3 V = gOrthoMode == 0 ? normalize( Geometry::RotateVector( gViewToWorld, 0 - Xv ) ) : gViewDirection.xyz;
 
     // Sample NRD outputs
@@ -232,7 +231,10 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     else if( gOnScreen == SHOW_PSR_THROUGHPUT )
         Ldiff = psrThroughput;
     else if( gOnScreen == SHOW_WORLD_UNITS )
+    {
+        float3 X = Geometry::AffineTransform( gViewToWorld, Xv );
         Ldiff = frac( X * gUnitToMetersMultiplier );
+    }
     else if( gOnScreen != SHOW_FINAL )
         Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? spec.xyz : Ldirect.xyz;
 
