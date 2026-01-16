@@ -32,19 +32,17 @@ void Trace( GeometryProps geometryProps )
     MaterialProps materialProps = GetMaterialProps( geometryProps );
 
     // Update SHARC cache ( this is always a hit )
-    {
-        SharcHitData sharcHitData;
-        sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
-        sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
-        sharcHitData.normalWorld = geometryProps.N;
-        sharcHitData.emissive = materialProps.Lemi;
+    SharcHitData sharcHitData;
+    sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
+    sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
+    sharcHitData.normalWorld = geometryProps.N;
+    sharcHitData.emissive = materialProps.Lemi;
 
-        SharcSetThroughput( sharcState, 1.0 );
+    SharcSetThroughput( sharcState, 1.0 );
 
-        float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW );
-        if( !SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, 1.0 ) )
-            return;
-    }
+    float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW );
+
+    SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, 1.0 ); // 0 bounce => no cache resampling => always returns "true"
 
     // Secondary rays
     [loop]
@@ -78,7 +76,7 @@ void Trace( GeometryProps geometryProps )
             //=========================================================================================================================================================
 
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-            geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
+            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
             materialProps = GetMaterialProps( geometryProps );
         }
 
@@ -92,14 +90,15 @@ void Trace( GeometryProps geometryProps )
             }
             else
             {
-                SharcHitData sharcHitData;
                 sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
                 sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
                 sharcHitData.normalWorld = geometryProps.N;
                 sharcHitData.emissive = materialProps.Lemi;
 
                 float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW );
-                if( !SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, Rng::Hash::GetFloat( ) ) )
+
+                bool continueTracing = SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, Rng::Hash::GetFloat( ) );
+                if( !continueTracing )
                     break;
             }
         }
@@ -113,7 +112,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     Rng::Hash::Initialize( pixelPos, gFrameIndex );
 
     // Sample position
-    float2 sampleUv = ( pixelPos + 0.5 + gJitter * gRectSize ) * SHARC_DOWNSCALE * gInvRectSize;
+    float2 sampleUv = ( pixelPos + Rng::Hash::GetFloat2( ) ) * gInvSharcRenderSize; // DRS independent
 
     // Primary ray
     float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, gNearZ, gOrthoMode );

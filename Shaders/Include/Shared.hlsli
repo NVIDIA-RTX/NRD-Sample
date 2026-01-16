@@ -11,7 +11,7 @@
 
 // Default = 1
 #define USE_IMPORTANCE_SAMPLING             1
-#define USE_SHARC_DITHERING                 1.5 // radius in voxels
+#define USE_SHARC_DITHERING                 1
 #define USE_TRANSLUCENCY                    1 // translucent foliage
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
 
@@ -68,7 +68,7 @@
 #define PT_THROUGHPUT_THRESHOLD             0.001
 #define PT_IMPORTANCE_SAMPLES_NUM           16
 #define PT_SPEC_LOBE_ENERGY                 0.95 // trimmed to 95%
-#define PT_SHADOW_RAY_OFFSET                1.0 // pixels
+#define PT_SHADOW_RAY_OFFSET                0.25 // pixels
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels
 #define PT_GLASS_RAY_OFFSET                 0.05 // pixels
 #define PT_MAX_FIREFLY_RELATIVE_INTENSITY   20.0 // no more than 20x energy increase in case of probabilistic sampling
@@ -87,6 +87,7 @@
 #define SHARC_SEPARATE_EMISSIVE             1
 #define SHARC_MATERIAL_DEMODULATION         1
 #define SHARC_USE_FP16                      0
+#define SHARC_RADIANCE_SCALE                100.0 // matches max emission intensity range ( must be > SUN_INTENSITY )
 
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking
@@ -191,6 +192,7 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float2 gInvRenderSize;
     float2 gInvRectSize;
     float2 gRectSizePrev;
+    float2 gInvSharcRenderSize;
     float2 gJitter;
     float gEmissionIntensity;
     float gNearZ;

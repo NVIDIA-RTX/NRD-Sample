@@ -96,14 +96,6 @@ struct GeometryProps
     uint textureOffsetAndFlags;
     uint instanceIndex;
 
-    float3 GetXoffset( float3 offsetDir, float amount = PT_BOUNCE_RAY_OFFSET )
-    {
-        float viewZ = Geometry::AffineTransform( gWorldToView, X ).z;
-        amount *= gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
-
-        return X + offsetDir * max( amount, 0.00001 );
-    }
-
     bool Has( uint flag )
     { return ( textureOffsetAndFlags & ( flag << FLAG_FIRST_BIT ) ) != 0; }
 
@@ -127,6 +119,14 @@ struct MaterialProps
     float metalness;
     float curvature;
 };
+
+float3 GetXoffset( float3 X, float3 offsetDir, float amount = PT_BOUNCE_RAY_OFFSET )
+{
+    float viewZ = Geometry::AffineTransform( gWorldToView, X ).z;
+    amount *= gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
+
+    return X + offsetDir * max( amount, 0.00001 );
+}
 
 float2 GetConeAngleFromAngularRadius( float mip, float tanConeAngle )
 {
@@ -597,7 +597,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
                 sssMaterial.scale = 0.4 / gUnitToMetersMultiplier; // TODO: units dependent! cm!
                 sssMaterial.g = 0.0;
 
-                float3 Xoffset = geometryProps.GetXoffset( geometryProps.N, PT_SHADOW_RAY_OFFSET );
+                float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N, PT_SHADOW_RAY_OFFSET );
                 float3x3 mLocalBasis = Geometry::GetBasis( geometryProps.N );
                 RTXCR_SubsurfaceInteraction sssGeometry = RTXCR_CreateSubsurfaceInteraction( Xoffset, mLocalBasis[ 2 ], mLocalBasis[ 0 ], mLocalBasis[ 1 ] );
 
@@ -638,8 +638,8 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
         rnd *= gTanSunAngularRadius;
 
         float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
+        float3 Xoffset = GetXoffset( geometryProps.X, sunDirection, PT_SHADOW_RAY_OFFSET );
         float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps.mip, gTanSunAngularRadius );
-        float3 Xoffset = geometryProps.GetXoffset( sunDirection, PT_SHADOW_RAY_OFFSET );
 
         float hitT = CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask, rayFlags );
         lighting *= float( hitT == INF );
@@ -700,7 +700,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         {
             float3 candidateRay = Geometry::RotateVectorInverse( mLocalBasis, candidateRayLocal );
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-            float3 Xoffset = geometryProps.GetXoffset( geometryProps.N );
+            float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N );
 
             float distanceToLight = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
             isEmissiveHit = distanceToLight != INF;
@@ -839,7 +839,7 @@ float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float et
     float amount = geometryProps.Has( FLAG_TRANSPARENT ) ? PT_GLASS_RAY_OFFSET : PT_BOUNCE_RAY_OFFSET;
     float s = Math::Sign( dot( ray, geometryProps.N ) );
 
-    Xoffset = geometryProps.GetXoffset( geometryProps.N * s, amount );
+    Xoffset = GetXoffset( geometryProps.X, geometryProps.N * s, amount );
 
     return eta;
 }

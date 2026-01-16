@@ -115,6 +115,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
 
         float2 rndScaled = ImportanceSampling::Cosine::GetRay( Rng::Hash::GetFloat2( ) ).xy;
         rndScaled *= voxelSize;
+        rndScaled *= 1.5;
         rndScaled *= USE_SHARC_DITHERING * float( USE_SHARC_DEBUG == 0 );
 
         float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
