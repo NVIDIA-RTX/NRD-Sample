@@ -125,7 +125,7 @@ float3 GetXoffset( float3 X, float3 offsetDir, float amount = PT_BOUNCE_RAY_OFFS
     float viewZ = Geometry::AffineTransform( gWorldToView, X ).z;
     amount *= gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
 
-    return X + offsetDir * max( amount, 0.00001 );
+    return X + offsetDir * amount;
 }
 
 float2 GetConeAngleFromAngularRadius( float mip, float tanConeAngle )
