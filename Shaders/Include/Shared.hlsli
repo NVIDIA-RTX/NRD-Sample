@@ -18,7 +18,7 @@
 
 // Default = 1
 #define USE_IMPORTANCE_SAMPLING             1
-#define USE_SHARC_DITHERING                 1.5 // radius in voxels
+#define USE_SHARC_DITHERING                 1
 #define USE_TRANSLUCENCY                    1 // translucent foliage
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
 
@@ -26,8 +26,6 @@
 #define USE_SANITIZATION                    0 // NRD sample is NAN/INF free
 #define USE_SIMULATED_MATERIAL_ID_TEST      0 // "material ID" debugging
 #define USE_SIMULATED_FIREFLY_TEST          0 // "anti-firefly" debugging
-#define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
-#define USE_RUSSIAN_ROULETTE                0 // bad practice for real-time denoising
 #define USE_DRS_STRESS_TEST                 0 // NRD must not touch GARBAGE data outside of DRS rectangle
 #define USE_INF_STRESS_TEST                 0 // NRD must not touch GARBAGE data outside of denoising range
 #define USE_ANOTHER_COBALT                  0 // another cobalt variant
@@ -38,6 +36,8 @@
 #define USE_SHARC_DEBUG                     0 // 1 - show cache, 2 - show grid (NRD sample recompile required)
 #define USE_TAA_DEBUG                       0 // 1 - show weight
 #define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
+#define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
+#define USE_RUSSIAN_ROULETTE                0 // bad practice for real-time denoising
 
 //=============================================================================================
 // CONSTANTS
@@ -105,7 +105,7 @@
 #define PT_THROUGHPUT_THRESHOLD             0.001
 #define PT_IMPORTANCE_SAMPLES_NUM           16
 #define PT_SPEC_LOBE_ENERGY                 0.95 // trimmed to 95%
-#define PT_SHADOW_RAY_OFFSET                1.0 // pixels
+#define PT_SHADOW_RAY_OFFSET                0.25 // pixels
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels
 #define PT_GLASS_RAY_OFFSET                 0.05 // pixels
 #define PT_MAX_FIREFLY_RELATIVE_INTENSITY   20.0 // no more than 20x energy increase in case of probabilistic sampling
@@ -124,6 +124,7 @@
 #define SHARC_SEPARATE_EMISSIVE             1
 #define SHARC_MATERIAL_DEMODULATION         1
 #define SHARC_USE_FP16                      0
+#define SHARC_RADIANCE_SCALE                100.0 // matches max emission intensity range ( must be > SUN_INTENSITY )
 
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking
@@ -166,26 +167,6 @@
 //===============================================================
 // IMPORTANT: sizeof( float3 ) == 16 in C++ code!
 
-struct MorphVertex // same as utils::MorphVertex
-{
-    float16_t4 pos;
-    float16_t2 N;
-    float16_t2 T;
-};
-
-struct MorphAttributes
-{
-    float16_t2 N;
-    float16_t2 T;
-};
-
-struct MorphPrimitivePositions
-{
-    float16_t4 pos0;
-    float16_t4 pos1;
-    float16_t4 pos2;
-};
-
 struct PrimitiveData
 {
     float16_t2 uv0;
@@ -226,6 +207,26 @@ struct InstanceData
     uint32_t unused3;
 };
 
+struct MorphVertex // same as utils::MorphVertex
+{
+    float16_t4 pos;
+    float16_t2 N;
+    float16_t2 T;
+};
+
+struct MorphAttributes
+{
+    float16_t2 N;
+    float16_t2 T;
+};
+
+struct MorphPrimitivePositions
+{
+    float16_t4 pos0;
+    float16_t4 pos1;
+    float16_t4 pos2;
+};
+
 //===============================================================
 // RESOURCES
 //===============================================================
@@ -257,6 +258,7 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float2 gInvRenderSize;
     float2 gInvRectSize;
     float2 gRectSizePrev;
+    float2 gInvSharcRenderSize;
     float2 gJitter;
     float gEmissionIntensity;
     float gNearZ;

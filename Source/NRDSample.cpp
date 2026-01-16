@@ -144,8 +144,8 @@ enum class Texture : uint32_t {
     // History
     ComposedDiff,
     ComposedSpec_ViewZ,
-    TaaHistory,
-    TaaHistoryPrev,
+    TaaHistoryPing,
+    TaaHistoryPong,
 
     // Output resolution
     DlssOutput,
@@ -168,11 +168,11 @@ enum class Texture : uint32_t {
     RRGuide_SpecHitDistance,
     RRGuide_Normal_Roughness, // only RGBA16f encoding is supported
 
-    // Read-only
+    // Read-only (must be last)
     BaseReadOnlyTexture,
 };
 
-enum class Descriptor : uint32_t { // created in this order implicitly
+enum class Descriptor : uint32_t {
     // Constant buffer
     Constant_Buffer,
 
@@ -2389,8 +2389,8 @@ void Sample::CreateCommandBuffers() {
 void Sample::CreatePipelineLayoutAndDescriptorPool() {
     // SET_OTHER
     const nri::DescriptorRangeDesc otherRanges[] = {
-        {0, 12, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
-        {0, 13, nri::DescriptorType::STORAGE_TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
+        {0, 16, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
+        {0, 16, nri::DescriptorType::STORAGE_TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND},
     };
 
     // SET_RAY_TRACING
@@ -2465,10 +2465,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
     { // Descriptor pool
         nri::DescriptorPoolDesc descriptorPoolDesc = {};
 
-        uint32_t setNum = 1;
-        descriptorPoolDesc.descriptorSetMaxNum += setNum;
-
-        setNum = (uint32_t)DescriptorSet::RayTracing;
+        uint32_t setNum = (uint32_t)DescriptorSet::RayTracing;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
         descriptorPoolDesc.textureMaxNum += otherRanges[0].descriptorNum * setNum;
         descriptorPoolDesc.storageTextureMaxNum += otherRanges[1].descriptorNum * setNum;
@@ -2477,7 +2474,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
         descriptorPoolDesc.textureMaxNum += rayTracingRanges[0].descriptorNum * setNum;
 
-        setNum = 2;
+        setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
         descriptorPoolDesc.storageStructuredBufferMaxNum += sharcRanges[0].descriptorNum * setNum;
 
@@ -3037,8 +3034,8 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     CreateTexture(Texture::Composed, "Composed", criticalColorFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
     CreateTexture(Texture::ComposedDiff, "ComposedDiff", colorFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
     CreateTexture(Texture::ComposedSpec_ViewZ, "ComposedSpec_ViewZ", nri::Format::RGBA16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
-    CreateTexture(Texture::TaaHistory, "TaaHistory", taaFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
-    CreateTexture(Texture::TaaHistoryPrev, "TaaHistoryPrev", taaFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
+    CreateTexture(Texture::TaaHistoryPing, "TaaHistoryPing", taaFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::TaaHistoryPong, "TaaHistoryPong", taaFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
     CreateTexture(Texture::DlssOutput, "DlssOutput", criticalColorFormat, (nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
     CreateTexture(Texture::PreFinal, "PreFinal", criticalColorFormat, (nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
     CreateTexture(Texture::Final, "Final", swapChainFormat, (nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y, 1, 1, false, nri::AccessBits::COPY_SOURCE);
@@ -3139,21 +3136,21 @@ void Sample::CreateDescriptorSets() {
     const nri::Descriptor* TaaPing_Textures[] = {
         GetDescriptor(Texture::Mv),
         GetDescriptor(Texture::Composed),
-        GetDescriptor(Texture::TaaHistoryPrev),
+        GetDescriptor(Texture::TaaHistoryPong),
     };
 
     const nri::Descriptor* TaaPing_StorageTextures[] = {
-        GetStorageDescriptor(Texture::TaaHistory),
+        GetStorageDescriptor(Texture::TaaHistoryPing),
     };
 
     const nri::Descriptor* TaaPong_Textures[] = {
         GetDescriptor(Texture::Mv),
         GetDescriptor(Texture::Composed),
-        GetDescriptor(Texture::TaaHistory),
+        GetDescriptor(Texture::TaaHistoryPing),
     };
 
     const nri::Descriptor* TaaPong_StorageTextures[] = {
-        GetStorageDescriptor(Texture::TaaHistoryPrev),
+        GetStorageDescriptor(Texture::TaaHistoryPong),
     };
 
     const nri::Descriptor* Final_Textures[] = {
@@ -3224,7 +3221,7 @@ void Sample::CreateDescriptorSets() {
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::TraceOpaque), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::Composition), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::TraceTransparent), 1, 0));
-    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::TaaPing), 2, 0)); // and TaaPong
+    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::TaaPing), 2, 0)); // and pong
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::Final), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::DlssBefore), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::DlssAfter), 1, 0));
@@ -3687,6 +3684,8 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     uint32_t rectH = uint32_t(m_RenderResolution.y * m_Settings.resolutionScale + 0.5f);
     uint32_t rectWprev = uint32_t(m_RenderResolution.x * m_SettingsPrev.resolutionScale + 0.5f);
     uint32_t rectHprev = uint32_t(m_RenderResolution.y * m_SettingsPrev.resolutionScale + 0.5f);
+    uint32_t sharcW = 16 * uint32_t((m_RenderResolution.x / SHARC_DOWNSCALE + 15) / 16);
+    uint32_t sharcH = 16 * uint32_t((m_RenderResolution.y / SHARC_DOWNSCALE + 15) / 16);
 
     float2 renderSize = float2(float(m_RenderResolution.x), float(m_RenderResolution.y));
     float2 outputSize = float2(float(GetOutputResolution().x), float(GetOutputResolution().y));
@@ -3712,7 +3711,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     otherMaxAccumulatedFrameNum = min(otherMaxAccumulatedFrameNum, float(MAX_HISTORY_FRAME_NUM));
     otherMaxAccumulatedFrameNum *= resetHistoryFactor;
 
-    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum * (m_Settings.boost ? 0.667f : 1.0f) + 0.5f);
+    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum * (m_Settings.boost ? 0.667f : 1.0f) + 0.5f) * 2; // "2" to match behavior after updating SHARC to v1.6.3
     float taaMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.5f;
     float prevFrameMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.3f;
 
@@ -3770,9 +3769,10 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gInvRenderSize = float2(1.0f, 1.0f) / renderSize;
         constants.gInvRectSize = float2(1.0f, 1.0f) / rectSize;
         constants.gRectSizePrev = rectSizePrev;
-        constants.gNearZ = nearZ;
-        constants.gEmissionIntensity = emissionIntensity;
+        constants.gInvSharcRenderSize = float2(1.0f / (float)sharcW, 1.0f / (float)sharcH);
         constants.gJitter = jitter;
+        constants.gEmissionIntensity = emissionIntensity;
+        constants.gNearZ = nearZ;
         constants.gSeparator = USE_SHARC_DEBUG == 0 ? m_Settings.separator : 1.0f;
         constants.gRoughnessOverride = m_Settings.roughnessOverride;
         constants.gMetalnessOverride = m_Settings.metalnessOverride;
@@ -3780,7 +3780,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gTanSunAngularRadius = tan(radians(m_Settings.sunAngularDiameter * 0.5f));
         constants.gTanPixelAngularRadius = tan(0.5f * radians(m_Settings.camFov) / rectSize.x);
         constants.gDebug = m_Settings.debug;
-        constants.gPrevFrameConfidence = (m_Settings.usePrevFrame && NRD_MODE < OCCLUSION && !m_Settings.RR) ? prevFrameMaxAccumulatedFrameNum / (1.0f + prevFrameMaxAccumulatedFrameNum) : 0.0f;
+        constants.gPrevFrameConfidence = (m_Settings.usePrevFrame && NRD_MODE < OCCLUSION && !m_Settings.RR && m_Settings.denoiser != DENOISER_REFERENCE) ? prevFrameMaxAccumulatedFrameNum / (1.0f + prevFrameMaxAccumulatedFrameNum) : 0.0f;
         constants.gUnproject = 1.0f / (0.5f * rectH * project[1]);
         constants.gAperture = m_DofAperture * 0.01f;
         constants.gFocalDistance = m_DofFocalDistance;
@@ -4182,6 +4182,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         { // Update
             helper::Annotation annotation(NRI, commandBuffer, "SHARC - Update");
 
+            // DRS independent
             uint32_t w = (m_RenderResolution.x / SHARC_DOWNSCALE + 15) / 16;
             uint32_t h = (m_RenderResolution.y / SHARC_DOWNSCALE + 15) / 16;
 
@@ -4405,8 +4406,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     // Output resolution
     //======================================================================================================================================
 
-    const Texture taaSrc = isEven ? Texture::TaaHistoryPrev : Texture::TaaHistory;
-    const Texture taaDst = isEven ? Texture::TaaHistory : Texture::TaaHistoryPrev;
+    const Texture taaHistoryInput = isEven ? Texture::TaaHistoryPong : Texture::TaaHistoryPing;
+    const Texture taaHistoryOutput = isEven ? Texture::TaaHistoryPing : Texture::TaaHistoryPong;
 
     if (IsDlssEnabled()) {
         // Before DLSS
@@ -4518,9 +4519,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             // Input
             {Texture::Mv, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             {Texture::Composed, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
-            {taaSrc, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {taaHistoryInput, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             // Output
-            {taaDst, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {taaHistoryOutput, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
@@ -4537,7 +4538,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         const TextureState transitions[] = {
             // Input
-            {IsDlssEnabled() ? Texture::DlssOutput : taaDst, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {IsDlssEnabled() ? Texture::DlssOutput : taaHistoryOutput, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             // Output
             {Texture::PreFinal, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
@@ -4553,7 +4554,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             dispatchUpscaleDesc.input = {Get(Texture::DlssOutput), GetDescriptor(Texture::DlssOutput)};
             dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
         } else {
-            dispatchUpscaleDesc.input = {Get(taaDst), GetDescriptor(isEven ? Texture::TaaHistory : Texture::TaaHistoryPrev)};
+            dispatchUpscaleDesc.input = {Get(taaHistoryOutput), GetDescriptor(isEven ? Texture::TaaHistoryPing : Texture::TaaHistoryPong)};
             dispatchUpscaleDesc.currentResolution = {(nri::Dim_t)rectW, (nri::Dim_t)rectH};
         }
 

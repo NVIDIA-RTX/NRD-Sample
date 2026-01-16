@@ -171,16 +171,17 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
     sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
     sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
+    float3 color;
     #if( USE_SHARC_DEBUG == 2 )
-        result.diffRadiance = HashGridDebugColoredHash( sharcHitData.positionWorld, sharcHitData.normalWorld, hashGridParams );
+        color = HashGridDebugColoredHash( sharcHitData.positionWorld, sharcHitData.normalWorld, hashGridParams );
     #else
-        bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, result.diffRadiance, true );
+        bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, color, true );
 
         // Highlight invalid cells
-        // result.diffRadiance = isValid ?  result.diffRadiance : float3( 1.0, 0.0, 0.0 );
+        // color = isValid ?  color : float3( 1.0, 0.0, 0.0 );
     #endif
 
-    result.diffRadiance /= diffFactor0;
+    result.diffRadiance = color / diffFactor0;
 
     return result;
 #endif
@@ -310,7 +311,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                 lobeTanHalfAngleAtOrigin = roughnessTemp * roughnessTemp / ( 1.0 + roughnessTemp * roughnessTemp );
 
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-                geometryProps = CastRay( geometryProps.GetXoffset( geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+                geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
                 materialProps = GetMaterialProps( geometryProps ); // TODO: try to read metrials only if L1- and L2- lighting caches failed
             }
 
@@ -346,6 +347,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                     float2 rndScaled = ImportanceSampling::Cosine::GetRay( Rng::Hash::GetFloat2( ) ).xy;
                     rndScaled *= 1.0 - footprintNorm; // reduce dithering if cone is already wide
                     rndScaled *= voxelSize;
+                    rndScaled *= 1.5;
                     rndScaled *= USE_SHARC_DITHERING;
 
                     float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
@@ -387,6 +389,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                             sharcHitData.positionWorld = Xglobal;
                             isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
                         }
+
+                        // Apply occlusion estimation for the last bounce
+                        //if( bounce == gBounceNum )
+                        //    sharcRadiance *= Math::Sqrt01( geometryProps.hitT / voxelSize );
 
                         if( isFound )
                             Lcached = float4( sharcRadiance, 1.0 );
@@ -510,7 +516,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
 void WriteResult( uint2 pixelPos, float4 diff, float4 spec, float4 diffSh, float4 specSh )
 {
     uint2 outPixelPos = pixelPos;
-    if (gTracingMode == RESOLUTION_HALF)
+    if( gTracingMode == RESOLUTION_HALF )
         outPixelPos.x >>= 1;
 
     uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
@@ -618,7 +624,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
             // Trace to the next hit
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps0.mip, materialProps0.roughness );
-            geometryProps0 = CastRay( geometryProps0.GetXoffset( geometryProps0.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+            geometryProps0 = CastRay( GetXoffset( geometryProps0.X, geometryProps0.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
             materialProps0 = GetMaterialProps( geometryProps0 );
         }
 
@@ -755,52 +761,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     result.diffRadiance /= lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
 #endif
 
-    //================================================================================================================================================================================
-    // Sun shadow
-    //================================================================================================================================================================================
-
-    geometryProps0.X = Xshadow;
-
-    float2 rnd = GetBlueNoise( pixelPos, false );
-    rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
-    rnd *= gTanSunAngularRadius;
-
-    float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
-    float3 Xoffset = geometryProps0.GetXoffset( sunDirection, PT_SHADOW_RAY_OFFSET );
-    float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps0.mip, gTanSunAngularRadius );
-
-    float shadowTranslucency = ( Color::Luminance( Ldirect ) != 0.0 && !gDisableShadowsAndEnableImportanceSampling ) ? 1.0 : 0.0;
-    float shadowHitDist = 0.0;
-
-    while( shadowTranslucency > 0.01 )
-    {
-        GeometryProps geometryPropsShadow = CastRay( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, 0 );
-
-        // Update hit dist
-        shadowHitDist += geometryPropsShadow.hitT;
-
-        // Terminate on miss ( before updating translucency! )
-        if( geometryPropsShadow.IsMiss( ) )
-            break;
-
-        // ( Biased ) Cheap approximation of shadows through glass
-        float NoV = abs( dot( geometryPropsShadow.N, sunDirection ) );
-        shadowTranslucency *= lerp( geometryPropsShadow.Has( FLAG_TRANSPARENT ) ? 0.9 : 0.0, 0.0, Math::Pow01( 1.0 - NoV, 2.5 ) );
-
-        // Go to the next hit
-        Xoffset += sunDirection * ( geometryPropsShadow.hitT + 0.001 );
-    }
-
-    float penumbra = SIGMA_FrontEnd_PackPenumbra( shadowHitDist, gTanSunAngularRadius );
-    float4 translucency = SIGMA_FrontEnd_PackTranslucency( shadowHitDist, shadowTranslucency );
-
-    gOut_ShadowData[ pixelPos ] = penumbra;
-    gOut_Shadow_Translucency[ pixelPos ] = translucency;
-
-    //================================================================================================================================================================================
-    // Output
-    //================================================================================================================================================================================
-
     float4 outDiff = 0.0;
     float4 outSpec = 0.0;
     float4 outDiffSh = 0.0;
@@ -833,4 +793,44 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     }
 
     WriteResult( pixelPos, outDiff, outSpec, outDiffSh, outSpecSh );
+
+    //================================================================================================================================================================================
+    // Sun shadow
+    //================================================================================================================================================================================
+
+    float2 rnd = GetBlueNoise( pixelPos, false );
+    rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
+    rnd *= gTanSunAngularRadius;
+
+    float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
+    float3 Xoffset = GetXoffset( Xshadow, sunDirection, PT_SHADOW_RAY_OFFSET );
+    float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps0.mip, gTanSunAngularRadius );
+
+    float shadowTranslucency = ( Color::Luminance( Ldirect ) != 0.0 && !gDisableShadowsAndEnableImportanceSampling ) ? 1.0 : 0.0;
+    float shadowHitDist = 0.0;
+
+    while( shadowTranslucency > 0.01 )
+    {
+        GeometryProps geometryPropsShadow = CastRay( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, 0 );
+
+        // Update hit dist
+        shadowHitDist += geometryPropsShadow.hitT;
+
+        // Terminate on miss ( before updating translucency! )
+        if( geometryPropsShadow.IsMiss( ) )
+            break;
+
+        // ( Biased ) Cheap approximation of shadows through glass
+        float NoV = abs( dot( geometryPropsShadow.N, sunDirection ) );
+        shadowTranslucency *= lerp( geometryPropsShadow.Has( FLAG_TRANSPARENT ) ? 0.9 : 0.0, 0.0, Math::Pow01( 1.0 - NoV, 2.5 ) );
+
+        // Go to the next hit
+        Xoffset += sunDirection * ( geometryPropsShadow.hitT + 0.001 );
+    }
+
+    float penumbra = SIGMA_FrontEnd_PackPenumbra( shadowHitDist, gTanSunAngularRadius );
+    float4 translucency = SIGMA_FrontEnd_PackTranslucency( shadowHitDist, shadowTranslucency );
+
+    gOut_ShadowData[ pixelPos ] = penumbra;
+    gOut_Shadow_Translucency[ pixelPos ] = translucency;
 }
