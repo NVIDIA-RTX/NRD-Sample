@@ -122,6 +122,10 @@ enum class Texture : uint32_t {
     Unfiltered_Translucency,
     Validation,
     Composed,
+    Gradient_StoredPing,
+    Gradient_StoredPong,
+    Gradient_Ping,
+    Gradient_Pong,
 
     // History
     ComposedDiff,
@@ -171,6 +175,7 @@ enum class Descriptor : uint32_t {
 enum class Pipeline : uint32_t {
     SharcUpdate,
     SharcResolve,
+    ConfidenceBlur,
     TraceOpaque,
     Composition,
     TraceTransparent,
@@ -184,6 +189,10 @@ enum class Pipeline : uint32_t {
 
 enum class DescriptorSet : uint32_t {
     // SET_OTHER
+    SharcUpdatePing,
+    SharcUpdatePong,
+    ConfidenceBlurPing,
+    ConfidenceBlurPong,
     TraceOpaque,
     Composition,
     TraceTransparent,
@@ -421,10 +430,12 @@ public:
             // Diffuse
             resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST, GetNrdResource(Texture::Diff));
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_CONFIDENCE, GetNrdResource(Texture::Gradient_Pong));
 
             // Specular
             resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST, GetNrdResource(Texture::Unfiltered_Spec));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST, GetNrdResource(Texture::Spec));
+            resourceSnapshot.SetResource(nrd::ResourceType::IN_SPEC_CONFIDENCE, GetNrdResource(Texture::Gradient_Pong));
 
 #if (NRD_MODE == SH)
             // Diffuse SH
@@ -510,6 +521,10 @@ public:
         sunDirection.z = sin(radians(m_Settings.sunElevation));
 
         return sunDirection;
+    }
+
+    inline uint2 GetSharcDims() const {
+        return 16 * uint2((m_RenderResolution / SHARC_DOWNSCALE + 15) / 16);
     }
 
     bool Initialize(nri::GraphicsAPI graphicsAPI, bool) override;
@@ -1969,6 +1984,8 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         {3, nri::DescriptorType::STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
     };
 
+    nri::RootConstantDesc rootConstant = {1, sizeof(uint32_t), nri::StageBits::COMPUTE_SHADER};
+
     nri::SamplerDesc samplerLinearMipmapLinear = {};
     samplerLinearMipmapLinear.addressModes = {nri::AddressMode::REPEAT, nri::AddressMode::REPEAT};
     samplerLinearMipmapLinear.filters = {nri::Filter::LINEAR, nri::Filter::LINEAR, nri::Filter::LINEAR};
@@ -1984,10 +2001,20 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
     samplerNearestMipmapNearest.filters = {nri::Filter::NEAREST, nri::Filter::NEAREST, nri::Filter::NEAREST};
     samplerNearestMipmapNearest.mipMax = 16.0f;
 
-    nri::RootSamplerDesc rootSamplers[3] = {
+    nri::SamplerDesc samplerLinearClamp = {};
+    samplerLinearClamp.addressModes = {nri::AddressMode::CLAMP_TO_EDGE, nri::AddressMode::CLAMP_TO_EDGE};
+    samplerLinearClamp.filters = {nri::Filter::LINEAR, nri::Filter::LINEAR, nri::Filter::LINEAR};
+
+    nri::SamplerDesc samplerNearestClamp = {};
+    samplerNearestClamp.addressModes = {nri::AddressMode::CLAMP_TO_EDGE, nri::AddressMode::CLAMP_TO_EDGE};
+    samplerNearestClamp.filters = {nri::Filter::NEAREST, nri::Filter::NEAREST, nri::Filter::NEAREST};
+
+    nri::RootSamplerDesc rootSamplers[] = {
         {0, samplerLinearMipmapLinear, nri::StageBits::COMPUTE_SHADER},
         {1, samplerLinearMipmapNearest, nri::StageBits::COMPUTE_SHADER},
         {2, samplerNearestMipmapNearest, nri::StageBits::COMPUTE_SHADER},
+        {3, samplerLinearClamp, nri::StageBits::COMPUTE_SHADER},
+        {4, samplerNearestClamp, nri::StageBits::COMPUTE_SHADER},
     };
 
     const nri::DescriptorSetDesc descriptorSetDescs[] = {
@@ -1999,6 +2026,8 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
     { // Pipeline layout
         nri::PipelineLayoutDesc pipelineLayoutDesc = {};
         pipelineLayoutDesc.rootRegisterSpace = SET_ROOT;
+        pipelineLayoutDesc.rootConstants = &rootConstant;
+        pipelineLayoutDesc.rootConstantNum = 1;
         pipelineLayoutDesc.rootDescriptors = rootDescriptors;
         pipelineLayoutDesc.rootDescriptorNum = helper::GetCountOf(rootDescriptors);
         pipelineLayoutDesc.rootSamplers = rootSamplers;
@@ -2028,51 +2057,6 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
 
         NRI_ABORT_ON_FAILURE(NRI.CreateDescriptorPool(*m_Device, descriptorPoolDesc, m_DescriptorPool));
     }
-}
-
-void Sample::CreatePipelines(bool recreate) {
-    if (recreate) {
-        NRI.DeviceWaitIdle(m_Device);
-
-        for (uint32_t i = 0; i < m_Pipelines.size(); i++)
-            NRI.DestroyPipeline(m_Pipelines[i]);
-
-        m_NRD.RecreatePipelines();
-    }
-
-    utils::ShaderCodeStorage shaderCodeStorage;
-
-    nri::ComputePipelineDesc pipelineDesc = {};
-    pipelineDesc.pipelineLayout = m_PipelineLayout;
-
-    const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcUpdate.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::SharcUpdate)));
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcResolve.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::SharcResolve)));
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "TraceOpaque.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::TraceOpaque)));
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "Composition.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::Composition)));
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "TraceTransparent.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::TraceTransparent)));
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "Taa.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::Taa)));
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "Final.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::Final)));
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "DlssBefore.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::DlssBefore)));
-
-    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "DlssAfter.cs", shaderCodeStorage);
-    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::DlssAfter)));
 }
 
 void Sample::CreateAccelerationStructures() {
@@ -2477,6 +2461,54 @@ void Sample::CreateAccelerationStructures() {
         blasNum, geometries.size(), primitivesNum);
 }
 
+void Sample::CreatePipelines(bool recreate) {
+    if (recreate) {
+        NRI.DeviceWaitIdle(m_Device);
+
+        for (uint32_t i = 0; i < m_Pipelines.size(); i++)
+            NRI.DestroyPipeline(m_Pipelines[i]);
+
+        m_NRD.RecreatePipelines();
+    }
+
+    utils::ShaderCodeStorage shaderCodeStorage;
+
+    nri::ComputePipelineDesc pipelineDesc = {};
+    pipelineDesc.pipelineLayout = m_PipelineLayout;
+
+    const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcUpdate.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::SharcUpdate)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "SharcResolve.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::SharcResolve)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "ConfidenceBlur.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::ConfidenceBlur)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "TraceOpaque.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::TraceOpaque)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "Composition.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::Composition)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "TraceTransparent.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::TraceTransparent)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "Taa.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::Taa)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "Final.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::Final)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "DlssBefore.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::DlssBefore)));
+
+    pipelineDesc.shader = utils::LoadShader(deviceDesc.graphicsAPI, "DlssAfter.cs", shaderCodeStorage);
+    NRI_ABORT_ON_FAILURE(NRI.CreateComputePipeline(*m_Device, pipelineDesc, Get(Pipeline::DlssAfter)));
+}
+
 void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     // TODO: DLSS doesn't support R16 UNORM/SNORM
     const nri::Format dataFormat = nri::Format::RGBA16_SFLOAT;
@@ -2500,10 +2532,10 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
             break;
     }
 
-    nri::Format taaFormat = nri::Format::RGBA16_SFLOAT; // required for new TAA even in LDR mode (RGBA16_UNORM can't be used)
-    nri::Format colorFormat = USE_LOW_PRECISION_FP_FORMATS ? nri::Format::R11_G11_B10_UFLOAT : nri::Format::RGBA16_SFLOAT;
-    nri::Format criticalColorFormat = nri::Format::RGBA16_SFLOAT; // TODO: R9_G9_B9_E5_UFLOAT?
-    nri::Format shadowFormat = SIGMA_TRANSLUCENCY ? nri::Format::RGBA8_UNORM : nri::Format::R8_UNORM;
+    constexpr nri::Format taaFormat = nri::Format::RGBA16_SFLOAT; // required for new TAA even in LDR mode (RGBA16_UNORM can't be used)
+    constexpr nri::Format colorFormat = USE_LOW_PRECISION_FP_FORMATS ? nri::Format::R11_G11_B10_UFLOAT : nri::Format::RGBA16_SFLOAT;
+    constexpr nri::Format criticalColorFormat = nri::Format::RGBA16_SFLOAT; // TODO: R9_G9_B9_E5_UFLOAT?
+    constexpr nri::Format shadowFormat = SIGMA_TRANSLUCENCY ? nri::Format::RGBA8_UNORM : nri::Format::R8_UNORM;
 
     nri::Dim_t w = (nri::Dim_t)m_RenderResolution.x;
     nri::Dim_t h = (nri::Dim_t)m_RenderResolution.y;
@@ -2544,13 +2576,17 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     CreateTexture(Texture::Unfiltered_Spec, "Unfiltered_Spec", dataFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Unfiltered_Translucency, "Unfiltered_Translucency", shadowFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Validation, "Validation", nri::Format::RGBA8_UNORM, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
-    CreateTexture(Texture::Composed, "Composed", criticalColorFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
+    CreateTexture(Texture::Composed, "Composed", criticalColorFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::Gradient_StoredPing, "Gradient_StoredPing", nri::Format::RGBA16_SFLOAT, (nri::Dim_t)GetSharcDims().x, (nri::Dim_t)GetSharcDims().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::Gradient_StoredPong, "Gradient_StoredPong", nri::Format::RGBA16_SFLOAT, (nri::Dim_t)GetSharcDims().x, (nri::Dim_t)GetSharcDims().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::Gradient_Ping, "Gradient_Ping", nri::Format::RGBA16_SFLOAT, (nri::Dim_t)GetSharcDims().x, (nri::Dim_t)GetSharcDims().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::Gradient_Pong, "Gradient_Pong", nri::Format::RGBA16_SFLOAT, (nri::Dim_t)GetSharcDims().x, (nri::Dim_t)GetSharcDims().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::ComposedDiff, "ComposedDiff", colorFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
     CreateTexture(Texture::ComposedSpec_ViewZ, "ComposedSpec_ViewZ", nri::Format::RGBA16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
     CreateTexture(Texture::TaaHistoryPing, "TaaHistoryPing", taaFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
-    CreateTexture(Texture::TaaHistoryPong, "TaaHistoryPong", taaFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
-    CreateTexture(Texture::DlssOutput, "DlssOutput", criticalColorFormat, (nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
-    CreateTexture(Texture::PreFinal, "PreFinal", criticalColorFormat, (nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
+    CreateTexture(Texture::TaaHistoryPong, "TaaHistoryPong", taaFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::DlssOutput, "DlssOutput", criticalColorFormat, (nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::PreFinal, "PreFinal", criticalColorFormat, (nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Final, "Final", swapChainFormat, (nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y, 1, 1, false, nri::AccessBits::COPY_SOURCE);
 #if (NRD_MODE == SH)
     CreateTexture(Texture::Unfiltered_DiffSh, "Unfiltered_DiffSh", dataFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
@@ -2589,6 +2625,63 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
 }
 
 void Sample::CreateDescriptorSets() {
+    // Ping
+    const nri::Descriptor* SharcUpdatePing_Textures[] = {
+        GetDescriptor(Texture::Gradient_StoredPing),
+    };
+
+    const nri::Descriptor* SharcUpdatePing_StorageTextures[] = {
+        GetStorageDescriptor(Texture::Gradient_StoredPong),
+        GetStorageDescriptor(Texture::Gradient_Ping),
+    };
+
+    const nri::Descriptor* ConfidenceBlurPing_Textures[] = {
+        GetDescriptor(Texture::Gradient_Ping),
+    };
+
+    const nri::Descriptor* ConfidenceBlurPing_StorageTextures[] = {
+        GetStorageDescriptor(Texture::Gradient_Pong),
+    };
+
+    const nri::Descriptor* TaaPing_Textures[] = {
+        GetDescriptor(Texture::Mv),
+        GetDescriptor(Texture::Composed),
+        GetDescriptor(Texture::TaaHistoryPong),
+    };
+
+    const nri::Descriptor* TaaPing_StorageTextures[] = {
+        GetStorageDescriptor(Texture::TaaHistoryPing),
+    };
+
+    // Pong
+    const nri::Descriptor* SharcUpdatePong_Textures[] = {
+        GetDescriptor(Texture::Gradient_StoredPong),
+    };
+
+    const nri::Descriptor* SharcUpdatePong_StorageTextures[] = {
+        GetStorageDescriptor(Texture::Gradient_StoredPing),
+        GetStorageDescriptor(Texture::Gradient_Ping),
+    };
+
+    const nri::Descriptor* ConfidenceBlurPong_Textures[] = {
+        GetDescriptor(Texture::Gradient_Pong),
+    };
+
+    const nri::Descriptor* ConfidenceBlurPong_StorageTextures[] = {
+        GetStorageDescriptor(Texture::Gradient_Ping),
+    };
+
+    const nri::Descriptor* TaaPong_Textures[] = {
+        GetDescriptor(Texture::Mv),
+        GetDescriptor(Texture::Composed),
+        GetDescriptor(Texture::TaaHistoryPing),
+    };
+
+    const nri::Descriptor* TaaPong_StorageTextures[] = {
+        GetStorageDescriptor(Texture::TaaHistoryPong),
+    };
+
+    // Other
     const nri::Descriptor* TraceOpaque_Textures[] = {
         GetDescriptor(Texture::ComposedDiff),
         GetDescriptor(Texture::ComposedSpec_ViewZ),
@@ -2646,26 +2739,6 @@ void Sample::CreateDescriptorSets() {
         GetStorageDescriptor(Texture::Normal_Roughness),
     };
 
-    const nri::Descriptor* TaaPing_Textures[] = {
-        GetDescriptor(Texture::Mv),
-        GetDescriptor(Texture::Composed),
-        GetDescriptor(Texture::TaaHistoryPong),
-    };
-
-    const nri::Descriptor* TaaPing_StorageTextures[] = {
-        GetStorageDescriptor(Texture::TaaHistoryPing),
-    };
-
-    const nri::Descriptor* TaaPong_Textures[] = {
-        GetDescriptor(Texture::Mv),
-        GetDescriptor(Texture::Composed),
-        GetDescriptor(Texture::TaaHistoryPing),
-    };
-
-    const nri::Descriptor* TaaPong_StorageTextures[] = {
-        GetStorageDescriptor(Texture::TaaHistoryPong),
-    };
-
     const nri::Descriptor* Final_Textures[] = {
         GetDescriptor(Texture::PreFinal),
         GetDescriptor(Texture::Composed),
@@ -2712,6 +2785,8 @@ void Sample::CreateDescriptorSets() {
     };
 
     // Allocate and update everything in one go
+    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::SharcUpdatePing), 2, 0));    // and pong
+    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::ConfidenceBlurPing), 2, 0)); // and pong
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::TraceOpaque), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::Composition), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::TraceTransparent), 1, 0));
@@ -2723,6 +2798,14 @@ void Sample::CreateDescriptorSets() {
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_SHARC, &Get(DescriptorSet::Sharc), 1, 0));
 
     std::vector<nri::UpdateDescriptorRangeDesc> updateDescriptorRangeDescs;
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::SharcUpdatePing), 0, 0, SharcUpdatePing_Textures, helper::GetCountOf(SharcUpdatePing_Textures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::SharcUpdatePing), 1, 0, SharcUpdatePing_StorageTextures, helper::GetCountOf(SharcUpdatePing_StorageTextures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::SharcUpdatePong), 0, 0, SharcUpdatePong_Textures, helper::GetCountOf(SharcUpdatePong_Textures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::SharcUpdatePong), 1, 0, SharcUpdatePong_StorageTextures, helper::GetCountOf(SharcUpdatePong_StorageTextures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::ConfidenceBlurPing), 0, 0, ConfidenceBlurPing_Textures, helper::GetCountOf(ConfidenceBlurPing_Textures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::ConfidenceBlurPing), 1, 0, ConfidenceBlurPing_StorageTextures, helper::GetCountOf(ConfidenceBlurPing_StorageTextures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::ConfidenceBlurPong), 0, 0, ConfidenceBlurPong_Textures, helper::GetCountOf(ConfidenceBlurPong_Textures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::ConfidenceBlurPong), 1, 0, ConfidenceBlurPong_StorageTextures, helper::GetCountOf(ConfidenceBlurPong_StorageTextures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::TraceOpaque), 0, 0, TraceOpaque_Textures, helper::GetCountOf(TraceOpaque_Textures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::TraceOpaque), 1, 0, TraceOpaque_StorageTextures, helper::GetCountOf(TraceOpaque_StorageTextures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::Composition), 0, 0, Composition_Textures, helper::GetCountOf(Composition_Textures)});
@@ -3153,14 +3236,13 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     uint32_t rectH = uint32_t(m_RenderResolution.y * m_Settings.resolutionScale + 0.5f);
     uint32_t rectWprev = uint32_t(m_RenderResolution.x * m_SettingsPrev.resolutionScale + 0.5f);
     uint32_t rectHprev = uint32_t(m_RenderResolution.y * m_SettingsPrev.resolutionScale + 0.5f);
-    uint32_t sharcW = 16 * uint32_t((m_RenderResolution.x / SHARC_DOWNSCALE + 15) / 16);
-    uint32_t sharcH = 16 * uint32_t((m_RenderResolution.y / SHARC_DOWNSCALE + 15) / 16);
 
     float2 renderSize = float2(float(m_RenderResolution.x), float(m_RenderResolution.y));
     float2 outputSize = float2(float(GetOutputResolution().x), float(GetOutputResolution().y));
     float2 rectSize = float2(float(rectW), float(rectH));
     float2 rectSizePrev = float2(float(rectWprev), float(rectHprev));
     float2 jitter = (m_Settings.cameraJitter ? m_Camera.state.viewportJitter : 0.0f) / rectSize;
+    float2 jitterPrev = (m_Settings.cameraJitter ? m_Camera.statePrev.viewportJitter : 0.0f) / rectSizePrev;
 
     float3 viewDir = -float3(m_Camera.state.mViewToWorld[2].xyz);
     float3 cameraGlobalPos = float3(m_Camera.state.globalPosition);
@@ -3178,7 +3260,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     otherMaxAccumulatedFrameNum = min(otherMaxAccumulatedFrameNum, float(MAX_HISTORY_FRAME_NUM));
     otherMaxAccumulatedFrameNum *= resetHistoryFactor;
 
-    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum + 0.5f) * 2; // "2" to match behavior after updating SHARC to v1.6.3
+    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum * 1.5f + 0.5f); // TODO: review: "* 1.5f" to match behavior after updating SHARC to v1.6.3 (probably a bit laggy)
     float taaMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.5f;
     float prevFrameMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.3f;
 
@@ -3201,9 +3283,10 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gViewToWorld = m_Camera.state.mViewToWorld;
         constants.gViewToClip = m_Camera.state.mViewToClip;
         constants.gWorldToView = m_Camera.state.mWorldToView;
-        constants.gWorldToViewPrev = m_Camera.statePrev.mWorldToView;
         constants.gWorldToClip = m_Camera.state.mWorldToClip;
+        constants.gWorldToViewPrev = m_Camera.statePrev.mWorldToView;
         constants.gWorldToClipPrev = m_Camera.statePrev.mWorldToClip;
+        constants.gViewToWorldPrev = m_Camera.statePrev.mViewToWorld;
         constants.gHitDistParams = float4(hitDistanceParameters.A, hitDistanceParameters.B, hitDistanceParameters.C, hitDistanceParameters.D);
         constants.gCameraFrustum = frustum;
         constants.gSunBasisX = float4(sunT, 0.0f);
@@ -3221,8 +3304,9 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gInvRenderSize = float2(1.0f, 1.0f) / renderSize;
         constants.gInvRectSize = float2(1.0f, 1.0f) / rectSize;
         constants.gRectSizePrev = rectSizePrev;
-        constants.gInvSharcRenderSize = float2(1.0f / (float)sharcW, 1.0f / (float)sharcH);
+        constants.gInvSharcRenderSize = 1.0f / float2((float)GetSharcDims().x, (float)GetSharcDims().y);
         constants.gJitter = jitter;
+        constants.gJitterPrev = jitterPrev;
         constants.gEmissionIntensity = emissionIntensity;
         constants.gNearZ = nearZ;
         constants.gSeparator = USE_SHARC_DEBUG == 0 ? m_Settings.separator : 1.0f;
@@ -3352,6 +3436,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.accumulationMode = m_ForceHistoryReset ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
     commonSettings.isMotionVectorInWorldSpace = false;
     commonSettings.enableValidation = m_ShowValidationOverlay;
+    commonSettings.isHistoryConfidenceAvailable = true;
 
     const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
     if (nrdLibraryDesc.normalEncoding == nrd::NormalEncoding::R10_G10_B10_A2_UNORM) {
@@ -3433,31 +3518,43 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
     RestoreBindings(commandBuffer);
 
-    // SHARC
-    {
-        helper::Annotation sharc(NRI, commandBuffer, "Radiance cache");
+    { // SHARC
+        helper::Annotation sharc(NRI, commandBuffer, "SHARC & History confidence");
 
-        const nri::BufferBarrierDesc transitions[] = {
+        const nri::BufferBarrierDesc bufferTransitions[] = {
             {Get(Buffer::SharcHashEntries), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
             {Get(Buffer::SharcAccumulated), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
             {Get(Buffer::SharcResolved), {nri::AccessBits::SHADER_RESOURCE_STORAGE}, {nri::AccessBits::SHADER_RESOURCE_STORAGE}},
         };
 
-        nri::BarrierDesc barrierDesc = {};
-        barrierDesc.buffers = transitions;
-        barrierDesc.bufferNum = (uint16_t)helper::GetCountOf(transitions);
+        nri::BarrierDesc bufferBarrierDesc = {};
+        bufferBarrierDesc.buffers = bufferTransitions;
+        bufferBarrierDesc.bufferNum = helper::GetCountOf(bufferTransitions);
 
         { // Update
             helper::Annotation annotation(NRI, commandBuffer, "SHARC - Update");
 
-            // DRS independent
-            uint32_t w = (m_RenderResolution.x / SHARC_DOWNSCALE + 15) / 16;
-            uint32_t h = (m_RenderResolution.y / SHARC_DOWNSCALE + 15) / 16;
+            const Texture prevRadiance = isEven ? Texture::Gradient_StoredPong : Texture::Gradient_StoredPing;
+            const Texture currRadiance = isEven ? Texture::Gradient_StoredPing : Texture::Gradient_StoredPong;
+            const TextureState transitions[] = {
+                // Input
+                {prevRadiance, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                // Output
+                {currRadiance, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+                {Texture::Gradient_Ping, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            };
+
+            nri::BarrierDesc barrierDesc = {};
+            barrierDesc.textures = optimizedTransitions.data();
+            barrierDesc.textureNum = BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions);
+            NRI.CmdBarrier(commandBuffer, barrierDesc);
+
+            nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(isEven ? DescriptorSet::SharcUpdatePing : DescriptorSet::SharcUpdatePong)};
+            NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
 
             NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcUpdate));
-            NRI.CmdDispatch(commandBuffer, {w, h, 1});
-
-            NRI.CmdBarrier(commandBuffer, barrierDesc);
+            NRI.CmdDispatch(commandBuffer, {GetSharcDims().x / 16, GetSharcDims().y / 16, 1});
+            NRI.CmdBarrier(commandBuffer, bufferBarrierDesc);
         }
 
         { // Resolve
@@ -3465,8 +3562,36 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
             NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::SharcResolve));
             NRI.CmdDispatch(commandBuffer, {(SHARC_CAPACITY + LINEAR_BLOCK_SIZE - 1) / LINEAR_BLOCK_SIZE, 1, 1});
+            NRI.CmdBarrier(commandBuffer, bufferBarrierDesc);
+        }
 
-            NRI.CmdBarrier(commandBuffer, barrierDesc);
+        { // History confidence
+            helper::Annotation annotation(NRI, commandBuffer, "History confidence - Blur");
+
+            // Blur
+            for (uint32_t i = 0; i < 5u; i++) { // must be odd
+                const TextureState transitions[] = {
+                    // Input
+                    {i % 2 == 0 ? Texture::Gradient_Ping : Texture::Gradient_Pong, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                    // Output
+                    {i % 2 == 0 ? Texture::Gradient_Pong : Texture::Gradient_Ping, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+                };
+
+                nri::BarrierDesc barrierDesc = {};
+                barrierDesc.textures = optimizedTransitions.data();
+                barrierDesc.textureNum = BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions);
+                NRI.CmdBarrier(commandBuffer, barrierDesc);
+
+                nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(i % 2 == 0 ? DescriptorSet::ConfidenceBlurPing : DescriptorSet::ConfidenceBlurPong)};
+                NRI.CmdSetDescriptorSet(commandBuffer, otherSet);
+
+                uint32_t step = 1 + i;
+                nri::SetRootConstantsDesc rootConstants = {0, &step, 4};
+                NRI.CmdSetRootConstants(commandBuffer, rootConstants);
+
+                NRI.CmdSetPipeline(commandBuffer, *Get(Pipeline::ConfidenceBlur));
+                NRI.CmdDispatch(commandBuffer, {GetSharcDims().x / 16, GetSharcDims().y / 16, 1});
+            }
         }
     }
 

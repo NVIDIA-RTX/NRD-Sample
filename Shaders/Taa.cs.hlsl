@@ -120,7 +120,7 @@ void main( int2 threadPos : SV_GroupThreadId, int2 pixelPos : SV_DispatchThreadI
 
     // History
     float2 pixelPosPrev = saturate( pixelUvPrev ) * gRectSizePrev;
-    float4 history = BicubicFilterNoCorners( gIn_History, gLinearSampler, pixelPosPrev, gInvRenderSize, TAA_HISTORY_SHARPNESS );
+    float4 history = BicubicFilterNoCorners( gIn_History, gLinearClamp, pixelPosPrev, gInvRenderSize, TAA_HISTORY_SHARPNESS );
 
     history.xyz = max( history.xyz, 0.0 ); // yes, not "saturate"
 

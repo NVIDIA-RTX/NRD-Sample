@@ -331,8 +331,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                     }
 
                     // Apply occlusion estimation for the last bounce
-                    //if( bounce == gBounceNum )
-                    //    sharcRadiance *= Math::Sqrt01( geometryProps.hitT / voxelSize );
+                #if USE_AO_FOR_LAST_BOUNCE
+                    if( bounce == gBounceNum )
+                        sharcRadiance *= Math::Sqrt01( geometryProps.hitT / voxelSize );
+                #endif
 
                     if( isFound )
                         Lcached = float4( sharcRadiance, 1.0 );

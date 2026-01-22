@@ -18,7 +18,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         return;
 
     // Noisy input
-    float3 input = gIn_PreAA.SampleLevel( gNearestSampler, pixelUv * gRectSize * gInvRenderSize, 0 ).xyz;
+    float3 input = gIn_PreAA.SampleLevel( gNearestClamp, pixelUv * gRectSize * gInvRenderSize, 0 ).xyz;
 
     input = ApplyTonemap( input );
     if( gIsSrgb )
@@ -47,7 +47,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Validation layer
     if( gValidation )
     {
-        float4 validation = gIn_Validation.SampleLevel( gNearestSampler, pixelUv, 0 );
+        float4 validation = gIn_Validation.SampleLevel( gNearestClamp, pixelUv, 0 );
         result = lerp( result, validation.xyz, validation.w );
     }
 

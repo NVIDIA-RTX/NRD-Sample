@@ -519,14 +519,14 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
 #define SHADOW      0x02
 #define SSS         0x04
 
-float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, uint flags, out float3 Xshadow )
+float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, compiletime uint flags, out float3 Xshadow )
 {
     float3 lighting = 0.0;
 
     // Lighting
     Xshadow = geometryProps.X;
 
-    if( ( flags & LIGHTING ) != 0 )
+    if ( ( flags & LIGHTING ) != 0 )
     {
         float3 Csun = GetSunIntensity( gSunDirection.xyz );
         float3 Csky = GetSkyIntensity( -geometryProps.V );
@@ -720,6 +720,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             emissiveHitNum++;
 
         // Save either the first ray or the last ray hitting an emissive
+        // TODO: the selection should be probabilistic and based on the intensity percentage across all hit candidates, currently emission intensity is uniform, so all candidates are equally "good"
         if( isEmissiveHit || sampleIndex == 0 )
             rayLocal = candidateRayLocal;
 
@@ -888,7 +889,7 @@ float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3
     float2 uv = Geometry::GetScreenUv( isPrevFrame ? gWorldToClipPrev : gWorldToClip, geometryProps.X, true ) - gJitter;
 
     float2 rescale = ( isPrevFrame ? gRectSizePrev : gRectSize ) * gInvRenderSize;
-    float4 data = texSpecViewZ.SampleLevel( gNearestSampler, uv * rescale, 0 );
+    float4 data = texSpecViewZ.SampleLevel( gNearestClamp, uv * rescale, 0 );
     float prevViewZ = abs( data.w ) / FP16_VIEWZ_SCALE;
 
     // Initial state
@@ -935,7 +936,7 @@ float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3
         weight *= gPrevFrameConfidence; // see C++ code for details
 
     // Read data
-    Ldiff = texDiff.SampleLevel( gNearestSampler, uv * rescale, 0 );
+    Ldiff = texDiff.SampleLevel( gNearestClamp, uv * rescale, 0 );
     Lspec = data.xyz;
 
     // Avoid NANs
