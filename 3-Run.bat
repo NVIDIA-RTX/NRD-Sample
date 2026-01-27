@@ -110,6 +110,7 @@ echo 1 - Bistro (interior)
 echo 2 - Bistro (exterior)
 echo 3 - Shader balls
 echo 4 - Kitchen
+echo 5 - Claire
 :CHOOSE_SCENE
     set /P M=Choose scene [1-4]:
     if %M%==1 (
@@ -126,6 +127,10 @@ echo 4 - Kitchen
     )
     if %M%==4 (
         set SCENE=Kitchen\Kitchen.gltf
+        goto RUN
+    )
+    if %M%==5 (
+        set SCENE=Claire\Claire.gltf
         goto RUN
     )
     goto CHOOSE_SCENE
