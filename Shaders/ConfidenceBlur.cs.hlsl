@@ -93,7 +93,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         // Last pass converts "gradient" to "history confidence"
         // ( Optional ) apply remapping, dithering...
         gradient = Color::HdrToLinear_Uncharted( gradient * gExposure ).x; // or normalize to the blurred final image or SHARC cache
-        gradient = 1.0 - Math::Sqrt01( gradient );
+        gradient = 1.0 - Color::ToSrgb( gradient ).x;
     }
 
     gOut_Gradient[ pixelPos ] = float4( gradient, data0.yzw );

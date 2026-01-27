@@ -102,8 +102,8 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
 
     float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW );
 
-    float4 gradientData; // IMPORTANT: direct emission must be excluded for history confidence calculations, sun direct lighting is not needed too because it doesn't go through NRD...
-    gradientData.x = 0; // use "Color::Luminance( L ) * pathThroughput" for primary sun lighting
+    float4 gradientData; // IMPORTANT: direct emission must be excluded for history confidence calculations
+    gradientData.x = Color::Luminance( L ) * pathThroughput; // direct sun lighting is not noisy, but nice to have here to invoke more history rejections if the sun is moving
     gradientData.yz = Packing::EncodeUnitVector( Geometry::RotateVector( gWorldToViewPrev, geometryProps.N ) );
     gradientData.w = Geometry::AffineTransform( gWorldToViewPrev, geometryProps.X ).z * FP16_VIEWZ_SCALE;
 
@@ -129,6 +129,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         // Origin point
         //=============================================================================================================================================================
 
+        bool isStaticAtOrigin = false;
         float3 throughput = 1.0;
         {
             // Estimate diffuse probability
@@ -141,7 +142,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
 
             // Importance sampling
             uint sampleMaxNum = 0;
-            if( bounceNum == BOUNCES_NUM && gDisableShadowsAndEnableImportanceSampling )
+            if( gDisableShadowsAndEnableImportanceSampling && ( USE_IS_FOR_ALL_BOUNCES || bounceNum == BOUNCES_NUM ) )
                 sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
             sampleMaxNum = max( sampleMaxNum, 1 );
 
@@ -152,6 +153,8 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
             //=========================================================================================================================================================
             // Trace to the next hit
             //=========================================================================================================================================================
+
+            isStaticAtOrigin = geometryProps.Has( FLAG_STATIC );
 
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
             geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
@@ -171,9 +174,22 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         }
         else
         {
-            float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW );
+            // Lighting at hit
+            float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW ); // no emission here
 
-            gradientData.x += Color::Luminance( L + materialProps.Lemi ) * pathThroughput;
+            { // Lighting for gradients
+                float l = Color::Luminance( L + materialProps.Lemi ); // lighting + self emission
+
+                // Lighting is not clean enough to be used for detecting changes in shadows. Use "hitT" instead to estimate changes
+                // in shadows casted by dynamic objects. Convert "shadow" to "lighting" to avoid processing two signals separately.
+                bool isDynamicAtHit = !geometryProps.Has( FLAG_STATIC );
+                float ao = Math::Sqrt01( geometryProps.hitT / gHitDistSettings.x );
+                float indirectShadowing = 1.0 - ao; // any estimation can be used here
+                indirectShadowing *= float( isStaticAtOrigin && isDynamicAtHit ); // this is important
+                l += indirectShadowing * 25.0 / gExposure; // make calculations exposure-independent
+
+                gradientData.x += l * pathThroughput;
+            }
 
             if( mode != PREV )
             {
@@ -202,25 +218,26 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Current gradient data
     Rng::Hash::Initialize( pixelPos, gFrameIndex );
 
-    float4 gradientCurr = Trace( pixelPos, CURR );
+    float16_t4 gradientCurr = ( float16_t4 )Trace( pixelPos, CURR );
     gOut_CurrGradient[ pixelPos ] = gradientCurr; // will be "gIn_PrevGradient" in the next frame
 
     // ( Optional ) "Reach" potentially new areas visible through glass
     Trace( pixelPos, FULL );
 
     // Previous gradient data
+    // It's important to use FP16 for calculations to avoid imprecision issues, because "stored" data comes from an FP16 texture
     Rng::Hash::Initialize( pixelPos, gFrameIndex - 1 );
 
-    float4 prevGradient = Trace( pixelPos, PREV ); // no SHARC update
-    float4 prevGradientStored = gIn_PrevGradient[ pixelPos ];
+    float16_t4 prevGradient = ( float16_t4 )Trace( pixelPos, PREV ); // no SHARC update
+    float16_t4 prevGradientStored = ( float16_t4 )gIn_PrevGradient[ pixelPos ];
 
     // Irradiance gradient: it includes materials, i.e can be normalized to the blurred final HDR image
-    float gradient = abs( prevGradient.x - prevGradientStored.x ); // hitT gradient? no...
+    float16_t gradient = abs( prevGradient.x - prevGradientStored.x );
 
     // Apply simple occlusion factor to eliminate false-positives left by dynamic objects ( 1st order disocclusions are handled by NRD itself )
     float zOcclusion = abs( prevGradient.w - prevGradientStored.w ) / max( prevGradient.w,  prevGradientStored.w );
-    gradient *= Math::SmoothStep( 0.25, 0.05, zOcclusion );
+    gradient *= ( float16_t )Math::SmoothStep( 0.25, 0.05, zOcclusion );
 
     // Which "small g-buffer" to use "stored" or "traced"? "Stored" represents the real state of the previous frame
-    gOut_Gradient[ pixelPos ] = float4( gradient, prevGradientStored.yzw );
+    gOut_Gradient[ pixelPos ] = float16_t4( gradient, prevGradientStored.yzw );
 }

@@ -231,7 +231,8 @@ struct Settings {
     float exposure = 80.0f;
     float roughnessOverride = 0.0f;
     float metalnessOverride = 0.0f;
-    float emissionIntensity = 1.0f;
+    float emissionIntensityLights = 1.0f;
+    float emissionIntensityCubes = 1.0f;
     float debug = 0.0f;
     float meterToUnitsMultiplier = 1.0f;
     float emulateMotionSpeed = 1.0f;
@@ -240,7 +241,6 @@ struct Settings {
     float animationProgress = 0.0f;
     float animationSpeed = 0.0f;
     float hitDistScale = 3.0f;
-    float unused1 = 0.0f;
     float resolutionScale = 1.0f;
     float sharpness = 0.15f;
 
@@ -283,6 +283,7 @@ struct Settings {
     bool boost = false;
     bool SR = false;
     bool RR = false;
+    bool confidence = true;
 };
 
 struct TextureState {
@@ -309,7 +310,7 @@ struct AnimatedInstance {
         localPosition.y = sin(reverseDirection ? -angle : angle);
         localPosition.z = localPosition.y;
 
-        position = basePosition + localPosition * elipseAxis * scale;
+        position = basePosition + localPosition * elipseAxis;
 
         float4x4 transform;
         transform.SetupByRotation(reverseRotation ? -angle : angle, rotationAxis);
@@ -1048,7 +1049,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                     ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetCursorPosX() + ImGui::GetStyle().ItemSpacing.x);
                     ImGui::Combo("Material", &m_Settings.forcedMaterial, forcedMaterial, helper::GetCountOf(forcedMaterial));
                     if (m_Settings.emission)
-                        ImGui::SliderFloat("Emission intensity", &m_Settings.emissionIntensity, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                        ImGui::SliderFloat2("Emission intensity", &m_Settings.emissionIntensityLights, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
                 }
                 ImGui::PopID();
 
@@ -1181,9 +1182,25 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                 if (m_Settings.RR)
                     ImGui::Text("Pass-through mode...");
                 else if (isUnfolded) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.adaptiveAccumulation ? UI_GREEN : UI_YELLOW);
+                    ImGui::Checkbox("Adaptive", &m_Settings.adaptiveAccumulation);
+                    ImGui::PopStyleColor();
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.confidence ? UI_GREEN : UI_YELLOW);
+                    ImGui::Checkbox("Confidence", &m_Settings.confidence);
+                    ImGui::PopStyleColor();
+
+#if (NRD_MODE == SH)
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
+                    ImGui::Checkbox("Resolve", &m_Resolve);
+                    ImGui::PopStyleColor();
+#endif
+
                     if (m_DebugNRD) {
+                        ImGui::SameLine();
                         ImGui::PushStyleColor(ImGuiCol_Text, m_ShowValidationOverlay ? UI_YELLOW : UI_DEFAULT);
-                        ImGui::Checkbox("Validation overlay", &m_ShowValidationOverlay);
+                        ImGui::Checkbox("Debug overlay", &m_ShowValidationOverlay);
                         ImGui::PopStyleColor();
                     }
 
@@ -1234,18 +1251,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         }
                         ImGui::PopStyleColor();
 
-                        ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.adaptiveAccumulation ? UI_GREEN : UI_YELLOW);
-                        ImGui::Checkbox("Adaptive accumulation", &m_Settings.adaptiveAccumulation);
-                        ImGui::PopStyleColor();
-                        ImGui::SameLine();
                         ImGui::Checkbox("Anti-firefly", &m_ReblurSettings.enableAntiFirefly);
-
-#if (NRD_MODE == SH)
-                        ImGui::SameLine();
-                        ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
-                        ImGui::Checkbox("Resolve", &m_Resolve);
-                        ImGui::PopStyleColor();
-#endif
 
                         ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
                         ImGui::SliderInt2("Accumulation (frames)", &m_Settings.maxAccumulatedFrameNum, 0, MAX_HISTORY_FRAME_NUM, "%d");
@@ -1305,19 +1311,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             m_RelaxSettings = defaults;
                         ImGui::PopStyleColor();
 
-                        ImGui::PushStyleColor(ImGuiCol_Text, m_Settings.adaptiveAccumulation ? UI_GREEN : UI_YELLOW);
-                        ImGui::Checkbox("Adaptive accumulation", &m_Settings.adaptiveAccumulation);
-                        ImGui::PopStyleColor();
-                        ImGui::SameLine();
                         ImGui::Checkbox("Anti-firefly", &m_RelaxSettings.enableAntiFirefly);
-
-                        ImGui::Checkbox("Roughness edge stopping", &m_RelaxSettings.enableRoughnessEdgeStopping);
-#if (NRD_MODE == SH)
-                        ImGui::SameLine();
-                        ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
-                        ImGui::Checkbox("Resolve", &m_Resolve);
-                        ImGui::PopStyleColor();
-#endif
 
                         ImGui::BeginDisabled(m_Settings.adaptiveAccumulation);
                         ImGui::SliderInt2("Accumulation (frames)", &m_Settings.maxAccumulatedFrameNum, 0, MAX_HISTORY_FRAME_NUM, "%d");
@@ -1728,22 +1722,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         }
     }
 
-    // Global history reset: sun elevation
-    float a = sin(radians(m_Settings.sunElevation));
-    float b = sin(radians(m_SettingsPrev.sunElevation));
-    a = linearstep(-0.7f, 0.7f, a); // relax pole positions
-    b = linearstep(-0.7f, 0.7f, b);
-    float d = abs(a - b) * 1000.0f / m_Timer.GetVerySmoothedFrameTime(); // make FPS-independent
-    float resetHistoryFactor = linearstep(5.0f, 0.0f, d);
-
-    // Global history reset: emission intensity
-    a = float(m_Settings.emission) * m_Settings.emissionIntensity;
-    b = float(m_SettingsPrev.emission) * m_SettingsPrev.emissionIntensity;
-    a = log2(1.0f + a);
-    b = log2(1.0f + b);
-    d = abs(a - b) * 1000.0f / m_Timer.GetVerySmoothedFrameTime(); // make FPS-independent
-    resetHistoryFactor /= 1.0f + 0.2f * d;
-
     // Global history reset: incompatible state changes
     if (m_SettingsPrev.denoiser != m_Settings.denoiser)
         m_ForceHistoryReset = true;
@@ -1753,6 +1731,14 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         m_ForceHistoryReset = true;
     if (frameIndex == 0)
         m_ForceHistoryReset = true;
+
+    // Global history reset: emission intensity
+    float a = float(m_Settings.emission) * max(m_Settings.emissionIntensityLights, m_Settings.emissionIntensityCubes);
+    float b = float(m_SettingsPrev.emission) * max(m_SettingsPrev.emissionIntensityLights, m_SettingsPrev.emissionIntensityCubes);
+    a = log2(1.0f + a);
+    b = log2(1.0f + b);
+    float d = abs(a - b) * 1000.0f / m_Timer.GetVerySmoothedFrameTime(); // make FPS-independent
+    float resetHistoryFactor = 1.0f / (1.0f + 0.2f * d);
 
     if (m_ForceHistoryReset)
         resetHistoryFactor = 0.0f;
@@ -1767,7 +1753,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(accumulationTime, fps), 1u);
 
         m_Settings.maxAccumulatedFrameNum = min(maxAccumulatedFrameNum, MAX_HISTORY_FRAME_NUM);
-        m_Settings.maxFastAccumulatedFrameNum = m_Settings.maxAccumulatedFrameNum / (m_Settings.SHARC ? 7 : 5);
+        m_Settings.maxFastAccumulatedFrameNum = m_Settings.maxAccumulatedFrameNum / 5;
 
         m_ReblurSettings.maxStabilizedFrameNum = m_Settings.maxAccumulatedFrameNum;
 
@@ -1881,6 +1867,7 @@ void Sample::AddInnerGlassSurfaces() {
 void Sample::GenerateAnimatedCubes() {
     for (uint32_t i = 0; i < MAX_ANIMATED_INSTANCE_NUM; i++) {
         float3 position = lerp(m_Scene.aabb.vMin, m_Scene.aabb.vMax, Rng::Hash::GetFloat4(m_RngState).xyz);
+        float scale = 2.0f + (Rng::Hash::GetFloat(m_RngState) - 0.5f) * 2.0f;
 
         AnimatedInstance animatedInstance = {};
         animatedInstance.instanceID = helper::GetCountOf(m_Scene.instances);
@@ -1888,7 +1875,7 @@ void Sample::GenerateAnimatedCubes() {
         animatedInstance.durationSec = Rng::Hash::GetFloat(m_RngState) * 10.0f + 5.0f;
         animatedInstance.progressedSec = animatedInstance.durationSec * Rng::Hash::GetFloat(m_RngState);
         animatedInstance.rotationAxis = normalize(float3(Rng::Hash::GetFloat4(m_RngState).xyz) * 2.0f - 1.0f);
-        animatedInstance.elipseAxis = (float3(Rng::Hash::GetFloat4(m_RngState).xyz) * 2.0f - 1.0f) * 5.0f;
+        animatedInstance.elipseAxis = (float3(Rng::Hash::GetFloat4(m_RngState).xyz) * 2.0f - 1.0f) * scale;
         animatedInstance.reverseDirection = Rng::Hash::GetFloat(m_RngState) < 0.5f;
         animatedInstance.reverseRotation = Rng::Hash::GetFloat(m_RngState) < 0.5f;
         m_AnimatedInstances.push_back(animatedInstance);
@@ -3248,7 +3235,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     float3 cameraGlobalPos = float3(m_Camera.state.globalPosition);
     float3 cameraGlobalPosPrev = float3(m_Camera.statePrev.globalPosition);
 
-    float emissionIntensity = m_Settings.emissionIntensity * float(m_Settings.emission);
     float nearZ = NEAR_Z * m_Settings.meterToUnitsMultiplier;
     float baseMipBias = ((m_Settings.TAA || IsDlssEnabled()) ? -0.5f : 0.0f) + log2f(m_Settings.resolutionScale);
     float mipBias = baseMipBias + log2f(renderSize.x / outputSize.x);
@@ -3260,11 +3246,11 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     otherMaxAccumulatedFrameNum = min(otherMaxAccumulatedFrameNum, float(MAX_HISTORY_FRAME_NUM));
     otherMaxAccumulatedFrameNum *= resetHistoryFactor;
 
-    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum * 1.5f + 0.5f); // TODO: review: "* 1.5f" to match behavior after updating SHARC to v1.6.3 (probably a bit laggy)
+    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum + 0.5f);
     float taaMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.5f;
     float prevFrameMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.3f;
 
-    nrd::HitDistanceParameters hitDistanceParameters = {};
+    nrd::ReblurHitDistanceParameters hitDistanceParameters = {};
     hitDistanceParameters.A = m_Settings.hitDistScale * m_Settings.meterToUnitsMultiplier;
 
     float project[3];
@@ -3287,7 +3273,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gWorldToViewPrev = m_Camera.statePrev.mWorldToView;
         constants.gWorldToClipPrev = m_Camera.statePrev.mWorldToClip;
         constants.gViewToWorldPrev = m_Camera.statePrev.mViewToWorld;
-        constants.gHitDistParams = float4(hitDistanceParameters.A, hitDistanceParameters.B, hitDistanceParameters.C, hitDistanceParameters.D);
+        constants.gHitDistSettings = float4(hitDistanceParameters.A, hitDistanceParameters.B, hitDistanceParameters.C, hitDistanceParameters.D);
         constants.gCameraFrustum = frustum;
         constants.gSunBasisX = float4(sunT, 0.0f);
         constants.gSunBasisY = float4(sunB, 0.0f);
@@ -3307,7 +3293,8 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gInvSharcRenderSize = 1.0f / float2((float)GetSharcDims().x, (float)GetSharcDims().y);
         constants.gJitter = jitter;
         constants.gJitterPrev = jitterPrev;
-        constants.gEmissionIntensity = emissionIntensity;
+        constants.gEmissionIntensityLights = m_Settings.emission ? m_Settings.emissionIntensityLights : 0.0f;
+        constants.gEmissionIntensityCubes = m_Settings.emission ? m_Settings.emissionIntensityCubes : 0.0f;
         constants.gNearZ = nearZ;
         constants.gSeparator = USE_SHARC_DEBUG == 0 ? m_Settings.separator : 1.0f;
         constants.gRoughnessOverride = m_Settings.roughnessOverride;
@@ -3436,7 +3423,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.accumulationMode = m_ForceHistoryReset ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
     commonSettings.isMotionVectorInWorldSpace = false;
     commonSettings.enableValidation = m_ShowValidationOverlay;
-    commonSettings.isHistoryConfidenceAvailable = true;
+    commonSettings.isHistoryConfidenceAvailable = m_Settings.confidence;
 
     const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
     if (nrdLibraryDesc.normalEncoding == nrd::NormalEncoding::R10_G10_B10_A2_UNORM) {
@@ -3654,7 +3641,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         helper::Annotation annotation(NRI, commandBuffer, "Opaque denoising");
 
         if (m_Settings.denoiser == DENOISER_REBLUR || m_Settings.denoiser == DENOISER_REFERENCE) {
-            nrd::HitDistanceParameters hitDistanceParameters = {};
+            nrd::ReblurHitDistanceParameters hitDistanceParameters = {};
             hitDistanceParameters.A = m_Settings.hitDistScale * m_Settings.meterToUnitsMultiplier;
             m_ReblurSettings.hitDistanceParameters = hitDistanceParameters;
 

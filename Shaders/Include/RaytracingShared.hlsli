@@ -456,10 +456,12 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     if( geometryProps.Has( FLAG_FORCED_EMISSION ) )
     {
         Lemi = geometryProps.GetForcedEmissionColor( );
+        Lemi *= gEmissionIntensityCubes;
+
         baseColor = 0.0;
     }
-
-    Lemi *= gEmissionIntensity;
+    else
+        Lemi *= gEmissionIntensityLights;
 
     // Material overrides
     [flatten]

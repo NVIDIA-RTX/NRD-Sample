@@ -14,6 +14,7 @@
 #define USE_SHARC_DITHERING                 1
 #define USE_TRANSLUCENCY                    1 // translucent foliage
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
+#define USE_IS_FOR_ALL_BOUNCES              1 // slower, but better lighting for 2nd+ bounces
 
 // Default = 0
 #define USE_SANITIZATION                    0 // NRD sample is NAN/INF free
@@ -178,7 +179,7 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float4x4 gWorldToViewPrev;
     float4x4 gWorldToClipPrev;
     float4x4 gViewToWorldPrev;
-    float4 gHitDistParams;
+    float4 gHitDistSettings;
     float4 gCameraFrustum;
     float4 gSunBasisX;
     float4 gSunBasisY;
@@ -198,7 +199,8 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float2 gInvSharcRenderSize;
     float2 gJitter;
     float2 gJitterPrev;
-    float gEmissionIntensity;
+    float gEmissionIntensityLights;
+    float gEmissionIntensityCubes;
     float gNearZ;
     float gSeparator;
     float gRoughnessOverride;
