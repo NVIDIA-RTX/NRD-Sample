@@ -97,7 +97,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
         if( gResolve && pixelUv.x >= gSeparator )
         {
             // Regain macro-details
-            diff.xyz = NRD_SG_ResolveDiffuse( diffSg, N ); // or NRD_SH_ResolveDiffuse( diffSg, N )
+            diff.xyz = NRD_SG_ResolveDiffuse( diffSg, N, V, roughness ); // or NRD_SH_ResolveDiffuse( diffSg, N )
             spec.xyz = NRD_SG_ResolveSpecular( specSg, N, V, roughness );
 
             // Regain micro-details & jittering // TODO: preload N and Z into SMEM
@@ -111,7 +111,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
             float Zn = gIn_ViewZ[ pixelPos + int2(  0,  1 ) ];
             float Zs = gIn_ViewZ[ pixelPos + int2(  0, -1 ) ];
 
-            float2 scale = NRD_SG_ReJitter( diffSg, specSg, Rf0, V, roughness, viewZ, Ze, Zw, Zn, Zs, N, Ne, Nw, Nn, Ns );
+            float2 scale = NRD_SG_ReJitter( diffSg, specSg, V, roughness, viewZ, Ze, Zw, Zn, Zs, N, Ne, Nw, Nn, Ns );
 
             diff.xyz *= scale.x;
             spec.xyz *= scale.y;

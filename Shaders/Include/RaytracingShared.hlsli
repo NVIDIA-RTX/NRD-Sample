@@ -440,11 +440,13 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     float3 N = gUseNormalMap ? Geometry::TransformLocalNormal( packedNormal, geometryProps.T, geometryProps.N ) : geometryProps.N;
     float3 T = geometryProps.T.xyz;
 
+    float3 Nlocal = Geometry::UnpackLocalNormal( packedNormal );
+    Nlocal.xy *= float( gUseNormalMap );
+
     // Estimate curvature
     float viewZ = Geometry::AffineTransform( gWorldToView, geometryProps.X ).z;
     float pixelSize = gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
-    float localCurvature = length( Geometry::UnpackLocalNormal( packedNormal ).xy ) * float( gUseNormalMap );
-    localCurvature /= pixelSize;
+    float localCurvature = length( Nlocal.xy ) / pixelSize;
 
     // Emission
     coords = GetSamplingCoords( baseTexture + 3, geometryProps.uv, geometryProps.mip, MIP_VISIBILITY );
@@ -505,6 +507,9 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     metalness = lerp( metalness, 0.0, emissionLevel );
     roughness = lerp( roughness, 1.0, emissionLevel );
 
+    // TODO: roughness AA
+
+    // Output
     props.Lemi = Lemi;
     props.N = N;
     props.T = T;
@@ -512,6 +517,10 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     props.roughness = roughness;
     props.metalness = metalness;
     props.curvature = geometryProps.curvature + localCurvature;
+
+#if USE_WHITE_FURNACE
+    props.baseColor = 1.0;
+#endif
 
     return props;
 }

@@ -31,6 +31,7 @@
 #define USE_TAA_DEBUG                       0 // 1 - show weight
 #define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
 #define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
+#define USE_WHITE_FURNACE                   0 // energy conservation test
 
 //=============================================================================================
 // CONSTANTS
@@ -400,7 +401,11 @@ float3 GetSunIntensity( float3 v )
 
     sunColor *= Math::SmoothStep( -0.01, 0.05, gSunDirection.z );
 
+#if USE_WHITE_FURNACE
+    return 0.0;
+#else
     return Color::FromGamma( sunColor ) * SUN_INTENSITY;
+#endif
 }
 
 float3 GetSkyIntensity( float3 v )
@@ -417,7 +422,11 @@ float3 GetSkyIntensity( float3 v )
     float ground = 0.5 + 0.5 * Math::SmoothStep( -1.0, 0.0, v.z );
     skyColor *= ground;
 
+#if USE_WHITE_FURNACE
+    return 1.0;
+#else
     return Color::FromGamma( skyColor ) * SKY_INTENSITY + GetSunIntensity( v );
+#endif
 }
 
 #endif
