@@ -6,7 +6,7 @@
 
 // NORMAL - common (non specialized) denoisers
 // SH - SH (spherical harmonics or spherical gaussian) denoisers
-#define NRD_MODE                            NORMAL // NRD sample recompilation required
+#define NRD_MODE                            SH // NRD sample recompilation required
 #define SIGMA_TRANSLUCENCY                  1
 
 // Default = 1
