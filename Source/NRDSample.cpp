@@ -790,8 +790,6 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
             NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo2);
 
             printf("DLSS-RR: allocated %.2f Mb\n", (videoMemoryInfo2.usageSize - videoMemoryInfo1.usageSize) / (1024.0f * 1024.0f));
-
-            m_Settings.RR = true;
         }
     }
 
@@ -1527,7 +1525,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 // Reset some settings to defaults to avoid a potential confusion
                                 m_Settings.debug = 0.0f;
                                 m_Settings.denoiser = DENOISER_REBLUR;
-                                m_Settings.RR = m_DLRR;
+                                m_Settings.RR = false;
                                 m_Settings.SR = m_DLSR;
                                 m_Settings.TAA = true;
                                 m_Settings.cameraJitter = true;
