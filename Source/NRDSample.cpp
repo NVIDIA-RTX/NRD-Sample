@@ -2495,9 +2495,6 @@ void Sample::CreatePipelines(bool recreate) {
 }
 
 void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
-    // TODO: DLSS doesn't support R16 UNORM/SNORM
-    const nri::Format dataFormat = nri::Format::RGBA16_SFLOAT;
-
     const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
     nri::Format normalFormat = nri::Format::RGBA16_SFLOAT; // TODO: RGBA16_SNORM can't be used, because NGX doesn't support it
     switch (nrdLibraryDesc.normalEncoding) {
@@ -2517,6 +2514,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
             break;
     }
 
+    constexpr nri::Format dataFormat = nri::Format::RGBA16_SFLOAT;
     constexpr nri::Format taaFormat = nri::Format::RGBA16_SFLOAT; // required for new TAA even in LDR mode (RGBA16_UNORM can't be used)
     constexpr nri::Format colorFormat = USE_LOW_PRECISION_FP_FORMATS ? nri::Format::R11_G11_B10_UFLOAT : nri::Format::RGBA16_SFLOAT;
     constexpr nri::Format criticalColorFormat = nri::Format::RGBA16_SFLOAT; // TODO: R9_G9_B9_E5_UFLOAT?
@@ -3420,8 +3418,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.frameIndex = frameIndex;
     commonSettings.accumulationMode = m_ForceHistoryReset ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
     commonSettings.isMotionVectorInWorldSpace = false;
-    commonSettings.enableValidation = m_ShowValidationOverlay;
     commonSettings.isHistoryConfidenceAvailable = m_Settings.confidence;
+    commonSettings.enableValidation = m_ShowValidationOverlay;
 
     const nrd::LibraryDesc& nrdLibraryDesc = *nrd::GetLibraryDesc();
     if (nrdLibraryDesc.normalEncoding == nrd::NormalEncoding::R10_G10_B10_A2_UNORM) {
