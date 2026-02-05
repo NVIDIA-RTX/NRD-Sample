@@ -131,7 +131,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         float3 albedo, Rf0;
         BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
 
-        NRD_MaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, materialProps.roughness, diffFactor0, specFactor0 );
+        NRD_MaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, roughness0, diffFactor0, specFactor0 );
 
         // We can combine radiance ( for everything ) and irradiance ( for hair ) in denoising if material ID test is enabled
         if( geometryProps.Has( FLAG_HAIR ) && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )

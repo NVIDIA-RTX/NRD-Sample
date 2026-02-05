@@ -495,6 +495,7 @@ public:
         defaults.specularMaxAccumulatedFrameNum = m_RelaxSettings.specularMaxAccumulatedFrameNum;
         defaults.diffuseMaxFastAccumulatedFrameNum = m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum;
         defaults.specularMaxFastAccumulatedFrameNum = m_RelaxSettings.specularMaxFastAccumulatedFrameNum;
+        defaults.fastHistoryClampingSigmaScale = 1.5f;
 
         // Helps to mitigate fireflies emphasized by DLSS
         // defaults.enableAntiFirefly = m_DlssQuality != -1 && IsDlssEnabled(); // TODO: currently doesn't help in this case, but makes the image darker
@@ -511,6 +512,7 @@ public:
         defaults.maxAccumulatedFrameNum = m_ReblurSettings.maxAccumulatedFrameNum;
         defaults.maxFastAccumulatedFrameNum = m_ReblurSettings.maxFastAccumulatedFrameNum;
         defaults.maxStabilizedFrameNum = m_ReblurSettings.maxStabilizedFrameNum;
+        defaults.fastHistoryClampingSigmaScale = 1.5f;
 
         return defaults;
     }
@@ -1766,7 +1768,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
     m_ReblurSettings.maxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_ReblurSettings.maxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
-    m_ReblurSettings.fastHistoryClampingSigmaScale = m_Settings.SHARC ? 1.1f : 1.5f;
 
     m_RelaxSettings.diffuseMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.diffuseMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
