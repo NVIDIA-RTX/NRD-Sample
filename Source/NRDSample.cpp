@@ -1497,7 +1497,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::Checkbox("Confidence", &m_Settings.confidence);
                         ImGui::PopStyleColor();
 
-#if (NRD_MODE == SH|| NRD_MODE == DIRECTIONAL_OCCLUSION)
+#if (NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION)
                         ImGui::SameLine();
                         ImGui::PushStyleColor(ImGuiCol_Text, m_Resolve ? UI_GREEN : UI_RED);
                         ImGui::Checkbox("Resolve", &m_Resolve);
@@ -2991,7 +2991,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
         default:
             break;
     }
-    
+
 #if (NRD_MODE == OCCLUSION) // TODO: DLSS doesn't support R16 UNORM/SNORM
     const nri::Format dataFormat = m_DlssQuality != -1 ? nri::Format::R16_SFLOAT : nri::Format::R16_UNORM;
 #elif (NRD_MODE == DIRECTIONAL_OCCLUSION)
@@ -4299,7 +4299,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 nri::BarrierDesc barrierDesc = {};
                 barrierDesc.textures = optimizedTransitions.data();
                 barrierDesc.textureNum = BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions);
-            NRI.CmdBarrier(commandBuffer, barrierDesc);
+                NRI.CmdBarrier(commandBuffer, barrierDesc);
 
                 nri::SetDescriptorSetDesc otherSet = {SET_OTHER, Get(i % 2 == 0 ? DescriptorSet::ConfidenceBlurPing : DescriptorSet::ConfidenceBlurPong)};
                 NRI.CmdSetDescriptorSet(commandBuffer, otherSet);

@@ -94,29 +94,28 @@ void main( int2 pixelPos : SV_DispatchThreadId )
             specSg = RELAX_BackEnd_UnpackSh( spec, spec1 );
         }
 
-        if( gResolve && pixelUv.x >= gSeparator )
-        {
-            // Regain macro-details
-            diff.xyz = NRD_SG_ResolveDiffuse( diffSg, N, V, roughness ); // or NRD_SH_ResolveDiffuse( diffSg, N )
-            spec.xyz = NRD_SG_ResolveSpecular( specSg, N, V, roughness );
+        // Regain macro-details
+        diff.xyz = NRD_SG_ResolveDiffuse( diffSg, N, V, roughness ); // or NRD_SH_ResolveDiffuse( diffSg, N )
+        spec.xyz = NRD_SG_ResolveSpecular( specSg, N, V, roughness );
 
-            // Regain micro-details & jittering // TODO: preload N and Z into SMEM
-            float3 Ne = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  1,  0 ) ] ).xyz;
-            float3 Nw = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( -1,  0 ) ] ).xyz;
-            float3 Nn = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  0,  1 ) ] ).xyz;
-            float3 Ns = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  0, -1 ) ] ).xyz;
+        // Regain micro-details & jittering // TODO: preload N and Z into SMEM
+        float3 Ne = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  1,  0 ) ] ).xyz;
+        float3 Nw = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( -1,  0 ) ] ).xyz;
+        float3 Nn = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  0,  1 ) ] ).xyz;
+        float3 Ns = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  0, -1 ) ] ).xyz;
 
-            float Ze = gIn_ViewZ[ pixelPos + int2(  1,  0 ) ];
-            float Zw = gIn_ViewZ[ pixelPos + int2( -1,  0 ) ];
-            float Zn = gIn_ViewZ[ pixelPos + int2(  0,  1 ) ];
-            float Zs = gIn_ViewZ[ pixelPos + int2(  0, -1 ) ];
+        float Ze = gIn_ViewZ[ pixelPos + int2(  1,  0 ) ];
+        float Zw = gIn_ViewZ[ pixelPos + int2( -1,  0 ) ];
+        float Zn = gIn_ViewZ[ pixelPos + int2(  0,  1 ) ];
+        float Zs = gIn_ViewZ[ pixelPos + int2(  0, -1 ) ];
 
-            float2 scale = NRD_SG_ReJitter( diffSg, specSg, V, roughness, viewZ, Ze, Zw, Zn, Zs, N, Ne, Nw, Nn, Ns );
+        float2 scale = NRD_SG_ReJitter( diffSg, specSg, V, roughness, viewZ, Ze, Zw, Zn, Zs, N, Ne, Nw, Nn, Ns );
 
-            diff.xyz *= scale.x;
-            spec.xyz *= scale.y;
-        }
-        else
+        diff.xyz *= scale.x;
+        spec.xyz *= scale.y;
+
+        // ( Optional ) Unresolved
+        if( !gResolve || pixelUv.x < gSeparator )
         {
             diff.xyz = NRD_SG_ExtractColor( diffSg );
             spec.xyz = NRD_SG_ExtractColor( specSg );
@@ -125,36 +124,38 @@ void main( int2 pixelPos : SV_DispatchThreadId )
         // ( Optional ) AO / SO
         diff.w = diffSg.normHitDist;
         spec.w = specSg.normHitDist;
+
     // Decode OCCLUSION mode outputs
     #elif( NRD_MODE == OCCLUSION )
         diff.w = diff.x;
         spec.w = spec.x;
+
     // Decode DIRECTIONAL_OCCLUSION mode outputs
     #elif( NRD_MODE == DIRECTIONAL_OCCLUSION )
         NRD_SG sg = REBLUR_BackEnd_UnpackDirectionalOcclusion( diff );
 
-        if( gResolve )
-        {
-            // Regain macro-details
-            diff.w = NRD_SG_ResolveDiffuse( sg, N ).x; // or NRD_SH_ResolveDiffuse( sg, N ).x
+        // Regain macro-details
+        diff.w = NRD_SG_ResolveDiffuse( sg, N, V, 1.0 ).x; // or NRD_SH_ResolveDiffuse( sg, N ).x
 
-            // Regain micro-details // TODO: preload N and Z into SMEM
-            float3 Ne = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( 1, 0 ) ] ).xyz;
-            float3 Nw = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( -1, 0 ) ] ).xyz;
-            float3 Nn = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( 0, 1 ) ] ).xyz;
-            float3 Ns = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( 0, -1 ) ] ).xyz;
+        // Regain micro-details // TODO: preload N and Z into SMEM
+        float3 Ne = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  1,  0 ) ] ).xyz;
+        float3 Nw = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( -1,  0 ) ] ).xyz;
+        float3 Nn = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  0,  1 ) ] ).xyz;
+        float3 Ns = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  0, -1 ) ] ).xyz;
 
-            float Ze = gIn_ViewZ[ pixelPos + int2(  1,  0 ) ];
-            float Zw = gIn_ViewZ[ pixelPos + int2( -1,  0 ) ];
-            float Zn = gIn_ViewZ[ pixelPos + int2(  0,  1 ) ];
-            float Zs = gIn_ViewZ[ pixelPos + int2(  0, -1 ) ];
+        float Ze = gIn_ViewZ[ pixelPos + int2(  1,  0 ) ];
+        float Zw = gIn_ViewZ[ pixelPos + int2( -1,  0 ) ];
+        float Zn = gIn_ViewZ[ pixelPos + int2(  0,  1 ) ];
+        float Zs = gIn_ViewZ[ pixelPos + int2(  0, -1 ) ];
 
-            float scale = NRD_SG_ReJitter( sg, sg, 0.0, V, 0.0, viewZ, Ze, Zw, Zn, Zs, N, Ne, Nw, Nn, Ns ).x;
+        float scale = NRD_SG_ReJitter( sg, sg, V, 1.0, viewZ, Ze, Zw, Zn, Zs, N, Ne, Nw, Nn, Ns ).x;
 
-            diff.w *= scale;
-        }
-        else
+        diff.w *= scale;
+
+        // ( Optional ) Unresolved
+        if( !gResolve || pixelUv.x < gSeparator )
             diff.w = NRD_SG_ExtractColor( sg ).x;
+
     // Decode NORMAL mode outputs
     #else
         if( gDenoiserType == DENOISER_RELAX )
