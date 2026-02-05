@@ -238,7 +238,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
 
                 // Importance sampling
                 uint sampleMaxNum = 0;
-                if( bounce == 1 && gDisableShadowsAndEnableImportanceSampling && NRD_MODE < OCCLUSION )
+                if( gDisableShadowsAndEnableImportanceSampling && ( USE_IS_FOR_ALL_BOUNCES || bounce == 1 ) )
                     sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
                 sampleMaxNum = max( sampleMaxNum, 1 );
 
@@ -391,8 +391,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
                         }
 
                         // Apply occlusion estimation for the last bounce
-                        //if( bounce == gBounceNum )
-                        //    sharcRadiance *= Math::Sqrt01( geometryProps.hitT / voxelSize );
+                    #if USE_AO_FOR_LAST_BOUNCE
+                        if( bounce == gBounceNum )
+                            sharcRadiance *= Math::Sqrt01( geometryProps.hitT / voxelSize );
+                    #endif
 
                         if( isFound )
                             Lcached = float4( sharcRadiance, 1.0 );
@@ -453,7 +455,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
         // Normalize hit distances for REBLUR before averaging ( needed only for AO for REFERENCE )
         float normHitDist = accumulatedHitDist;
         if( gDenoiserType != DENOISER_RELAX )
-            normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistParams, isDiffusePath ? 1.0 : materialProps0.roughness );
+            normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistSettings, isDiffusePath ? 1.0 : materialProps0.roughness );
 
         // Accumulate diffuse and specular separately for denoising
         if( !USE_SANITIZATION || NRD_IsValidRadiance( Lsum ) )

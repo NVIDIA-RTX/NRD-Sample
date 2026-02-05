@@ -448,11 +448,13 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     float3 N = gUseNormalMap ? Geometry::TransformLocalNormal( packedNormal, geometryProps.T, geometryProps.N ) : geometryProps.N;
     float3 T = geometryProps.T.xyz;
 
+    float3 Nlocal = Geometry::UnpackLocalNormal( packedNormal );
+    Nlocal.xy *= float( gUseNormalMap );
+
     // Estimate curvature
     float viewZ = Geometry::AffineTransform( gWorldToView, geometryProps.X ).z;
     float pixelSize = gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
-    float localCurvature = length( Geometry::UnpackLocalNormal( packedNormal ).xy ) * float( gUseNormalMap );
-    localCurvature /= pixelSize;
+    float localCurvature = length( Nlocal.xy ) / pixelSize;
 
     // Emission
     coords = GetSamplingCoords( baseTexture + 3, geometryProps.uv, geometryProps.mip, MIP_VISIBILITY );
@@ -464,10 +466,12 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     if( geometryProps.Has( FLAG_FORCED_EMISSION ) )
     {
         Lemi = geometryProps.GetForcedEmissionColor( );
+        Lemi *= gEmissionIntensityCubes;
+
         baseColor = 0.0;
     }
-
-    Lemi *= gEmissionIntensity;
+    else
+        Lemi *= gEmissionIntensityLights;
 
     // Material overrides
     [flatten]
@@ -511,6 +515,9 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     metalness = lerp( metalness, 0.0, emissionLevel );
     roughness = lerp( roughness, 1.0, emissionLevel );
 
+    // TODO: roughness AA
+
+    // Output
     props.Lemi = Lemi;
     props.N = N;
     props.T = T;
@@ -518,6 +525,10 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     props.roughness = roughness;
     props.metalness = metalness;
     props.curvature = geometryProps.curvature + localCurvature;
+
+#if USE_WHITE_FURNACE
+    props.baseColor = 1.0;
+#endif
 
     return props;
 }
@@ -527,7 +538,7 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
 #define SHADOW      0x02
 #define SSS         0x04
 
-float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, uint flags, out float3 Xshadow )
+float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, compiletime uint flags, out float3 Xshadow )
 {
     float3 lighting = 0.0;
 
@@ -730,6 +741,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             emissiveHitNum++;
 
         // Save either the first ray or the last ray hitting an emissive
+        // TODO: the selection should be probabilistic and based on the intensity percentage across all hit candidates, currently emission intensity is uniform, so all candidates are equally "good"
         if( isEmissiveHit || sampleIndex == 0 )
             rayLocal = candidateRayLocal;
 
@@ -900,7 +912,7 @@ float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3
     float2 uv = Geometry::GetScreenUv( isPrevFrame ? gWorldToClipPrev : gWorldToClip, geometryProps.X, true ) - gJitter;
 
     float2 rescale = ( isPrevFrame ? gRectSizePrev : gRectSize ) * gInvRenderSize;
-    float4 data = texSpecViewZ.SampleLevel( gNearestSampler, uv * rescale, 0 );
+    float4 data = texSpecViewZ.SampleLevel( gNearestClamp, uv * rescale, 0 );
     float prevViewZ = abs( data.w ) / FP16_VIEWZ_SCALE;
 
     // Initial state
@@ -950,7 +962,7 @@ float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3
         weight *= gPrevFrameConfidence; // see C++ code for details
 
     // Read data
-    Ldiff = texDiff.SampleLevel( gNearestSampler, uv * rescale, 0 );
+    Ldiff = texDiff.SampleLevel( gNearestClamp, uv * rescale, 0 );
     Lspec = data.xyz;
 
     // Avoid NANs

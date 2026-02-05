@@ -50,7 +50,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         float NoV = abs( dot( N, V ) );
         float3 Fenv = gIndirectSpecular * BRDF::EnvironmentTerm_Rtg( Rf0, NoV, roughness );
 
-        float scaleHitDistance = gDenoiserType == DENOISER_RELAX ? 1.0 : _REBLUR_GetHitDistanceNormalization( viewZ, gHitDistParams, roughness );
+        float scaleHitDistance = gDenoiserType == DENOISER_RELAX ? 1.0 : _REBLUR_GetHitDistanceNormalization( viewZ, gHitDistSettings, roughness );
         float specHitDistance = gIn_Spec[ pixelPos ].w * scaleHitDistance;
 
         bool isSky = abs( viewZ ) == INF;

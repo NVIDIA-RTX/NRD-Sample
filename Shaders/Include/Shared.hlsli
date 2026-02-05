@@ -21,6 +21,7 @@
 #define USE_SHARC_DITHERING                 1
 #define USE_TRANSLUCENCY                    1 // translucent foliage
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
+#define USE_IS_FOR_ALL_BOUNCES              1 // slower, but better lighting for 2nd+ bounces
 
 // Default = 0
 #define USE_SANITIZATION                    0 // NRD sample is NAN/INF free
@@ -36,6 +37,8 @@
 #define USE_SHARC_DEBUG                     0 // 1 - show cache, 2 - show grid (NRD sample recompile required)
 #define USE_TAA_DEBUG                       0 // 1 - show weight
 #define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
+#define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
+#define USE_WHITE_FURNACE                   0 // energy conservation test
 #define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
 #define USE_RUSSIAN_ROULETTE                0 // bad practice for real-time denoising
 
@@ -125,6 +128,7 @@
 #define SHARC_MATERIAL_DEMODULATION         1
 #define SHARC_USE_FP16                      0
 #define SHARC_RADIANCE_SCALE                100.0 // matches max emission intensity range ( must be > SUN_INTENSITY )
+#define SHARC_RESAMPLING_DEPTH_MIN          1
 
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking
@@ -132,7 +136,7 @@
 
 // Other
 #define FP16_MAX                            65504.0
-#define INF                                 1e5
+#define INF                                 1e5 // IMPORTANT: INF * FP16_VIEWZ_SCALE < FP16_MAX!
 #define LINEAR_BLOCK_SIZE                   256
 #define FP16_VIEWZ_SCALE                    0.125 // TODO: tuned for meters, needs to be scaled down for cm and mm
 #define MAX_MIP_LEVEL                       11.0
@@ -238,10 +242,11 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float4x4 gViewToWorld;
     float4x4 gViewToClip;
     float4x4 gWorldToView;
-    float4x4 gWorldToViewPrev;
     float4x4 gWorldToClip;
+    float4x4 gWorldToViewPrev;
     float4x4 gWorldToClipPrev;
-    float4 gHitDistParams;
+    float4x4 gViewToWorldPrev;
+    float4 gHitDistSettings;
     float4 gCameraFrustum;
     float4 gSunBasisX;
     float4 gSunBasisY;
@@ -260,7 +265,9 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float2 gRectSizePrev;
     float2 gInvSharcRenderSize;
     float2 gJitter;
-    float gEmissionIntensity;
+    float2 gJitterPrev;
+    float gEmissionIntensityLights;
+    float gEmissionIntensityCubes;
     float gNearZ;
     float gSeparator;
     float gRoughnessOverride;
@@ -332,9 +339,8 @@ NRI_RESOURCE( cbuffer, MorphMeshUpdatePrimitivesConstants, b, 0, SET_ROOT )
 NRI_RESOURCE( SamplerState, gLinearMipmapLinearSampler, s, 0, SET_ROOT );
 NRI_RESOURCE( SamplerState, gLinearMipmapNearestSampler, s, 1, SET_ROOT );
 NRI_RESOURCE( SamplerState, gNearestMipmapNearestSampler, s, 2, SET_ROOT );
-
-#define gLinearSampler gLinearMipmapLinearSampler
-#define gNearestSampler gNearestMipmapNearestSampler
+NRI_RESOURCE( SamplerState, gLinearClamp, s, 3, SET_ROOT );
+NRI_RESOURCE( SamplerState, gNearestClamp, s, 4, SET_ROOT );
 
 //=============================================================================================
 // MISC
@@ -498,7 +504,11 @@ float3 GetSunIntensity( float3 v )
 
     sunColor *= Math::SmoothStep( -0.01, 0.05, gSunDirection.z );
 
+#if USE_WHITE_FURNACE
+    return 0.0;
+#else
     return Color::FromGamma( sunColor ) * SUN_INTENSITY;
+#endif
 }
 
 float3 GetSkyIntensity( float3 v )
@@ -515,7 +525,11 @@ float3 GetSkyIntensity( float3 v )
     float ground = 0.5 + 0.5 * Math::SmoothStep( -1.0, 0.0, v.z );
     skyColor *= ground;
 
+#if USE_WHITE_FURNACE
+    return 1.0;
+#else
     return Color::FromGamma( skyColor ) * SKY_INTENSITY + GetSunIntensity( v );
+#endif
 }
 
 #endif
