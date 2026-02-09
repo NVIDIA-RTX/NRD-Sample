@@ -1543,13 +1543,9 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 if (hasSpatial) {
                                     m_ReblurSettings.minBlurRadius = 0.0f;
                                     m_ReblurSettings.maxBlurRadius = 0.0f;
-                                    m_ReblurSettings.diffusePrepassBlurRadius = 0.0f;
-                                    m_ReblurSettings.specularPrepassBlurRadius = 0.0f;
                                 } else {
                                     m_ReblurSettings.minBlurRadius = defaults.minBlurRadius;
                                     m_ReblurSettings.maxBlurRadius = defaults.maxBlurRadius;
-                                    m_ReblurSettings.diffusePrepassBlurRadius = defaults.diffusePrepassBlurRadius;
-                                    m_ReblurSettings.specularPrepassBlurRadius = defaults.specularPrepassBlurRadius;
                                 }
                             }
 
@@ -1593,11 +1589,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 ImGui::PopStyleColor();
 #endif
 
-                            ImGui::PushStyleColor(ImGuiCol_Text, m_ReblurSettings.minBlurRadius < 0.5f ? UI_RED : UI_DEFAULT);
-                            ImGui::SliderFloat("Min blur radius (px)", &m_ReblurSettings.minBlurRadius, 0.0f, 10.0f, "%.1f");
-                            ImGui::PopStyleColor();
-
-                            ImGui::SliderFloat("Max blur radius (px)", &m_ReblurSettings.maxBlurRadius, 0.0f, 60.0f, "%.1f");
+                            ImGui::SliderFloat2("Blur radius (px)", &m_ReblurSettings.minBlurRadius, 0.0f, 60.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
                             ImGui::SliderFloat("Lobe fraction", &m_ReblurSettings.lobeAngleFraction, 0.0f, 1.0f, "%.2f");
                             ImGui::SliderFloat("Roughness fraction", &m_ReblurSettings.roughnessFraction, 0.0f, 1.0f, "%.2f");
                             ImGui::SliderFloat("Min hitT weight", &m_ReblurSettings.minHitDistanceWeight, 0.01f, 0.2f, "%.2f");
@@ -1626,14 +1618,10 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                 if (hasSpatial) {
                                     m_RelaxSettings.diffusePhiLuminance = 0.0f;
                                     m_RelaxSettings.specularPhiLuminance = 0.0f;
-                                    m_RelaxSettings.diffusePrepassBlurRadius = 0.0f;
-                                    m_RelaxSettings.specularPrepassBlurRadius = 0.0f;
                                     m_RelaxSettings.spatialVarianceEstimationHistoryThreshold = 0;
                                 } else {
                                     m_RelaxSettings.diffusePhiLuminance = defaults.diffusePhiLuminance;
                                     m_RelaxSettings.specularPhiLuminance = defaults.specularPhiLuminance;
-                                    m_RelaxSettings.diffusePrepassBlurRadius = defaults.diffusePrepassBlurRadius;
-                                    m_RelaxSettings.specularPrepassBlurRadius = defaults.specularPrepassBlurRadius;
                                     m_RelaxSettings.spatialVarianceEstimationHistoryThreshold = defaults.spatialVarianceEstimationHistoryThreshold;
                                 }
                             }

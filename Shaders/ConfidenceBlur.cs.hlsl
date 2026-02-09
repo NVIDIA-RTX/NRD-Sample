@@ -94,6 +94,9 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         gradient = Color::HdrToLinear_Uncharted( gradient * gExposure ).x; // or normalize to the blurred final image or SHARC cache
         gradient *= 1.0 - ( Sequence::Bayer4x4( pixelPos, gFrameIndex ) - 0.5 ) * 1.0; // optional dithering
         gradient = 1.0 - Color::ToSrgb( saturate( gradient ) ).x;
+
+        if( gDenoiserType == DENOISER_RELAX )
+            gradient *= gradient; // TODO: RELAX uses "history confidence" differently...
     }
 
     gOut_Gradient[ pixelPos ] = float4( gradient, data0.yzw );

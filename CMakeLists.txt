@@ -207,7 +207,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     SHADERMAKE_DXC_VK_PATH=${SHADERMAKE_DXC_VK_PATH}
     ML_SOURCE_DIR=${ML_SOURCE_DIR}
     NRI_SOURCE_DIR=${NRI_SOURCE_DIR}/Include
-    NRD_SOURCE_DIR=${NRD_SOURCE_DIR}/Shaders/Include
+    NRD_SOURCE_DIR=${NRD_SOURCE_DIR}/Shaders
     SHARC_SOURCE_DIR=${sharc_SOURCE_DIR}/include
     RTXCR_SOURCE_DIR=${rtxcr_SOURCE_DIR}/shaders/include/rtxcr
     RTXCR_INTEGRATION=$<BOOL:${RTXCR_INTEGRATION}>
@@ -258,7 +258,7 @@ set(SHADERMAKE_GENERAL_ARGS
     -I "Shaders"
     -I "External"
     -I "${ML_SOURCE_DIR}"
-    -I "${NRD_SOURCE_DIR}/Shaders/Include"
+    -I "${NRD_SOURCE_DIR}/Shaders"
     -I "${NRI_SOURCE_DIR}/Include"
     -I "${sharc_SOURCE_DIR}/include"
     -I "${rtxcr_SOURCE_DIR}/shaders/include/rtxcr"
