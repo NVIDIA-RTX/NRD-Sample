@@ -91,7 +91,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     if( isLastPass )
     {
         // Last pass converts "gradient" to "history confidence"
-        gradient = Color::HdrToLinear_Uncharted( gradient * gExposure ).x; // or normalize to the blurred final image or SHARC cache
+        gradient = Color::HdrToLinear_Uncharted( gradient ).x; // or normalize to the blurred final image or SHARC cache
         gradient *= 1.0 - ( Sequence::Bayer4x4( pixelPos, gFrameIndex ) - 0.5 ) * 1.0; // optional dithering
         gradient = 1.0 - Color::ToSrgb( saturate( gradient ) ).x;
 

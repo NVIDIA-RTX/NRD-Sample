@@ -209,6 +209,12 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         bounceNum--;
     }
 
+    // Apply exposure to better fit into FP16
+    gradientData.x *= gExposure;
+
+    // Clamp to ~white point ( 1 is OK too )
+    gradientData.x = min( gradientData.x, 2.0 );
+
     return gradientData;
 }
 
