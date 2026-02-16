@@ -1736,8 +1736,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         fps = min(fps, 121.0f);
 
         // REBLUR / RELAX
-        float accumulationTime = ACCUMULATION_TIME * ((m_Settings.boost && m_Settings.SHARC) ? 0.667f : 1.0f);
-        int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(accumulationTime, fps), 1u);
+        int32_t maxAccumulatedFrameNum = max(nrd::GetMaxAccumulatedFrameNum(ACCUMULATION_TIME, fps), 1u);
 
         m_Settings.maxAccumulatedFrameNum = min(maxAccumulatedFrameNum, MAX_HISTORY_FRAME_NUM);
         m_Settings.maxFastAccumulatedFrameNum = m_Settings.maxAccumulatedFrameNum / 5;
