@@ -2852,12 +2852,12 @@ void Sample::CreateBuffer(Buffer buffer, const char* debugName, uint64_t element
     NRI.SetDebugName((nri::Object*)Get(buffer), debugName);
 
     if (desc.usage & nri::BufferUsageBits::SHADER_RESOURCE) {
-        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferViewType::SHADER_RESOURCE};
+        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferViewType::SHADER_RESOURCE_STRUCTURED};
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(viewDesc, GetDescriptor(buffer)));
     }
 
     if (desc.usage & nri::BufferUsageBits::SHADER_RESOURCE_STORAGE) {
-        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferViewType::SHADER_RESOURCE_STORAGE};
+        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferViewType::SHADER_RESOURCE_STORAGE_STRUCTURED};
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(viewDesc, GetStorageDescriptor(buffer)));
     }
 }
