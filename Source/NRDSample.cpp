@@ -548,7 +548,7 @@ public:
     void CreateTexture(Texture texture, const char* debugName, nri::Format format, nri::Dim_t width, nri::Dim_t height, nri::Dim_t mipNum, nri::Dim_t arraySize, bool isReadOnly, nri::AccessBits initialAccess);
     void CreateBuffer(Buffer buffer, const char* debugName, uint64_t elements, uint32_t stride, nri::BufferUsageBits usage);
     void UploadStaticData();
-    void UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor);
+    void UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFrameNum);
     void RestoreBindings(nri::CommandBuffer& commandBuffer);
     void GatherInstanceData();
     uint32_t BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions);
@@ -1760,7 +1760,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     m_RelaxSettings.specularMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.specularMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
 
-    UpdateConstantBuffer(frameIndex, resetHistoryFactor);
+    UpdateConstantBuffer(frameIndex, maxAccumulatedFrameNum);
     GatherInstanceData();
 
     nri::nriEndAnnotation();
@@ -3197,7 +3197,7 @@ static inline void GetBasis(float3 N, float3& T, float3& B) {
     B = float3(b, N.y * ya - sz, N.y);
 }
 
-void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor) {
+void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFrameNum) {
     float3 sunDirection = GetSunDirection();
     float3 sunT, sunB;
     GetBasis(sunDirection, sunT, sunB);
@@ -3225,13 +3225,8 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     float fps = 1000.0f / m_Timer.GetSmoothedFrameTime();
     fps = min(fps, 121.0f);
 
-    float otherMaxAccumulatedFrameNum = (float)nrd::GetMaxAccumulatedFrameNum(ACCUMULATION_TIME, fps);
-    otherMaxAccumulatedFrameNum = min(otherMaxAccumulatedFrameNum, float(MAX_HISTORY_FRAME_NUM));
-    otherMaxAccumulatedFrameNum *= resetHistoryFactor;
-
-    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum + 0.5f);
-    float taaMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.5f;
-    float prevFrameMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.3f;
+    float taaMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 0.5f;
+    float prevFrameMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 0.3f;
 
     nrd::ReblurHitDistanceParameters hitDistanceParameters = {};
     hitDistanceParameters.A = m_Settings.hitDistScale * m_Settings.meterToUnitsMultiplier;
@@ -3296,7 +3291,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gExposure = m_Settings.exposure;
         constants.gMipBias = mipBias;
         constants.gOrthoMode = orthoMode;
-        constants.gSharcMaxAccumulatedFrameNum = sharcMaxAccumulatedFrameNum;
+        constants.gMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
         constants.gDenoiserType = (uint32_t)m_Settings.denoiser;
         constants.gDisableShadowsAndEnableImportanceSampling = (sunDirection.z < 0.0f && m_Settings.importanceSampling) ? 1 : 0;
         constants.gFrameIndex = frameIndex;

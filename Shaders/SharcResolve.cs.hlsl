@@ -26,7 +26,7 @@ void main( uint threadIndex : SV_DispatchThreadID )
 
     SharcResolveParameters sharcResolveParameters;
     sharcResolveParameters.cameraPositionPrev = gCameraGlobalPosPrev.xyz;
-    sharcResolveParameters.accumulationFrameNum = gSharcMaxAccumulatedFrameNum;
+    sharcResolveParameters.accumulationFrameNum = gMaxAccumulatedFrameNum;
     sharcResolveParameters.staleFrameNumMax = SHARC_STALE_FRAME_NUM_MIN;
     sharcResolveParameters.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
 

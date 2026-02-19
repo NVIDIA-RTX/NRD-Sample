@@ -96,7 +96,11 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
         if( gDenoiserType == DENOISER_RELAX )
             gradient *= gradient; // TODO: RELAX uses "history confidence" differently...
+
+        // ( Optional ) dithering
+        float dither = Sequence::Bayer4x4( pixelPos, gFrameIndex );
+        gradient += ( dither - 0.5 ) / float( gMaxAccumulatedFrameNum );
     }
 
-    gOut_Gradient[ pixelPos ] = float4( gradient, data0.yzw );
+    gOut_Gradient[ pixelPos ] = float4( saturate( gradient ), data0.yzw );
 }
