@@ -1893,10 +1893,10 @@ nri::Format Sample::CreateSwapChain() {
     nri::Format swapChainFormat = swapChainTextureDesc.format;
 
     for (uint32_t i = 0; i < swapChainTextureNum; i++) {
-        nri::Texture2DViewDesc textureViewDesc = {swapChainTextures[i], nri::Texture2DViewType::COLOR_ATTACHMENT, swapChainFormat};
+        nri::TextureViewDesc textureViewDesc = {swapChainTextures[i], nri::TextureView::COLOR_ATTACHMENT, swapChainFormat};
 
         nri::Descriptor* colorAttachment = nullptr;
-        NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(textureViewDesc, colorAttachment));
+        NRI_ABORT_ON_FAILURE(NRI.CreateTextureView(textureViewDesc, colorAttachment));
 
         nri::Fence* acquireSemaphore = nullptr;
         NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, acquireSemaphore));
@@ -2580,7 +2580,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
         size_t maxSize = sizeof(GlobalConstants);
 
         nri::BufferViewDesc bufferViewDesc = {};
-        bufferViewDesc.viewType = nri::BufferViewType::CONSTANT;
+        bufferViewDesc.type = nri::BufferView::CONSTANT_BUFFER;
         bufferViewDesc.buffer = NRI.GetStreamerConstantBuffer(*m_Streamer);
         bufferViewDesc.size = helper::Align((uint32_t)maxSize, deviceDesc.memoryAlignment.constantBufferOffset);
 
@@ -2814,15 +2814,15 @@ void Sample::CreateTexture(Texture texture, const char* debugName, nri::Format f
     NRI.SetDebugName((nri::Object*)Get(texture), debugName);
 
     int32_t index = (int32_t)texture - (int32_t)Texture::BaseReadOnlyTexture;
-    nri::Texture2DViewDesc viewDesc = {Get(texture), arraySize > 1 ? nri::Texture2DViewType::SHADER_RESOURCE_ARRAY : nri::Texture2DViewType::SHADER_RESOURCE, desc.format};
-    NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(viewDesc, index >= 0 ? GetDescriptorForReadOnlyTexture((uint32_t)index) : GetDescriptor(texture)));
+    nri::TextureViewDesc viewDesc = {Get(texture), arraySize > 1 ? nri::TextureView::TEXTURE_ARRAY : nri::TextureView::TEXTURE, desc.format};
+    NRI_ABORT_ON_FAILURE(NRI.CreateTextureView(viewDesc, index >= 0 ? GetDescriptorForReadOnlyTexture((uint32_t)index) : GetDescriptor(texture)));
 
     if (desc.usage & nri::TextureUsageBits::SHADER_RESOURCE_STORAGE) {
         const nri::FormatProps* formatProps = nriGetFormatProps(desc.format);
 
         viewDesc.format = formatProps->isSrgb ? nri::Format((uint8_t)desc.format - 1) : desc.format; // demote sRGB to UNORM
-        viewDesc.viewType = arraySize > 1 ? nri::Texture2DViewType::SHADER_RESOURCE_STORAGE_ARRAY : nri::Texture2DViewType::SHADER_RESOURCE_STORAGE;
-        NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(viewDesc, GetStorageDescriptor(texture)));
+        viewDesc.type = arraySize > 1 ? nri::TextureView::STORAGE_TEXTURE_ARRAY : nri::TextureView::STORAGE_TEXTURE;
+        NRI_ABORT_ON_FAILURE(NRI.CreateTextureView(viewDesc, GetStorageDescriptor(texture)));
     }
 
     if (initialAccess != nri::AccessBits::NONE) { // initial state
@@ -2852,12 +2852,12 @@ void Sample::CreateBuffer(Buffer buffer, const char* debugName, uint64_t element
     NRI.SetDebugName((nri::Object*)Get(buffer), debugName);
 
     if (desc.usage & nri::BufferUsageBits::SHADER_RESOURCE) {
-        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferViewType::SHADER_RESOURCE_STRUCTURED};
+        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferView::STRUCTURED_BUFFER};
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(viewDesc, GetDescriptor(buffer)));
     }
 
     if (desc.usage & nri::BufferUsageBits::SHADER_RESOURCE_STORAGE) {
-        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferViewType::SHADER_RESOURCE_STORAGE_STRUCTURED};
+        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferView::STORAGE_STRUCTURED_BUFFER};
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(viewDesc, GetStorageDescriptor(buffer)));
     }
 }
