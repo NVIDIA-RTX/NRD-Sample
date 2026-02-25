@@ -289,7 +289,7 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float gIndirectDiffuse;
     float gIndirectSpecular;
     float gMinProbability;
-    uint32_t gSharcMaxAccumulatedFrameNum;
+    uint32_t gMaxAccumulatedFrameNum;
     uint32_t gDenoiserType;
     uint32_t gDisableShadowsAndEnableImportanceSampling; // TODO: remove - modify GetSunIntensity to return 0 if sun is below horizon
     uint32_t gFrameIndex;

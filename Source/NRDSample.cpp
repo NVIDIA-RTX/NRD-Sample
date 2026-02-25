@@ -632,7 +632,7 @@ public:
     void CreateTexture(Texture texture, const char* debugName, nri::Format format, nri::Dim_t width, nri::Dim_t height, nri::Dim_t mipNum, nri::Dim_t arraySize, bool isReadOnly, nri::AccessBits initialAccess);
     void CreateBuffer(Buffer buffer, const char* debugName, uint64_t elements, uint32_t stride, nri::BufferUsageBits usage);
     void UploadStaticData();
-    void UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor);
+    void UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFrameNum);
     void RestoreBindings(nri::CommandBuffer& commandBuffer);
     void GatherInstanceData();
     uint32_t BuildOptimizedTransitions(const TextureState* states, uint32_t stateNum, std::array<nri::TextureBarrierDesc, MAX_TEXTURE_TRANSITIONS_NUM>& transitions);
@@ -1669,6 +1669,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                             ImGui::SliderFloat("Roughness fraction", &m_RelaxSettings.roughnessFraction, 0.0f, 1.0f, "%.2f");
                             ImGui::SliderFloat("Min hitT weight", &m_RelaxSettings.minHitDistanceWeight, 0.01f, 0.2f, "%.2f");
                             ImGui::SliderFloat("Spec variance boost", &m_RelaxSettings.specularVarianceBoost, 0.0f, 8.0f, "%.2f");
+                            ImGui::SliderFloat("Clamping sigma scale", &m_RelaxSettings.fastHistoryClampingSigmaScale, 0.0f, 3.0f, "%.1f");
                             ImGui::SliderInt("History threshold", (int32_t*)&m_RelaxSettings.spatialVarianceEstimationHistoryThreshold, 0, 10);
                             ImGui::Text("Luminance / Normal / Roughness:");
                             ImGui::SliderFloat3("Relaxation", &m_RelaxSettings.luminanceEdgeStoppingRelaxation, 0.0f, 1.0f, "%.2f");
@@ -2209,7 +2210,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     m_RelaxSettings.specularMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.specularMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
 
-    UpdateConstantBuffer(frameIndex, resetHistoryFactor);
+    UpdateConstantBuffer(frameIndex, maxAccumulatedFrameNum);
     GatherInstanceData();
 
     nri::nriEndAnnotation();
@@ -2342,10 +2343,10 @@ nri::Format Sample::CreateSwapChain() {
     nri::Format swapChainFormat = swapChainTextureDesc.format;
 
     for (uint32_t i = 0; i < swapChainTextureNum; i++) {
-        nri::Texture2DViewDesc textureViewDesc = {swapChainTextures[i], nri::Texture2DViewType::COLOR_ATTACHMENT, swapChainFormat};
+        nri::TextureViewDesc textureViewDesc = {swapChainTextures[i], nri::TextureView::COLOR_ATTACHMENT, swapChainFormat};
 
         nri::Descriptor* colorAttachment = nullptr;
-        NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(textureViewDesc, colorAttachment));
+        NRI_ABORT_ON_FAILURE(NRI.CreateTextureView(textureViewDesc, colorAttachment));
 
         nri::Fence* acquireSemaphore = nullptr;
         NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, acquireSemaphore));
@@ -3073,7 +3074,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
         size_t maxSize = sizeof(GlobalConstants);
 
         nri::BufferViewDesc bufferViewDesc = {};
-        bufferViewDesc.viewType = nri::BufferViewType::CONSTANT;
+        bufferViewDesc.type = nri::BufferView::CONSTANT_BUFFER;
         bufferViewDesc.buffer = NRI.GetStreamerConstantBuffer(*m_Streamer);
         bufferViewDesc.size = helper::Align((uint32_t)maxSize, deviceDesc.memoryAlignment.constantBufferOffset);
 
@@ -3332,15 +3333,15 @@ void Sample::CreateTexture(Texture texture, const char* debugName, nri::Format f
     NRI.SetDebugName((nri::Object*)Get(texture), debugName);
 
     int32_t index = (int32_t)texture - (int32_t)Texture::BaseReadOnlyTexture;
-    nri::Texture2DViewDesc viewDesc = {Get(texture), arraySize > 1 ? nri::Texture2DViewType::SHADER_RESOURCE_ARRAY : nri::Texture2DViewType::SHADER_RESOURCE, desc.format};
-    NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(viewDesc, index >= 0 ? GetDescriptorForReadOnlyTexture((uint32_t)index) : GetDescriptor(texture)));
+    nri::TextureViewDesc viewDesc = {Get(texture), arraySize > 1 ? nri::TextureView::TEXTURE_ARRAY : nri::TextureView::TEXTURE, desc.format};
+    NRI_ABORT_ON_FAILURE(NRI.CreateTextureView(viewDesc, index >= 0 ? GetDescriptorForReadOnlyTexture((uint32_t)index) : GetDescriptor(texture)));
 
     if (desc.usage & nri::TextureUsageBits::SHADER_RESOURCE_STORAGE) {
         const nri::FormatProps* formatProps = nriGetFormatProps(desc.format);
 
         viewDesc.format = formatProps->isSrgb ? nri::Format((uint8_t)desc.format - 1) : desc.format; // demote sRGB to UNORM
-        viewDesc.viewType = arraySize > 1 ? nri::Texture2DViewType::SHADER_RESOURCE_STORAGE_ARRAY : nri::Texture2DViewType::SHADER_RESOURCE_STORAGE;
-        NRI_ABORT_ON_FAILURE(NRI.CreateTexture2DView(viewDesc, GetStorageDescriptor(texture)));
+        viewDesc.type = arraySize > 1 ? nri::TextureView::STORAGE_TEXTURE_ARRAY : nri::TextureView::STORAGE_TEXTURE;
+        NRI_ABORT_ON_FAILURE(NRI.CreateTextureView(viewDesc, GetStorageDescriptor(texture)));
     }
 
     if (initialAccess != nri::AccessBits::NONE) { // initial state
@@ -3370,12 +3371,12 @@ void Sample::CreateBuffer(Buffer buffer, const char* debugName, uint64_t element
     NRI.SetDebugName((nri::Object*)Get(buffer), debugName);
 
     if (desc.usage & nri::BufferUsageBits::SHADER_RESOURCE) {
-        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferViewType::SHADER_RESOURCE};
+        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferView::STRUCTURED_BUFFER};
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(viewDesc, GetDescriptor(buffer)));
     }
 
     if (desc.usage & nri::BufferUsageBits::SHADER_RESOURCE_STORAGE) {
-        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferViewType::SHADER_RESOURCE_STORAGE};
+        const nri::BufferViewDesc viewDesc = {Get(buffer), nri::BufferView::STORAGE_STRUCTURED_BUFFER};
         NRI_ABORT_ON_FAILURE(NRI.CreateBufferView(viewDesc, GetStorageDescriptor(buffer)));
     }
 }
@@ -3734,7 +3735,7 @@ static inline void GetBasis(float3 N, float3& T, float3& B) {
     B = float3(b, N.y * ya - sz, N.y);
 }
 
-void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor) {
+void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFrameNum) {
     float3 sunDirection = GetSunDirection();
     float3 sunT, sunB;
     GetBasis(sunDirection, sunT, sunB);
@@ -3764,13 +3765,8 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
     float fps = 1000.0f / m_Timer.GetSmoothedFrameTime();
     fps = min(fps, 121.0f);
 
-    float otherMaxAccumulatedFrameNum = (float)nrd::GetMaxAccumulatedFrameNum(ACCUMULATION_TIME, fps);
-    otherMaxAccumulatedFrameNum = min(otherMaxAccumulatedFrameNum, float(MAX_HISTORY_FRAME_NUM));
-    otherMaxAccumulatedFrameNum *= resetHistoryFactor;
-
-    uint32_t sharcMaxAccumulatedFrameNum = (uint32_t)(otherMaxAccumulatedFrameNum * (m_Settings.boost ? 0.667f : 1.0f) + 0.5f);
-    float taaMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.5f;
-    float prevFrameMaxAccumulatedFrameNum = otherMaxAccumulatedFrameNum * 0.3f;
+    float taaMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 0.5f;
+    float prevFrameMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 0.3f;
 
     nrd::ReblurHitDistanceParameters hitDistanceParameters = {};
     hitDistanceParameters.A = m_Settings.hitDistScale * m_Settings.meterToUnitsMultiplier;
@@ -3853,7 +3849,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, float resetHistoryFactor)
         constants.gIndirectDiffuse = m_Settings.indirectDiffuse ? 1.0f : 0.0f;
         constants.gIndirectSpecular = m_Settings.indirectSpecular ? 1.0f : 0.0f;
         constants.gMinProbability = minProbability;
-        constants.gSharcMaxAccumulatedFrameNum = sharcMaxAccumulatedFrameNum;
+        constants.gMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
         constants.gDenoiserType = (uint32_t)m_Settings.denoiser;
         constants.gDisableShadowsAndEnableImportanceSampling = (sunDirection.z < 0.0f && m_Settings.importanceSampling && NRD_MODE < OCCLUSION) ? 1 : 0;
         constants.gFrameIndex = frameIndex;
