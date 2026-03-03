@@ -46,6 +46,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     if( gValidation )
     {
         float4 validation = gIn_Validation.SampleLevel( gNearestClamp, pixelUv, 0 );
+        validation.xyz = Color::FromSrgb( validation.xyz ); // cancels "ToSrgb"
         result = lerp( result, validation.xyz, validation.w );
     }
 
