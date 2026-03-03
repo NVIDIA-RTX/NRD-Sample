@@ -3860,7 +3860,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gValidation = m_ShowValidationOverlay && m_Settings.denoiser != DENOISER_REFERENCE && m_Settings.separator != 1.0f;
         constants.gSR = (m_Settings.SR && !m_Settings.RR) ? 1 : 0;
         constants.gRR = m_Settings.RR ? 1 : 0;
-        constants.gIsSrgb = (m_IsSrgb && (onScreen == SHOW_FINAL || onScreen == SHOW_BASE_COLOR)) ? 1 : 0;
+        constants.gIsSrgb = m_IsSrgb;
         constants.gOnScreen = onScreen;
         constants.gTracingMode = m_Settings.RR ? RESOLUTION_FULL_PROBABILISTIC : m_Settings.tracingMode;
         constants.gSampleNum = m_Settings.rpp;

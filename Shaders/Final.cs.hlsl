@@ -21,8 +21,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     float3 input = gIn_PreAA.SampleLevel( gNearestClamp, pixelUv * gRectSize * gInvRenderSize, 0 ).xyz;
 
     input = ApplyTonemap( input );
-    if( gIsSrgb )
-        input = Color::ToSrgb( saturate( input ) );
 
     // Upsamped
     float3 upsampled = gIn_PostAA[ pixelPos ].xyz;
@@ -55,6 +53,10 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     #if( USE_TAA_DEBUG == 1 )
         result = gIn_PostAA[ pixelPos ].w;
     #endif
+
+    // Apply transfer to maintain same behavior for HDR- & sRGB- swapchains
+    if( gIsSrgb )
+        result = Color::ToSrgb( saturate( result ) );
 
     // Output
     gOut_Final[ pixelPos ] = result;

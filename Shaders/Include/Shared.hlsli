@@ -63,9 +63,11 @@
 #define RESOLUTION_HALF                     2
 
 // What is on screen?
+// - HDR
 #define SHOW_FINAL                          0
 #define SHOW_DENOISED_DIFFUSE               1
 #define SHOW_DENOISED_SPECULAR              2
+// - LDR
 #define SHOW_AMBIENT_OCCLUSION              3
 #define SHOW_SPECULAR_OCCLUSION             4
 #define SHOW_SHADOW                         5
@@ -387,8 +389,10 @@ float3 GetMotion( float3 X, float3 Xprev )
 
 float3 ApplyExposure( float3 Lsum )
 {
-    if( gOnScreen <= SHOW_DENOISED_SPECULAR )
-        Lsum *= gExposure;
+    #if( NRD_MODE < OCCLUSION )
+        if( gOnScreen <= SHOW_DENOISED_SPECULAR )
+            Lsum *= gExposure;
+    #endif
 
     return Lsum;
 }
@@ -396,7 +400,7 @@ float3 ApplyExposure( float3 Lsum )
 float3 ApplyTonemap( float3 Lsum )
 {
     #if( NRD_MODE < OCCLUSION )
-        if( gOnScreen == SHOW_FINAL )
+        if( gOnScreen <= SHOW_DENOISED_SPECULAR )
             Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
     #else
         Lsum = Lsum.xxx;

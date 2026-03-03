@@ -205,35 +205,43 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     Ldiff += Ldirect;
 
     // Debug
-    if( gOnScreen == SHOW_DENOISED_DIFFUSE )
-        Ldiff = diff.xyz;
-    else if( gOnScreen == SHOW_DENOISED_SPECULAR )
-        Ldiff = spec.xyz;
-    else if( gOnScreen == SHOW_AMBIENT_OCCLUSION )
-        Ldiff = diff.w;
-    else if( gOnScreen == SHOW_SPECULAR_OCCLUSION )
-        Ldiff = spec.w;
-    else if( gOnScreen == SHOW_SHADOW )
-        Ldiff = shadow;
-    else if( gOnScreen == SHOW_BASE_COLOR )
-        Ldiff = baseColorMetalness.xyz;
-    else if( gOnScreen == SHOW_NORMAL )
-        Ldiff = N * 0.5 + 0.5;
-    else if( gOnScreen == SHOW_ROUGHNESS )
-        Ldiff = roughness;
-    else if( gOnScreen == SHOW_METALNESS )
-        Ldiff = baseColorMetalness.w;
-    else if( gOnScreen == SHOW_MATERIAL_ID )
-        Ldiff = materialID / 3.0;
-    else if( gOnScreen == SHOW_PSR_THROUGHPUT )
-        Ldiff = psrThroughput;
-    else if( gOnScreen == SHOW_WORLD_UNITS )
+    if( gOnScreen != SHOW_FINAL )
     {
-        float3 X = Geometry::AffineTransform( gViewToWorld, Xv );
-        Ldiff = frac( X * gUnitToMetersMultiplier );
+        if( gOnScreen == SHOW_DENOISED_DIFFUSE )
+            Ldiff = diff.xyz;
+        else if( gOnScreen == SHOW_DENOISED_SPECULAR )
+            Ldiff = spec.xyz;
+        else if( gOnScreen == SHOW_AMBIENT_OCCLUSION )
+            Ldiff = diff.w;
+        else if( gOnScreen == SHOW_SPECULAR_OCCLUSION )
+            Ldiff = spec.w;
+        else if( gOnScreen == SHOW_SHADOW )
+            Ldiff = shadow;
+        else if( gOnScreen == SHOW_BASE_COLOR )
+            Ldiff = baseColorMetalness.xyz;
+        else if( gOnScreen == SHOW_NORMAL )
+            Ldiff = N * 0.5 + 0.5;
+        else if( gOnScreen == SHOW_ROUGHNESS )
+            Ldiff = roughness;
+        else if( gOnScreen == SHOW_METALNESS )
+            Ldiff = baseColorMetalness.w;
+        else if( gOnScreen == SHOW_MATERIAL_ID )
+            Ldiff = materialID / 3.0;
+        else if( gOnScreen == SHOW_PSR_THROUGHPUT )
+            Ldiff = psrThroughput;
+        else if( gOnScreen == SHOW_WORLD_UNITS )
+        {
+            float3 X = Geometry::AffineTransform( gViewToWorld, Xv );
+            Ldiff = frac( X * gUnitToMetersMultiplier );
+        }
+        else
+            Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? spec.xyz : Ldirect.xyz;
+
+        // All non-HDR data is linear, so "transfer" is needed to "de-transfer" later ( and make "pipette" working ).
+        // Keep "base color" with "transfer" applied
+        if( gOnScreen > SHOW_DENOISED_SPECULAR && gOnScreen != SHOW_BASE_COLOR )
+            Ldiff = Color::FromSrgb( Ldiff );
     }
-    else if( gOnScreen != SHOW_FINAL )
-        Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? spec.xyz : Ldirect.xyz;
 
     // Output
     gOut_ComposedDiff[ pixelPos ] = Ldiff;
