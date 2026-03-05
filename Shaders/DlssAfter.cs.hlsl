@@ -16,8 +16,6 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     float3 color = gOut_Image[ pixelPos ];
 
     color = ApplyTonemap( color );
-    if( gIsSrgb )
-        color = Color::ToSrgb( saturate( color ) );
 
     // Output
     gOut_Image[ pixelPos ] = color;
