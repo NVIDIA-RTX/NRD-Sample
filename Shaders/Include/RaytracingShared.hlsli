@@ -26,12 +26,6 @@ NRI_RESOURCE( RWStructuredBuffer<SharcPackedData>, gInOut_SharcResolved, u, 2, S
 
 #if( RTXCR_INTEGRATION == 1 )
 
-// Forgotten by RTXCR
-float luminance( float3 x )
-{
-    return Color::Luminance( x );
-}
-
 #include "HairFarFieldBCSDF.hlsli"
 #include "SubsurfaceScattering.hlsli"
 
