@@ -98,7 +98,7 @@ if(RTXCR_INTEGRATION)
         DOWNLOAD_EXTRACT_TIMESTAMP 1
         DOWNLOAD_NO_PROGRESS 1
         SOURCE_SUBDIR "ignore CMakeLists.txt"
-        URL https://github.com/NVIDIA-RTX/RTXCR-Material-Library/archive/refs/tags/v1.1.0.zip
+        URL https://github.com/NVIDIA-RTX/RTXCR-Material-Library/archive/refs/tags/v1.2.0.zip
     )
     list(APPEND DEPS rtxcr)
 
