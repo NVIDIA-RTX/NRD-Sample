@@ -3251,7 +3251,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gWorldToViewPrev = m_Camera.statePrev.mWorldToView;
         constants.gWorldToClipPrev = m_Camera.statePrev.mWorldToClip;
         constants.gViewToWorldPrev = m_Camera.statePrev.mViewToWorld;
-        constants.gHitDistSettings = float4(hitDistanceParameters.A, hitDistanceParameters.B, hitDistanceParameters.C, hitDistanceParameters.D);
+        constants.gHitDistSettings = float4(hitDistanceParameters.A, hitDistanceParameters.B, hitDistanceParameters.C, 0.0f);
         constants.gCameraFrustum = frustum;
         constants.gSunBasisX = float4(sunT, 0.0f);
         constants.gSunBasisY = float4(sunB, 0.0f);

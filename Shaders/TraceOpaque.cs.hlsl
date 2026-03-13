@@ -378,7 +378,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
     // Normalize hit distances for REBLUR before averaging
     float normHitDist = accumulatedHitDist;
     if( gDenoiserType != DENOISER_RELAX )
-        normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistSettings, isDiffusePath ? 1.0 : roughness0 );
+        normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistSettings.xyz, isDiffusePath ? 1.0 : roughness0 );
 
     // Accumulate diffuse and specular separately for denoising
     if( !USE_SANITIZATION || NRD_IsValidRadiance( Lsum ) )
