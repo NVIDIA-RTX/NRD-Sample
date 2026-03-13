@@ -3806,7 +3806,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gWorldToViewPrev = m_Camera.statePrev.mWorldToView;
         constants.gWorldToClipPrev = m_Camera.statePrev.mWorldToClip;
         constants.gViewToWorldPrev = m_Camera.statePrev.mViewToWorld;
-        constants.gHitDistSettings = float4(hitDistanceParameters.A, hitDistanceParameters.B, hitDistanceParameters.C, hitDistanceParameters.D);
+        constants.gHitDistSettings = float4(hitDistanceParameters.A, hitDistanceParameters.B, hitDistanceParameters.C, 0.0f);
         constants.gCameraFrustum = frustum;
         constants.gSunBasisX = float4(sunT, 0.0f);
         constants.gSunBasisY = float4(sunB, 0.0f);
@@ -3846,8 +3846,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gExposure = m_Settings.exposure;
         constants.gMipBias = mipBias;
         constants.gOrthoMode = orthoMode;
-        constants.gIndirectDiffuse = m_Settings.indirectDiffuse ? 1.0f : 0.0f;
-        constants.gIndirectSpecular = m_Settings.indirectSpecular ? 1.0f : 0.0f;
         constants.gMinProbability = minProbability;
         constants.gMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
         constants.gDenoiserType = (uint32_t)m_Settings.denoiser;

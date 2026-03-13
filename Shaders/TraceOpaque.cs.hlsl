@@ -453,7 +453,7 @@ for( uint path = 0; path < pathNum; path++ )
     // Normalize hit distances for REBLUR before averaging
     float normHitDist = accumulatedHitDist;
     if( gDenoiserType != DENOISER_RELAX )
-        normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistSettings, isDiffusePath ? 1.0 : roughness0 );
+        normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistSettings.xyz, isDiffusePath ? 1.0 : roughness0 );
 
     // Accumulate diffuse and specular separately for denoising
     if( !USE_SANITIZATION || NRD_IsValidRadiance( Lsum ) )
@@ -736,7 +736,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
         Lpsr.xyz = max( Lpsr.xyz - L, 0.0 );
 
         // TODO: it's not a 100% fix
-        if( gTracingMode == RESOLUTION_HALF && ( gIndirectDiffuse + gIndirectSpecular ) > 1.5 )
+        if( gTracingMode == RESOLUTION_HALF )
             Lpsr *= 0.5;
 
         // This is important!

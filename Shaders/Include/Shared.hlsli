@@ -288,8 +288,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float gExposure;
     float gMipBias;
     float gOrthoMode;
-    float gIndirectDiffuse;
-    float gIndirectSpecular;
     float gMinProbability;
     uint32_t gMaxAccumulatedFrameNum;
     uint32_t gDenoiserType;
