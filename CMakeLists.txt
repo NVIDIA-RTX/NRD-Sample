@@ -82,7 +82,7 @@ endif()
 set(DEPS)
 
 # SHARC
-FetchContent_Declare(
+fetchcontent_declare(
     sharc
     DOWNLOAD_EXTRACT_TIMESTAMP 1
     DOWNLOAD_NO_PROGRESS 1
@@ -93,7 +93,7 @@ list(APPEND DEPS sharc)
 
 # RTXCR
 if(RTXCR_INTEGRATION)
-    FetchContent_Declare(
+    fetchcontent_declare(
         rtxcr
         DOWNLOAD_EXTRACT_TIMESTAMP 1
         DOWNLOAD_NO_PROGRESS 1
@@ -102,7 +102,7 @@ if(RTXCR_INTEGRATION)
     )
     list(APPEND DEPS rtxcr)
 
-    FetchContent_Declare(
+    fetchcontent_declare(
         claire
         GIT_REPOSITORY https://github.com/NVIDIA-RTX/RTXCR-Assets.git
         GIT_TAG v1.1.0
@@ -117,7 +117,7 @@ if(DEPS)
     message("Downloading dependencies:")
     message(STATUS "${DEPS} ...")
 
-    FetchContent_MakeAvailable(${DEPS})
+    fetchcontent_makeavailable(${DEPS})
 endif()
 
 # Compile options
