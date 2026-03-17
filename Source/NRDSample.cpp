@@ -498,9 +498,6 @@ public:
             resourceSnapshot.SetResource(nrd::ResourceType::IN_SIGNAL, GetNrdResource(Texture::Composed));
             resourceSnapshot.SetResource(nrd::ResourceType::OUT_SIGNAL, GetNrdResource(Texture::Composed));
 
-            // (Optional) Needed to allow IN_MV modification on the NRD side
-            resourceSnapshot.SetResource(nrd::ResourceType::IN_BASECOLOR_METALNESS, GetNrdResource(Texture::BaseColor_Metalness));
-
             // Diffuse directional occlusion
 #if (NRD_MODE == DIRECTIONAL_OCCLUSION)
             resourceSnapshot.SetResource(nrd::ResourceType::IN_DIFF_DIRECTION_HITDIST, GetNrdResource(Texture::Unfiltered_Diff));
@@ -3968,7 +3965,6 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     commonSettings.frameIndex = frameIndex;
     commonSettings.accumulationMode = m_ForceHistoryReset ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
     commonSettings.isMotionVectorInWorldSpace = false;
-    commonSettings.isBaseColorMetalnessAvailable = true;
     commonSettings.isHistoryConfidenceAvailable = m_Settings.confidence;
     commonSettings.enableValidation = m_ShowValidationOverlay;
 
