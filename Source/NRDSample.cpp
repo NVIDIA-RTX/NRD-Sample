@@ -66,7 +66,7 @@ const std::vector<uint32_t> interior_checkMeTests = {{1, 3, 6, 8, 9, 10, 12, 13,
 // Tests, where IQ improvement would be "nice to have"
 //=================================================================================
 
-const std::vector<uint32_t> REBLUR_interior_improveMeTests = {{108, 110, 153, 174, 191, 192}};
+const std::vector<uint32_t> REBLUR_interior_improveMeTests = {{108, 110, 153, 174, 191, 210}};
 
 const std::vector<uint32_t> RELAX_interior_improveMeTests = {{114, 144, 148, 156, 159}};
 
