@@ -6,8 +6,10 @@
 // Inputs
 NRI_RESOURCE( Texture2D<float3>, gIn_PrevComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevComposedSpec_PrevViewZ, t, 1, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking, t, 2, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 3, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 2, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking16, t, 3, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking64, t, 4, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 5, SET_OTHER );
 
 // Outputs
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Mv, u, 0, SET_OTHER );
@@ -36,7 +38,7 @@ float2 GetBlueNoise( uint2 pixelPos, uint seed = 0 )
     uint sampleIndex = ( gFrameIndex + seed ) & ( BLUE_NOISE_TEMPORAL_DIM - 1 );
 
     // The algorithm
-    uint3 A = gIn_ScramblingRanking[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
+    uint3 A = gIn_ScramblingRanking4[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
     uint rankedSampleIndex = sampleIndex ^ A.z;
     uint4 B = gIn_Sobol[ uint2( rankedSampleIndex & 255, 0 ) ];
     float4 blue = ( float4( B ^ A.xyxy ) + 0.5 ) * ( 1.0 / 256.0 );
