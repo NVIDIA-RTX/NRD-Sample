@@ -6,8 +6,10 @@
 // Inputs
 NRI_RESOURCE( Texture2D<float3>, gIn_PrevComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevComposedSpec_PrevViewZ, t, 1, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking, t, 2, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 3, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 2, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking8, t, 3, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking64, t, 4, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 5, SET_OTHER );
 
 // Outputs
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Mv, u, 0, SET_OTHER );
@@ -27,16 +29,17 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, SET
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, SET_OTHER );
 #endif
 
-float2 GetBlueNoise( uint2 pixelPos, bool isCheckerboard, uint seed = 0 )
+float2 GetBlueNoise( uint2 pixelPos, bool isCheckerboard, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp, uint seed = 0 )
 {
     // https://eheitzresearch.wordpress.com/772-2/
     // https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html
 
     // Sample index
-    uint sampleIndex = ( ( isCheckerboard ? ( gFrameIndex >> 1 ) : gFrameIndex ) + seed ) & ( BLUE_NOISE_TEMPORAL_DIM - 1 );
+    uint frameIndex = isCheckerboard ? ( gFrameIndex >> 1 ) : gFrameIndex;
+    uint sampleIndex = ( frameIndex + seed ) & ( spp - 1 );
 
     // The algorithm
-    uint3 A = gIn_ScramblingRanking[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
+    uint3 A = gIn_ScramblingRankingSpp[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
     uint rankedSampleIndex = sampleIndex ^ A.z;
     uint4 B = gIn_Sobol[ uint2( rankedSampleIndex & 255, 0 ) ];
     float4 blue = ( float4( B ^ A.xyxy ) + 0.5 ) * ( 1.0 / 256.0 );
@@ -243,8 +246,9 @@ for( uint path = 0; path < pathNum; path++ )
         #if( NRD_MODE < OCCLUSION )
             float2 rnd2 = Rng::Hash::GetFloat2( );
         #else
-            uint2 blueNoisePos = pixelPos + uint2( Sequence::Weyl2D( 0.0, path * gBounceNum + bounce ) * ( BLUE_NOISE_SPATIAL_DIM - 1 ) );
-            float2 rnd2 = GetBlueNoise( blueNoisePos, gTracingMode == RESOLUTION_HALF );
+            float2 rnd2 = GetBlueNoise( pixelPos, gTracingMode == RESOLUTION_HALF, gIn_ScramblingRanking8, 8 );
+            float2 shift = Sequence::Weyl2D( 0.0, path * gBounceNum + bounce );
+            rnd2 = frac( rnd2 + shift );
         #endif
 
             float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, rnd2, HAIR );
@@ -802,7 +806,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Sun shadow
     //================================================================================================================================================================================
 
-    float2 rnd = GetBlueNoise( pixelPos, false );
+    float2 rnd = GetBlueNoise( pixelPos, false, gIn_ScramblingRanking4, 4 );
     rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
     rnd *= gTanSunAngularRadius;
 
