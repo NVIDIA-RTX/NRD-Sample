@@ -2656,7 +2656,7 @@ void Sample::CreateDescriptorSets() {
         GetDescriptor(Texture::ComposedDiff),
         GetDescriptor(Texture::ComposedSpec_ViewZ),
         GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking4),
-        GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking16),
+        GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking8),
         GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking64),
         GetDescriptorForReadOnlyTexture(utils::StaticTexture::SobolSequence),
     };
