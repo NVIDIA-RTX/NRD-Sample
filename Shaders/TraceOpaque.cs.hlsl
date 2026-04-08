@@ -8,7 +8,7 @@ NRI_RESOURCE( Texture2D<float3>, gIn_PrevComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevComposedSpec_PrevViewZ, t, 1, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 2, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking8, t, 3, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking64, t, 4, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking32, t, 4, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 5, SET_OTHER );
 
 // Outputs
@@ -59,7 +59,7 @@ float2 GetBlueNoise( uint2 pixelPos, uint pathIndex, uint bounceIndex, uint samp
     }
 
     // Don't use blue noise in DLSS-RR or REFERENCE modes
-    bool useWhite = gRR || gDenoiserType == DENOISER_REFERENCE;
+    bool useWhite = gRR;// || gDenoiserType == DENOISER_REFERENCE;
 
     return useWhite ? white : frac( blue );
 }
@@ -221,7 +221,13 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
 
                 // And additionally guarantee a sample in 3x3 area ( for the 1st bounce, see NRD docs )
                 if( bounce == 1 )
-                    rnd = Sequence::Bayer4x4( pixelPos, gFrameIndex ) + rnd / 16.0;
+                {
+                    float bayer = Sequence::Bayer4x4( pixelPos, gFrameIndex );
+                    float jitter = Sequence::Weyl1D( rsqrt( 7.0 ) , gFrameIndex ); // screen-uniform
+
+                    // Fix harmonic interference of "bayer" and "blue noise" ( i.e. decorrelate ), which are both "pow-of-2" structures ( it doesn't break white noise )
+                    rnd = frac( bayer + jitter );
+                }
             }
 
             // Diffuse or specular?
@@ -238,7 +244,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             if( USE_BLUE_NOISE_FOR_RADIANCE )
             {
                 // TODO: currently blue noise doesn't work in "RESOLUTION_FULL_PROBABILISTIC" due to probabilistic selection between diffuse and specular lobes breaking the sequence
-                rnd2 = GetBlueNoise( pixelPos, 0, bounce, 0, gIn_ScramblingRanking64, 64, BN_SHIFT ); // longer for radiance, ideally should ~match max history length setting in NRD
+                rnd2 = GetBlueNoise( pixelPos, 0, bounce, 0, gIn_ScramblingRanking32, 32, BN_SHIFT ); // longer for radiance, ideally should ~match max history length setting in NRD
             }
 
             float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, rnd2, HAIR );
