@@ -214,15 +214,18 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
 
             float rnd = Rng::Hash::GetFloat( );
-            if( bounce == 1 && !gRR )
+            if( !gRR && diffuseProbability != 0.0 )
             {
-                // Clamp probability to a sane range to guarantee a sample in 3x3 area ( see NRD docs )
-                diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
-                rnd = Sequence::Bayer4x4( pixelPos, gFrameIndex ) + rnd / 16.0;
+                // Clamp probability to a sane range ( for all bounces )
+                diffuseProbability = clamp( diffuseProbability, 0.25, 0.75 );
+
+                // And additionally guarantee a sample in 3x3 area ( for the 1st bounce, see NRD docs )
+                if( bounce == 1 )
+                    rnd = Sequence::Bayer4x4( pixelPos, gFrameIndex ) + rnd / 16.0;
             }
 
             // Diffuse or specular?
-            isDiffuse = rnd < diffuseProbability; // TODO: if "diffuseProbability" is clamped, "pathThroughput" should be adjusted too
+            isDiffuse = rnd < diffuseProbability;
             pathThroughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
 
             // Importance sampling
