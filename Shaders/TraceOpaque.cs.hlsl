@@ -216,7 +216,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             float rnd = Rng::Hash::GetFloat( );
             if( !gRR && diffuseProbability != 0.0 )
             {
-                // Clamp probability to a sane range ( for all bounces )
+                // Clamp probability to a sane range ( for all bounces ) to reduce noise
                 diffuseProbability = clamp( diffuseProbability, 0.25, 0.75 );
 
                 // And additionally guarantee a sample in 3x3 area ( for the 1st bounce, see NRD docs )
