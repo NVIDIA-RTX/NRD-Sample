@@ -8,7 +8,7 @@ NRI_RESOURCE( Texture2D<float3>, gIn_PrevComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevComposedSpec_PrevViewZ, t, 1, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 2, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking8, t, 3, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking64, t, 4, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking32, t, 4, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 5, SET_OTHER );
 
 // Outputs
@@ -227,16 +227,23 @@ for( uint path = 0; path < pathNum; path++ )
             // Diffuse probability
             float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
 
-            float rnd = Rng::Hash::GetFloat( );
-            if( gTracingMode == RESOLUTION_FULL_PROBABILISTIC && bounce == 1 && !gRR )
-            {
-                // Clamp probability to a sane range to guarantee a sample in 3x3 area ( see NRD docs )
-                diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, gMinProbability, 1.0 - gMinProbability );
-                rnd = Sequence::Bayer4x4( pixelPos, gFrameIndex ) + rnd / 16.0;
-            }
+            // Clamp probability to a sane range ( for all bounces ) to reduce noise
+            diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
 
             // Diffuse or specular?
-            isDiffuse = rnd < diffuseProbability; // TODO: if "diffuseProbability" is clamped, "pathThroughput" should be adjusted too
+            float rnd = Rng::Hash::GetFloat( );
+            if( bounce == 1 && !gRR && gTracingMode == RESOLUTION_FULL_PROBABILISTIC )
+            {
+                // Guarantee a sample in 3x3 area ( for the 1st bounce, see NRD docs )
+                float bayer = Sequence::Bayer4x4( pixelPos, gFrameIndex );
+                float jitter = Sequence::Weyl1D( rsqrt( 7.0 ), gFrameIndex ); // screen-uniform
+
+                // Fix harmonic interference of "bayer" and "blue noise" ( i.e. decorrelate ), which are both "pow-of-2" structures ( it doesn't break white noise )
+                rnd = frac( bayer + jitter );
+            }
+
+            isDiffuse = rnd < diffuseProbability;
+
             if( gTracingMode == RESOLUTION_FULL_PROBABILISTIC || bounce > 1 )
                 pathThroughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
             else
@@ -253,11 +260,10 @@ for( uint path = 0; path < pathNum; path++ )
             sampleMaxNum = max( sampleMaxNum, 1 );
 
             float2 rnd2 = Rng::Hash::GetFloat2( );
-            if( ( USE_BLUE_NOISE_FOR_RADIANCE || NRD_MODE >= OCCLUSION ) && gTracingMode != RESOLUTION_FULL_PROBABILISTIC )
+            if( USE_BLUE_NOISE_FOR_RADIANCE || NRD_MODE >= OCCLUSION )
             {
-                // TODO: currently blue noise doesn't work in "RESOLUTION_FULL_PROBABILISTIC" due to probabilistic selection between diffuse and specular lobes breaking the sequence
                 #if( NRD_MODE < OCCLUSION )
-                    rnd2 = GetBlueNoise( pixelPos, path, bounce, 0, gIn_ScramblingRanking64, 64, BN_SHIFT | BN_CHECKERBOARD ); // longer for radiance, ideally should ~match max history length setting in NRD
+                    rnd2 = GetBlueNoise( pixelPos, path, bounce, 0, gIn_ScramblingRanking32, 32, BN_SHIFT | BN_CHECKERBOARD ); // longer for radiance, ideally should ~match max history length setting in NRD
                 #else
                     rnd2 = GetBlueNoise( pixelPos, path, bounce, 0, gIn_ScramblingRanking8, 8, BN_SHIFT | BN_CHECKERBOARD ); // shorter for occlusion
                 #endif
