@@ -59,7 +59,7 @@ float2 GetBlueNoise( uint2 pixelPos, uint pathIndex, uint bounceIndex, uint samp
     }
 
     // Don't use blue noise in DLSS-RR or REFERENCE modes
-    bool useWhite = gRR;// || gDenoiserType == DENOISER_REFERENCE;
+    bool useWhite = gRR || gDenoiserType == DENOISER_REFERENCE;
 
     return useWhite ? white : frac( blue );
 }
@@ -213,24 +213,21 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             // Diffuse probability
             float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
 
-            float rnd = Rng::Hash::GetFloat( );
-            if( !gRR && diffuseProbability != 0.0 )
-            {
-                // Clamp probability to a sane range ( for all bounces ) to reduce noise
-                diffuseProbability = clamp( diffuseProbability, 0.25, 0.75 );
-
-                // And additionally guarantee a sample in 3x3 area ( for the 1st bounce, see NRD docs )
-                if( bounce == 1 )
-                {
-                    float bayer = Sequence::Bayer4x4( pixelPos, gFrameIndex );
-                    float jitter = Sequence::Weyl1D( rsqrt( 7.0 ), gFrameIndex ); // screen-uniform
-
-                    // Fix harmonic interference of "bayer" and "blue noise" ( i.e. decorrelate ), which are both "pow-of-2" structures ( it doesn't break white noise )
-                    rnd = frac( bayer + jitter );
-                }
-            }
+            // Clamp probability to a sane range ( for all bounces ) to reduce noise
+            diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
 
             // Diffuse or specular?
+            float rnd = Rng::Hash::GetFloat( );
+            if( bounce == 1 && !gRR )
+            {
+                // Guarantee a sample in 3x3 area ( for the 1st bounce, see NRD docs )
+                float bayer = Sequence::Bayer4x4( pixelPos, gFrameIndex );
+                float jitter = Sequence::Weyl1D( rsqrt( 7.0 ), gFrameIndex ); // screen-uniform
+
+                // Fix harmonic interference of "bayer" and "blue noise" ( i.e. decorrelate ), which are both "pow-of-2" structures ( it doesn't break white noise )
+                rnd = frac( bayer + jitter );
+            }
+
             isDiffuse = rnd < diffuseProbability;
             pathThroughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
 
