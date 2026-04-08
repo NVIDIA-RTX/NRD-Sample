@@ -13,7 +13,7 @@
 // SH - SH (spherical harmonics or spherical gaussian) denoisers
 // OCCLUSION - OCCLUSION (ambient or specular occlusion only) denoisers
 // DIRECTIONAL_OCCLUSION - DIRECTIONAL_OCCLUSION (ambient occlusion in SH mode) denoisers
-#define NRD_MODE                            OCCLUSION // NRD sample recompilation required
+#define NRD_MODE                            NORMAL // NRD sample recompilation required
 #define SIGMA_TRANSLUCENCY                  1
 
 // Default = 1
@@ -39,9 +39,9 @@
 #define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
 #define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
 #define USE_WHITE_FURNACE                   0 // energy conservation test
+#define USE_BLUE_NOISE_FOR_RADIANCE         0 // helps to reduce residual boiling, but worsens IQ due to limited coverage of all possible directions
 #define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
 #define USE_RUSSIAN_ROULETTE                0 // bad practice for real-time denoising
-#define USE_BLUE_NOISE_FOR_RADIANCE         0 // helps to reduce residual boiling, but worsens IQ due to limited coverage of all possible directions
 
 //=============================================================================================
 // CONSTANTS
