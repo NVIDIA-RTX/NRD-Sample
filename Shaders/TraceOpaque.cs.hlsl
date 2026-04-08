@@ -223,7 +223,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 if( bounce == 1 )
                 {
                     float bayer = Sequence::Bayer4x4( pixelPos, gFrameIndex );
-                    float jitter = Sequence::Weyl1D( rsqrt( 7.0 ) , gFrameIndex ); // screen-uniform
+                    float jitter = Sequence::Weyl1D( rsqrt( 7.0 ), gFrameIndex ); // screen-uniform
 
                     // Fix harmonic interference of "bayer" and "blue noise" ( i.e. decorrelate ), which are both "pow-of-2" structures ( it doesn't break white noise )
                     rnd = frac( bayer + jitter );
