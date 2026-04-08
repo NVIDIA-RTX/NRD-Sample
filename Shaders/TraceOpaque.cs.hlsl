@@ -8,7 +8,8 @@ NRI_RESOURCE( Texture2D<float3>, gIn_PrevComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevComposedSpec_PrevViewZ, t, 1, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 2, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking8, t, 3, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 4, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking64, t, 4, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 5, SET_OTHER );
 
 // Outputs
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Mv, u, 0, SET_OTHER );
@@ -28,23 +29,17 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, SET
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, SET_OTHER );
 #endif
 
-#define BN_CHECKERBOARD 1
-#define BN_JITTER 2
-#define BN_SHIFT 4
+#define BN_JITTER 1
+#define BN_SHIFT 2
 
-// Blue noise is unrecommended for REBLUR/RELAX
 float2 GetBlueNoise( uint2 pixelPos, uint pathIndex, uint bounceIndex, uint sampleIndex, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp, uint flags = 0 )
 {
     // https://eheitzresearch.wordpress.com/772-2/
     // https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html
 
-    uint frameIndex = ( flags & BN_CHECKERBOARD ) ? ( gFrameIndex >> 1 ) : gFrameIndex;
-    uint blueIndex = frameIndex & ( spp - 1 );
-
+    uint blueIndex = gFrameIndex & ( spp - 1 );
     uint3 A = gIn_ScramblingRankingSpp[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
-    blueIndex ^= A.z;
-
-    uint2 B = gIn_Sobol[ uint2( blueIndex & 255, 0 ) ].xy;
+    uint2 B = gIn_Sobol[ uint2( ( blueIndex ^ A.z ) & 255, 0 ) ].xy;
     float2 blue = ( float2( B ^ A.xy ) + 0.5 ) / 256.0;
 
     // Jitter "blue" with "white"
@@ -63,8 +58,8 @@ float2 GetBlueNoise( uint2 pixelPos, uint pathIndex, uint bounceIndex, uint samp
         blue += Sequence::Weyl2D( rsqrt( 5.0 ), sampleIndex );
     }
 
-    // Don't use blue noise in DLSS-RR mode or in REFERENCE mode, if "BN_JITTER" is not set
-    bool useWhite = gRR || ( gDenoiserType == DENOISER_REFERENCE && !( flags & BN_JITTER ) );
+    // Don't use blue noise in DLSS-RR or REFERENCE modes
+    bool useWhite = gRR || gDenoiserType == DENOISER_REFERENCE;
 
     return useWhite ? white : frac( blue );
 }
@@ -237,6 +232,12 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             sampleMaxNum = max( sampleMaxNum, 1 );
 
             float2 rnd2 = Rng::Hash::GetFloat2( );
+            if( USE_BLUE_NOISE_FOR_RADIANCE )
+            {
+                // TODO: currently blue noise doesn't work in "RESOLUTION_FULL_PROBABILISTIC" due to probabilistic selection between diffuse and specular lobes breaking the sequence
+                rnd2 = GetBlueNoise( pixelPos, 0, bounce, 0, gIn_ScramblingRanking64, 64, BN_SHIFT ); // longer for radiance, ideally should ~match max history length setting in NRD
+            }
+
             float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, rnd2, HAIR );
 
             // Special case for primary surface ( 1st bounce starts here )

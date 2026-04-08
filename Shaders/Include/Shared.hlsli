@@ -32,6 +32,7 @@
 #define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
 #define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
 #define USE_WHITE_FURNACE                   0 // energy conservation test
+#define USE_BLUE_NOISE_FOR_RADIANCE         0 // helps to reduce residual boiling, but worsens IQ due to limited coverage of all possible directions
 
 //=============================================================================================
 // CONSTANTS
