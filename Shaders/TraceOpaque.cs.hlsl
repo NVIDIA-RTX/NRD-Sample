@@ -242,7 +242,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
 
             float2 rnd2 = Rng::Hash::GetFloat2( );
             if( USE_BLUE_NOISE_FOR_RADIANCE )
-                rnd2 = GetBlueNoise( pixelPos, 0, bounce, 0, gIn_ScramblingRanking32, 32, BN_SHIFT ); // longer for radiance, ideally should ~match max history length setting in NRD
+                rnd2 = GetBlueNoise( pixelPos, 0, bounce, 0, gIn_ScramblingRanking32, 32, BN_SHIFT ); // longer for radiance, ideally should ~match NRD max history length setting
 
             float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, rnd2, HAIR );
 
