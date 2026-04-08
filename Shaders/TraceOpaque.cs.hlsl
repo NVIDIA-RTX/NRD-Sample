@@ -8,8 +8,7 @@ NRI_RESOURCE( Texture2D<float3>, gIn_PrevComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevComposedSpec_PrevViewZ, t, 1, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 2, SET_OTHER );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking8, t, 3, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking64, t, 4, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 5, SET_OTHER );
+NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 4, SET_OTHER );
 
 // Outputs
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Mv, u, 0, SET_OTHER );
@@ -29,32 +28,45 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, SET
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, SET_OTHER );
 #endif
 
-float2 GetBlueNoise( uint2 pixelPos, bool isCheckerboard, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp, uint seed = 0 )
+#define BN_CHECKERBOARD 1
+#define BN_JITTER 2
+#define BN_SHIFT 4
+
+// Blue noise is unrecommended for REBLUR/RELAX
+float2 GetBlueNoise( uint2 pixelPos, uint pathIndex, uint bounceIndex, uint sampleIndex, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp, uint flags = 0 )
 {
     // https://eheitzresearch.wordpress.com/772-2/
     // https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html
 
-    // Sample index
-    uint frameIndex = isCheckerboard ? ( gFrameIndex >> 1 ) : gFrameIndex;
-    uint sampleIndex = ( frameIndex + seed ) & ( spp - 1 );
+    uint frameIndex = ( flags & BN_CHECKERBOARD ) ? ( gFrameIndex >> 1 ) : gFrameIndex;
+    uint blueIndex = frameIndex & ( spp - 1 );
 
-    // The algorithm
     uint3 A = gIn_ScramblingRankingSpp[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
-    uint rankedSampleIndex = sampleIndex ^ A.z;
-    uint4 B = gIn_Sobol[ uint2( rankedSampleIndex & 255, 0 ) ];
-    float4 blue = ( float4( B ^ A.xyxy ) + 0.5 ) * ( 1.0 / 256.0 );
+    blueIndex ^= A.z;
 
-    // ( Optional ) Randomize in [ 0; 1 / 256 ] area to get rid of possible banding
-    uint d = Sequence::Bayer4x4ui( pixelPos, gFrameIndex );
-    float2 dither = ( float2( d & 3, d >> 2 ) + 0.5 ) * ( 1.0 / 4.0 );
-    blue += ( dither.xyxy - 0.5 ) * ( 1.0 / 256.0 );
+    uint2 B = gIn_Sobol[ uint2( blueIndex & 255, 0 ) ].xy;
+    float2 blue = ( float2( B ^ A.xy ) + 0.5 ) / 256.0;
 
-    // Don't use blue noise in these cases
-    [flatten]
-    if( gDenoiserType == DENOISER_REFERENCE || gRR )
-        blue.xy = Rng::Hash::GetFloat2( );
+    // Jitter "blue" with "white"
+    float2 white = Rng::Hash::GetFloat2( );
+    if( flags & BN_JITTER )
+    {
+        float amp = rsqrt( float( spp ) );
+        blue += ( white - 0.5 ) * amp;
+    }
 
-    return saturate( blue.xy );
+    // Shift the sequence by a screen-uniform value to get unique sequences per path, bounce, sample
+    if( flags & BN_SHIFT )
+    {
+        blue += Sequence::Weyl2D( rsqrt( 2.0 ), pathIndex );
+        blue += Sequence::Weyl2D( rsqrt( 3.0 ), bounceIndex );
+        blue += Sequence::Weyl2D( rsqrt( 5.0 ), sampleIndex );
+    }
+
+    // Don't use blue noise in DLSS-RR mode or in REFERENCE mode, if "BN_JITTER" is not set
+    bool useWhite = gRR || ( gDenoiserType == DENOISER_REFERENCE && !( flags & BN_JITTER ) );
+
+    return useWhite ? white : frac( blue );
 }
 
 float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos )
@@ -637,7 +649,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Sun shadow
     //================================================================================================================================================================================
 
-    float2 rnd = GetBlueNoise( pixelPos, false, gIn_ScramblingRanking4, 4 );
+    float2 rnd = GetBlueNoise( pixelPos, 0, 0, 0, gIn_ScramblingRanking4, 4 );
     rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
     rnd *= gTanSunAngularRadius;
 
