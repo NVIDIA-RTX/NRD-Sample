@@ -5,7 +5,11 @@ NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_ROOT );
 NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_ROOT );
 NRI_RESOURCE( StructuredBuffer<PrimitiveData>, gIn_PrimitiveData, t, 3, SET_ROOT );
 
-NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 0, SET_RAY_TRACING );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 0, SET_RAY_TRACING );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking8, t, 1, SET_RAY_TRACING );
+NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking32, t, 2, SET_RAY_TRACING );
+NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 3, SET_RAY_TRACING );
+NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 4, SET_RAY_TRACING );
 
 NRI_RESOURCE( RWStructuredBuffer<uint64_t>, gInOut_SharcHashEntriesBuffer, u, 0, SET_SHARC );
 NRI_RESOURCE( RWStructuredBuffer<SharcAccumulationData>, gInOut_SharcAccumulated, u, 1, SET_SHARC );
@@ -659,14 +663,47 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
     return GetLighting( geometryProps, materialProps, flags, unused );
 }
 
-// Compile-time flags for "GenerateRayAndUpdateThroughput"
-#define HAIR 0x1
-
-float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout MaterialProps materialProps, inout float3 throughput, uint sampleMaxNum, bool isDiffuse, float2 rnd, uint flags )
+float2 GetBlueNoise( uint2 pixelPos, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp )
 {
-    bool isHair = ( flags & HAIR ) != 0 && RTXCR_INTEGRATION == 1 && geometryProps.Has( FLAG_HAIR );
+    // https://eheitzresearch.wordpress.com/772-2/
+    // https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html
+
+    uint blueIndex = gFrameIndex & ( spp - 1 );
+    uint3 A = gIn_ScramblingRankingSpp[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
+    uint2 B = gIn_Sobol[ uint2( ( blueIndex ^ A.z ) & 255, 0 ) ].xy;
+    float2 blue = ( float2( B ^ A.xy ) + 0.5 ) / 256.0;
+
+    /*
+    // Jitter "blue" with "white"
+    // This works, but ruins blue noise properties
+    float2 white = Rng::Hash::GetFloat2( );
+    float amp = rsqrt( float( spp ) );
+    blue += ( white - 0.5 ) * amp;
+    blue = frac( blue );
+    */
+
+    return blue;
+}
+
+// Compile-time flags for "GenerateRayAndUpdateThroughput"
+#define GR_HAIR 0x1
+#define GR_ALLOW_BN 0x2
+
+float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout MaterialProps materialProps, inout float3 throughput, uint sampleMaxNum, bool isDiffuse, uint2 pixelPos, uint bounceIndex, uint flags )
+{
+    bool isHair = ( flags & GR_HAIR ) != 0 && RTXCR_INTEGRATION == 1 && geometryProps.Has( FLAG_HAIR );
     float3x3 mLocalBasis = isHair ? Hair_GetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
     float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
+
+    // Get blue noise base
+    float2 blueBase = 0;
+    if( ( flags & GR_ALLOW_BN ) != 0 && USE_BLUE_NOISE_FOR_RADIANCE )
+    {
+        blueBase = GetBlueNoise( pixelPos, gIn_ScramblingRanking32, 32 ); // longer for radiance, ideally should ~match NRD max history length setting
+
+        // Shift the sequence by a screen-uniform value to get unique sequences per "bounceIndex"
+        blueBase += Sequence::Weyl2D( rsqrt( float2( 5.0, 7.0 ) ), bounceIndex );
+    }
 
     // Importance sampling
     float3 rayLocal = 0;
@@ -674,6 +711,11 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 
     for( uint sampleIndex = 0; sampleIndex < sampleMaxNum; sampleIndex++ )
     {
+        // Get random
+        float2 rnd = Rng::Hash::GetFloat2( );
+        if( ( flags & GR_ALLOW_BN ) != 0 && USE_BLUE_NOISE_FOR_RADIANCE )
+            rnd = frac( blueBase + Sequence::Halton2D( sampleIndex ) ); // TODO: "Weyl2D" works worse... but why?
+
         // Generate a ray in local space
         float3 candidateRayLocal;
     #if( RTXCR_INTEGRATION == 1 )
@@ -728,8 +770,6 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         // TODO: the selection should be probabilistic and based on the intensity percentage across all hit candidates, currently emission intensity is uniform, so all candidates are equally "good"
         if( isEmissiveHit || sampleIndex == 0 )
             rayLocal = candidateRayLocal;
-
-        rnd = Rng::Hash::GetFloat2( );
     }
 
     // Adjust throughput by percentage of rays hitting any emissive surface
