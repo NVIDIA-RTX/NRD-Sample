@@ -2386,7 +2386,8 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
     // SET_RAY_TRACING
     const uint32_t textureNum = helper::GetCountOf(m_Scene.materials) * TEXTURES_PER_MATERIAL;
     nri::DescriptorRangeDesc rayTracingRanges[] = {
-        {0, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
+        {0, 4, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER},
+        {4, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
     };
 
     // SET_SHARC
@@ -2477,6 +2478,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
         descriptorPoolDesc.textureMaxNum += rayTracingRanges[0].descriptorNum * setNum;
+        descriptorPoolDesc.textureMaxNum += rayTracingRanges[1].descriptorNum * setNum;
 
         setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
@@ -3165,10 +3167,6 @@ void Sample::CreateDescriptorSets() {
     const nri::Descriptor* TraceOpaque_Textures[] = {
         GetDescriptor(Texture::ComposedDiff),
         GetDescriptor(Texture::ComposedSpec_ViewZ),
-        GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking4),
-        GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking8),
-        GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking32),
-        GetDescriptorForReadOnlyTexture(utils::StaticTexture::SobolSequence),
     };
 
     const nri::Descriptor* TraceOpaque_StorageTextures[] = {
@@ -3249,15 +3247,22 @@ void Sample::CreateDescriptorSets() {
         GetStorageDescriptor(Texture::DlssOutput),
     };
 
-    std::vector<nri::Descriptor*> RayTracing_Textures(m_Scene.materials.size() * TEXTURES_PER_MATERIAL);
+    const nri::Descriptor* RayTracing_Textures[] = {
+        GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking4),
+        GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking8),
+        GetDescriptorForReadOnlyTexture(utils::StaticTexture::ScramblingRanking32),
+        GetDescriptorForReadOnlyTexture(utils::StaticTexture::SobolSequence),
+    };
+
+    std::vector<nri::Descriptor*> RayTracing_BindlessTextures(m_Scene.materials.size() * TEXTURES_PER_MATERIAL);
     for (size_t i = 0; i < m_Scene.materials.size(); i++) {
         const size_t index = i * TEXTURES_PER_MATERIAL;
         const utils::Material& material = m_Scene.materials[i];
 
-        RayTracing_Textures[index] = GetDescriptorForReadOnlyTexture(material.baseColorTexIndex);
-        RayTracing_Textures[index + 1] = GetDescriptorForReadOnlyTexture(material.roughnessMetalnessTexIndex);
-        RayTracing_Textures[index + 2] = GetDescriptorForReadOnlyTexture(material.normalTexIndex);
-        RayTracing_Textures[index + 3] = GetDescriptorForReadOnlyTexture(material.emissiveTexIndex);
+        RayTracing_BindlessTextures[index] = GetDescriptorForReadOnlyTexture(material.baseColorTexIndex);
+        RayTracing_BindlessTextures[index + 1] = GetDescriptorForReadOnlyTexture(material.roughnessMetalnessTexIndex);
+        RayTracing_BindlessTextures[index + 2] = GetDescriptorForReadOnlyTexture(material.normalTexIndex);
+        RayTracing_BindlessTextures[index + 3] = GetDescriptorForReadOnlyTexture(material.emissiveTexIndex);
     }
 
     const nri::Descriptor* Sharc_StorageBuffers[] = {
@@ -3278,7 +3283,7 @@ void Sample::CreateDescriptorSets() {
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::Final), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::DlssBefore), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::DlssAfter), 1, 0));
-    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_RAY_TRACING, &Get(DescriptorSet::RayTracing), 1, helper::GetCountOf(RayTracing_Textures)));
+    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_RAY_TRACING, &Get(DescriptorSet::RayTracing), 1, helper::GetCountOf(RayTracing_BindlessTextures)));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_SHARC, &Get(DescriptorSet::Sharc), 1, 0));
 
     std::vector<nri::UpdateDescriptorRangeDesc> updateDescriptorRangeDescs;
@@ -3309,7 +3314,8 @@ void Sample::CreateDescriptorSets() {
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::DlssBefore), 0, 0, DlssBefore_Textures, helper::GetCountOf(DlssBefore_Textures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::DlssBefore), 1, 0, DlssBefore_StorageTextures, helper::GetCountOf(DlssBefore_StorageTextures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::DlssAfter), 1, 0, DlssAfter_StorageTextures, helper::GetCountOf(DlssAfter_StorageTextures)});
-    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::RayTracing), 0, 0, RayTracing_Textures.data(), helper::GetCountOf(RayTracing_Textures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::RayTracing), 0, 0, RayTracing_Textures, helper::GetCountOf(RayTracing_Textures)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::RayTracing), 1, 0, RayTracing_BindlessTextures.data(), helper::GetCountOf(RayTracing_BindlessTextures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::Sharc), 0, 0, Sharc_StorageBuffers, helper::GetCountOf(Sharc_StorageBuffers)});
 
     NRI.UpdateDescriptorRanges(updateDescriptorRangeDescs.data(), helper::GetCountOf(updateDescriptorRangeDescs));

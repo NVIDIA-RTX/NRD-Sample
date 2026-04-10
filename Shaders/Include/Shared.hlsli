@@ -22,6 +22,7 @@
 #define USE_TRANSLUCENCY                    1 // translucent foliage
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
 #define USE_IS_FOR_ALL_BOUNCES              1 // slower, but better lighting for 2nd+ bounces
+#define USE_BLUE_NOISE_FOR_SHADOWS          ( 1 && !gRR && gDenoiserType != DENOISER_REFERENCE ) // a must have for SIGMA
 
 // Default = 0
 #define USE_SANITIZATION                    0 // NRD sample is NAN/INF free
@@ -39,9 +40,9 @@
 #define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
 #define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
 #define USE_WHITE_FURNACE                   0 // energy conservation test
-#define USE_BLUE_NOISE_FOR_RADIANCE         0 // helps to reduce residual boiling, but worsens IQ due to limited coverage of all possible directions
 #define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
 #define USE_RUSSIAN_ROULETTE                0 // bad practice for real-time denoising
+#define USE_BLUE_NOISE_FOR_RADIANCE         ( 0 && !gRR && gDenoiserType != DENOISER_REFERENCE ) // helps to reduce residual boiling, but worsens IQ due to limited coverage of all possible directions
 
 //=============================================================================================
 // CONSTANTS

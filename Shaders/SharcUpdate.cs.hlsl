@@ -146,7 +146,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
                 sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
             sampleMaxNum = max( sampleMaxNum, 1 );
 
-            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, throughput, sampleMaxNum, isDiffuse, Rng::Hash::GetFloat2( ), 0 );
+            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, throughput, sampleMaxNum, isDiffuse, 0, 0, 0, 0 );
 
             pathThroughput *= Color::Luminance( throughput );
 

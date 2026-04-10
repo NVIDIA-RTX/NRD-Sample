@@ -6,10 +6,6 @@
 // Inputs
 NRI_RESOURCE( Texture2D<float3>, gIn_PrevComposedDiff, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevComposedSpec_PrevViewZ, t, 1, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 2, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking8, t, 3, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking32, t, 4, SET_OTHER );
-NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 5, SET_OTHER );
 
 // Outputs
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Mv, u, 0, SET_OTHER );
@@ -28,43 +24,6 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Spec, u, 10, SET_O
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, SET_OTHER );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, SET_OTHER );
 #endif
-
-#define BN_JITTER 1
-#define BN_SHIFT 2
-#define BN_CHECKERBOARD 4
-
-float2 GetBlueNoise( uint2 pixelPos, uint pathIndex, uint bounceIndex, uint sampleIndex, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp, uint flags = 0 )
-{
-    // https://eheitzresearch.wordpress.com/772-2/
-    // https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html
-
-    uint frameIndex = ( ( flags & BN_CHECKERBOARD ) && gTracingMode == RESOLUTION_HALF ) ? ( gFrameIndex >> 1 ) : gFrameIndex;
-    uint blueIndex = frameIndex & ( spp - 1 );
-    uint3 A = gIn_ScramblingRankingSpp[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
-    uint2 B = gIn_Sobol[ uint2( ( blueIndex ^ A.z ) & 255, 0 ) ].xy;
-    float2 blue = ( float2( B ^ A.xy ) + 0.5 ) / 256.0;
-
-    // Jitter "blue" with "white"
-    float2 white = Rng::Hash::GetFloat2( );
-    if( flags & BN_JITTER )
-    {
-        float amp = rsqrt( float( spp ) );
-        blue += ( white - 0.5 ) * amp;
-    }
-
-    // Shift the sequence by a screen-uniform value to get unique sequences per path, bounce, sample
-    if( flags & BN_SHIFT )
-    {
-        blue += Sequence::Weyl2D( rsqrt( 2.0 ), pathIndex );
-        blue += Sequence::Weyl2D( rsqrt( 3.0 ), bounceIndex );
-        blue += Sequence::Weyl2D( rsqrt( 5.0 ), sampleIndex );
-    }
-
-    // Don't use blue noise in DLSS-RR or REFERENCE modes
-    bool useWhite = gRR || gDenoiserType == DENOISER_REFERENCE;
-
-    return useWhite ? white : frac( blue );
-}
 
 float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos )
 {
@@ -259,17 +218,7 @@ for( uint path = 0; path < pathNum; path++ )
                 sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
             sampleMaxNum = max( sampleMaxNum, 1 );
 
-            float2 rnd2 = Rng::Hash::GetFloat2( );
-            if( USE_BLUE_NOISE_FOR_RADIANCE || NRD_MODE >= OCCLUSION )
-            {
-                #if( NRD_MODE < OCCLUSION )
-                    rnd2 = GetBlueNoise( pixelPos, path, bounce, 0, gIn_ScramblingRanking32, 32, BN_SHIFT | BN_CHECKERBOARD ); // longer for radiance, ideally should ~match max history length setting in NRD
-                #else
-                    rnd2 = GetBlueNoise( pixelPos, path, bounce, 0, gIn_ScramblingRanking8, 8, BN_SHIFT | BN_CHECKERBOARD ); // shorter for occlusion
-                #endif
-            }
-
-            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, rnd2, HAIR );
+            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, pixelPos, path, bounce, GR_HAIR | GR_ALLOW_BN  );
 
             // Special case for primary surface ( 1st bounce starts here )
             if( bounce == 1 )
@@ -824,7 +773,10 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
     // Sun shadow
     //================================================================================================================================================================================
 
-    float2 rnd = GetBlueNoise( pixelPos, 0, 0, 0, gIn_ScramblingRanking4, 4 );
+    float2 rnd = Rng::Hash::GetFloat2( );
+    if( USE_BLUE_NOISE_FOR_SHADOWS )
+        rnd = GetBlueNoise( pixelPos, gIn_ScramblingRanking4, 4, gFrameIndex );
+
     rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
     rnd *= gTanSunAngularRadius;
 
