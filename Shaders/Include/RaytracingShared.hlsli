@@ -663,12 +663,12 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
     return GetLighting( geometryProps, materialProps, flags, unused );
 }
 
-float2 GetBlueNoise( uint2 pixelPos, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp )
+float2 GetBlueNoise( uint2 pixelPos, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp, uint frameIndex )
 {
     // https://eheitzresearch.wordpress.com/772-2/
     // https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html
 
-    uint blueIndex = gFrameIndex & ( spp - 1 );
+    uint blueIndex = frameIndex & ( spp - 1 );
     uint3 A = gIn_ScramblingRankingSpp[ pixelPos & ( BLUE_NOISE_SPATIAL_DIM - 1 ) ];
     uint2 B = gIn_Sobol[ uint2( ( blueIndex ^ A.z ) & 255, 0 ) ].xy;
     float2 blue = ( float2( B ^ A.xy ) + 0.5 ) / 256.0;
@@ -699,10 +699,10 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     float2 blueBase = 0;
     if( ( flags & GR_ALLOW_BN ) != 0 && USE_BLUE_NOISE_FOR_RADIANCE )
     {
-        blueBase = GetBlueNoise( pixelPos, gIn_ScramblingRanking32, 32 ); // longer for radiance, ideally should ~match NRD max history length setting
+        blueBase = GetBlueNoise( pixelPos + bounceIndex, gIn_ScramblingRanking32, 32, gFrameIndex ); // longer for radiance, ideally should ~match NRD max history length setting
 
         // Shift the sequence by a screen-uniform value to get unique sequences per "bounceIndex"
-        blueBase += Sequence::Weyl2D( rsqrt( float2( 5.0, 7.0 ) ), bounceIndex );
+        blueBase += Sequence::Weyl2D( rsqrt( float2( 11.0, 13.0 ) ), bounceIndex );
     }
 
     // Importance sampling

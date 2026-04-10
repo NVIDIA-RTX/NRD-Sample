@@ -612,7 +612,7 @@ void main( uint2 pixelPos : SV_DispatchThreadId )
 
     float2 rnd = Rng::Hash::GetFloat2( );
     if( USE_BLUE_NOISE_FOR_SHADOWS )
-        rnd = GetBlueNoise( pixelPos, gIn_ScramblingRanking4, 4 );
+        rnd = GetBlueNoise( pixelPos, gIn_ScramblingRanking4, 4, gFrameIndex );
 
     rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
     rnd *= gTanSunAngularRadius;
