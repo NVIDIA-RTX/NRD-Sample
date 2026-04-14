@@ -280,6 +280,37 @@ float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin,
     return rayQuery.CommittedStatus( ) == COMMITTED_NOTHING ? INF : rayQuery.CommittedRayT( );
 }
 
+float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+{
+    RayDesc rayDesc;
+    rayDesc.Origin = origin;
+    rayDesc.Direction = direction;
+    rayDesc.TMin = Tmin;
+    rayDesc.TMax = Tmax;
+
+    RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
+    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+
+    while( rayQuery.Proceed( ) )
+        CheckNonOpaqueTriangle( rayQuery, mipAndCone );
+
+    float lightIntensity = 0.0;
+    float lightDistance = INF;
+
+    if( rayQuery.CommittedStatus( ) != COMMITTED_NOTHING )
+    {
+        lightDistance = rayQuery.CommittedRayT( );
+
+        uint instanceIndex = rayQuery.CommittedInstanceID( ) + rayQuery.CommittedGeometryIndex( );
+        InstanceData instanceData = gIn_InstanceData[ instanceIndex ];
+
+        bool isForcedEmission = ( instanceData.textureOffsetAndFlags & ( FLAG_FORCED_EMISSION << FLAG_FIRST_BIT ) ) != 0;
+        lightIntensity = isForcedEmission ? gEmissionIntensityCubes : gEmissionIntensityLights;
+    }
+
+    return float2( lightDistance, lightIntensity );
+}
+
 GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
 {
     RayDesc rayDesc;
@@ -709,6 +740,9 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     float3 rayLocal = 0;
     uint emissiveHitNum = 0;
 
+    float sumIntensity = 0.0;
+    float choosenIntensity = 1.0; // can be 0, but 1 is safer. In any case 1st reached light will get 100% selection probability overriding this with a real value
+
     for( uint sampleIndex = 0; sampleIndex < sampleMaxNum; sampleIndex++ )
     {
         // Get random
@@ -741,6 +775,8 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             candidateRayLocal = reflect( -Vlocal, Hlocal );
         }
 
+if( gDebug == 0.0 )
+{
         // If IS enabled, check the candidate in LightBVH
         bool isEmissiveHit = false;
         if( gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1 )
@@ -770,12 +806,66 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         // TODO: the selection should be probabilistic and based on the intensity percentage across all hit candidates, currently emission intensity is uniform, so all candidates are equally "good"
         if( isEmissiveHit || sampleIndex == 0 )
             rayLocal = candidateRayLocal;
+}
+else
+{
+        // If IS enabled, check the candidate in LightBVH
+        float lightIntensity = 0.0;
+        if( gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1 )
+        {
+            float3 candidateRay = Geometry::RotateVectorInverse( mLocalBasis, candidateRayLocal );
+            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
+            float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N );
+
+            float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+            lightIntensity = lightProps.y;
+
+        #if( USE_BIAS_FIX == 1 )
+            // Checking the candidate ray in "gWorldTlas" to get occlusion information eliminates negligible specular and hair bias
+            if( lightIntensity != 0.0 && !isDiffuse )
+            {
+                float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, lightProps.x, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+                lightIntensity *= distanceToOccluder >= lightProps.x;
+            }
+        #endif
+        }
+
+        // Count rays hitting emissive surfaces
+        if( lightIntensity != 0.0 )
+        {
+            sumIntensity += lightIntensity;
+
+            // Weighted Reservoir Sampling: brighter hits have a mathematically higher chance to "overwrite" the choice
+            if( Rng::Hash::GetFloat( ) < lightIntensity / sumIntensity ) // TODO: blue noise support?
+            {
+                rayLocal = candidateRayLocal;
+                choosenIntensity = lightIntensity;
+            }
+        }
+        else if( sampleIndex == 0 )
+            rayLocal = candidateRayLocal; // fall back to non-IS ray
+}
     }
 
     // Adjust throughput by percentage of rays hitting any emissive surface
     // IMPORTANT: do not modify throughput if there is no an emissive hit, it's needed for a non-IS ray
+if( gDebug == 0.0 )
+{
     if( emissiveHitNum != 0 )
         throughput *= float( emissiveHitNum ) / float( sampleMaxNum );
+}
+else
+{
+    if( sumIntensity != 0.0 )
+    {
+        float multiplier = sumIntensity / ( choosenIntensity * sampleMaxNum );
+
+        // TODO: suppress ( but not fully ) some rare high energy fireflies ( seem to be unbiased )
+        multiplier = min( multiplier, 8.0 );
+
+        throughput *= multiplier;
+    }
+}
 
     // Update throughput
     float3 albedo, Rf0;
