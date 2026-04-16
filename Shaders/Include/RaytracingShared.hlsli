@@ -830,20 +830,18 @@ else
         #endif
         }
 
-        // Count rays hitting emissive surfaces
-        if( lightIntensity != 0.0 )
-        {
-            sumIntensity += lightIntensity;
+        // Potentially fall back to non-IS ray
+        if( sampleIndex == 0 )
+            rayLocal = candidateRayLocal;
 
-            // Weighted Reservoir Sampling: brighter hits have a mathematically higher chance to "overwrite" the choice
-            if( Rng::Hash::GetFloat( ) < lightIntensity / sumIntensity ) // TODO: blue noise support?
-            {
-                rayLocal = candidateRayLocal;
-                choosenIntensity = lightIntensity;
-            }
+        // Weighted Reservoir Sampling: brighter hits have a mathematically higher chance to "overwrite" the choice
+        sumIntensity += lightIntensity;
+
+        if( lightIntensity != 0.0 && Rng::Hash::GetFloat( ) < lightIntensity / sumIntensity ) // TODO: blue noise support?
+        {
+            rayLocal = candidateRayLocal;
+            choosenIntensity = lightIntensity;
         }
-        else if( sampleIndex == 0 )
-            rayLocal = candidateRayLocal; // fall back to non-IS ray
 }
     }
 
