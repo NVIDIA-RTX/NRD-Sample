@@ -174,7 +174,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             // Diffuse probability
             float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
 
-            // Clamp probability to a sane range ( for all bounces ) to reduce noise
+            // Clamp probability to a sane range ( for all bounces ) to reduce noise and reduce convergence time
             diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
 
             // Diffuse or specular?

@@ -738,8 +738,6 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 
     // Importance sampling
     float3 rayLocal = 0;
-    uint emissiveHitNum = 0;
-
     float sumIntensity = 0.0;
     float choosenIntensity = 1.0; // can be 0, but 1 is safer. In any case 1st reached light will get 100% selection probability overriding this with a real value
 
@@ -775,40 +773,6 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             candidateRayLocal = reflect( -Vlocal, Hlocal );
         }
 
-if( gDebug == 0.0 )
-{
-        // If IS enabled, check the candidate in LightBVH
-        bool isEmissiveHit = false;
-        if( gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1 )
-        {
-            float3 candidateRay = Geometry::RotateVectorInverse( mLocalBasis, candidateRayLocal );
-            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-            float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N );
-
-            float distanceToLight = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
-            isEmissiveHit = distanceToLight != INF;
-
-        #if( USE_BIAS_FIX == 1 )
-            // Checking the candidate ray in "gWorldTlas" to get occlusion information eliminates negligible specular and hair bias
-            if( isEmissiveHit && !isDiffuse )
-            {
-                float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, distanceToLight, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
-                isEmissiveHit = distanceToOccluder >= distanceToLight;
-            }
-        #endif
-        }
-
-        // Count rays hitting emissive surfaces
-        if( isEmissiveHit )
-            emissiveHitNum++;
-
-        // Save either the first ray or the last ray hitting an emissive
-        // TODO: the selection should be probabilistic and based on the intensity percentage across all hit candidates, currently emission intensity is uniform, so all candidates are equally "good"
-        if( isEmissiveHit || sampleIndex == 0 )
-            rayLocal = candidateRayLocal;
-}
-else
-{
         // If IS enabled, check the candidate in LightBVH
         float lightIntensity = 0.0;
         if( gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1 )
@@ -842,18 +806,10 @@ else
             rayLocal = candidateRayLocal;
             choosenIntensity = lightIntensity;
         }
-}
     }
 
     // Adjust throughput by percentage of rays hitting any emissive surface
     // IMPORTANT: do not modify throughput if there is no an emissive hit, it's needed for a non-IS ray
-if( gDebug == 0.0 )
-{
-    if( emissiveHitNum != 0 )
-        throughput *= float( emissiveHitNum ) / float( sampleMaxNum );
-}
-else
-{
     if( sumIntensity != 0.0 )
     {
         float multiplier = sumIntensity / ( choosenIntensity * sampleMaxNum );
@@ -863,7 +819,6 @@ else
 
         throughput *= multiplier;
     }
-}
 
     // Update throughput
     float3 albedo, Rf0;
@@ -1003,17 +958,13 @@ float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps mat
     if( useMagicBoost )
         diffProb = lerp( diffProb, 1.0, GetSpecMagicCurve( materialProps.roughness ) );
 
-    // Clamp probability to a sane range. High energy fireflies are very undesired. They can be get rid of only
-    // if the number of accumulated samples exeeds 100-500. NRD accumulates for not more than 30 frames only
-    float diffProbClamped = clamp( diffProb, 1.0 / PT_MAX_FIREFLY_RELATIVE_INTENSITY, 1.0 - 1.0 / PT_MAX_FIREFLY_RELATIVE_INTENSITY );
-
     [flatten]
     if( diffProb < PT_EVIL_TWIN_LOBE_TOLERANCE )
         return 0.0; // no diffuse materials are common ( metals )
     else if( diffProb > 1.0 - PT_EVIL_TWIN_LOBE_TOLERANCE )
         return 1.0; // no specular materials are uncommon ( broken material model? )
-    else
-        return diffProbClamped;
+
+    return diffProb; // return unclamped ( clamp elsewhere if needed )
 }
 
 float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3> texDiff, Texture2D<float4> texSpecViewZ, GeometryProps geometryProps, uint2 pixelPos, out float3 Ldiff, out float3 Lspec )

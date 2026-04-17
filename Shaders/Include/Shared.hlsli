@@ -76,7 +76,6 @@
 #define PT_SHADOW_RAY_OFFSET                0.25 // pixels
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels
 #define PT_GLASS_RAY_OFFSET                 0.05 // pixels
-#define PT_MAX_FIREFLY_RELATIVE_INTENSITY   20.0 // no more than 20x energy increase in case of probabilistic sampling
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
 #define PT_GLASS_MIN_F                      0.05 // adds a bit of stability and bias
 #define PT_DELTA_BOUNCES_NUM                8
