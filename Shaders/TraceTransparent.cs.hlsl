@@ -64,12 +64,9 @@ float3 TraceTransparent( TraceTransparentDesc desc )
             */
 
             [flatten]
-            if( gDenoiserType == DENOISER_REFERENCE || gRR )
+            if( gRR || gSR ) // TNN prefers white noise
                 rnd = Rng::Hash::GetFloat( );
-            else
-                F = clamp( F, PT_GLASS_MIN_F, 1.0 - PT_GLASS_MIN_F ); // TODO: needed?
-
-            isReflection = rnd < F; // TODO: if "F" is clamped, "pathThroughput" should be adjusted too
+            isReflection = rnd < F;
         }
 
         // Trace

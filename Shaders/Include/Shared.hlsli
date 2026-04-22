@@ -77,8 +77,7 @@
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels
 #define PT_GLASS_RAY_OFFSET                 0.05 // pixels
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
-#define PT_GLASS_MIN_F                      0.05 // adds a bit of stability and bias
-#define PT_DELTA_BOUNCES_NUM                8
+#define PT_DELTA_BOUNCES_NUM                16
 #define PT_PSR_BOUNCES_NUM                  2
 #define PT_RAY_FLAGS                        0
 
