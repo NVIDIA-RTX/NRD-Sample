@@ -830,6 +830,8 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     float NoL = saturate( dot( Nlocal, rayLocal ) );
     float VoH = abs( dot( Vlocal, Hlocal ) );
 
+    bool skipFixes = isHair;
+
 #if( RTXCR_INTEGRATION == 1 )
     if( isHair )
     {
@@ -848,10 +850,32 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     if( isDiffuse )
     {
         float NoV = abs( dot( Nlocal, Vlocal ) );
+        float Kdiff = BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH );
+
+        // Translucency
+        if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) )
+        {
+            if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
+            {
+                // Transmission
+                rayLocal = -rayLocal;
+                geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
+                skipFixes = true;
+
+                // Transmission albedo: "greener" for foliage  because the chlorophyll absorbs other wavelengths more efficiently than it does during a surface reflection
+                albedo = Math::Pow01( albedo, 1.2 );
+
+                // Yes, no Burley for transmission
+                Kdiff = 1.0 / Math::Pi( 1.0 ); // standard Lambert
+                Kdiff /= LEAF_TRANSLUCENCY;
+            }
+            else
+                Kdiff /= 1.0 - LEAF_TRANSLUCENCY;
+        }
 
         // NoL is canceled by "Cosine::GetPDF"
         throughput *= albedo;
-        throughput *= Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ); // PI / PI
+        throughput *= Math::Pi( 1.0 ) * Kdiff; // PI ( from sampler ) / PI ( from Kdiff )
     }
     else
     {
@@ -862,27 +886,14 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         throughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
     }
 
-    // Translucency
-    if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
-    {
-        if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
-        {
-            rayLocal = -rayLocal;
-            geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
-            throughput /= LEAF_TRANSLUCENCY;
-        }
-        else
-            throughput /= 1.0 - LEAF_TRANSLUCENCY;
-    }
-
     // Transform to world space
     float3 ray = Geometry::RotateVectorInverse( mLocalBasis, rayLocal );
 
-    // Path termination or ray direction fix
+    // Fixes
     float NoLgeom = dot( geometryProps.N, ray );
     float roughnessThreshold = saturate( materialProps.roughness / 0.15 );
 
-    if( !isHair && NoLgeom < 0.0 )
+    if( !skipFixes && NoLgeom < 0.0 )
     {
         if( isDiffuse || Rng::Hash::GetFloat( ) < roughnessThreshold )
             throughput = 0.0; // terminate ray pointing inside the surface
