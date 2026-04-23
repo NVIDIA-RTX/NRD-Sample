@@ -722,7 +722,9 @@ float2 GetBlueNoise( uint2 pixelPos, Texture2D<uint3> gIn_ScramblingRankingSpp, 
 
 float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout MaterialProps materialProps, inout float3 throughput, uint sampleMaxNum, bool isDiffuse, uint2 pixelPos, uint bounceIndex, uint flags )
 {
-    bool isHair = ( flags & GR_HAIR ) != 0 && RTXCR_INTEGRATION == 1 && geometryProps.Has( FLAG_HAIR );
+    bool isHair = RTXCR_INTEGRATION && ( flags & GR_HAIR ) != 0 && geometryProps.Has( FLAG_HAIR );
+    bool isTransmission = USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse && Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY; // white noise is fine here
+
     float3x3 mLocalBasis = isHair ? Hair_GetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
     float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
 
@@ -746,14 +748,14 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         // Get random
         float2 rnd = Rng::Hash::GetFloat2( );
         if( ( flags & GR_ALLOW_BN ) != 0 && USE_BLUE_NOISE_FOR_RADIANCE )
-            rnd = frac( blueBase + Sequence::Halton2D( sampleIndex ) ); // TODO: "Weyl2D" works worse... but why?
+            rnd = frac( blueBase + Sequence::Halton2D( sampleIndex ) ); // "Weyl2D" works worse...
 
         // Generate a ray in local space
         float3 candidateRayLocal;
     #if( RTXCR_INTEGRATION == 1 )
         if( isHair )
         {
-            float2 rand[2] = { Rng::Hash::GetFloat2( ), Rng::Hash::GetFloat2( ) };
+            float2 rand[2] = { Rng::Hash::GetFloat2( ), Rng::Hash::GetFloat2( ) }; // TODO: blue noise support
 
             float3 specular = 0.0;
             float3 diffuse = 0.0;
@@ -781,6 +783,13 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
             float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N );
 
+            // Ensure correct check for transmission
+            if( isTransmission )
+            {
+                candidateRay = -candidateRay;
+                Xoffset = geometryProps.X - LEAF_THICKNESS * geometryProps.N;
+            }
+
             float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
             lightIntensity = lightProps.y;
 
@@ -801,7 +810,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         // Weighted Reservoir Sampling: brighter hits have a mathematically higher chance to "overwrite" the choice
         sumIntensity += lightIntensity;
 
-        if( lightIntensity != 0.0 && Rng::Hash::GetFloat( ) < lightIntensity / sumIntensity ) // TODO: blue noise support?
+        if( lightIntensity != 0.0 && Rng::Hash::GetFloat( ) < lightIntensity / sumIntensity ) // white noise is fine here
         {
             rayLocal = candidateRayLocal;
             choosenIntensity = lightIntensity;
@@ -830,8 +839,6 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     float NoL = saturate( dot( Nlocal, rayLocal ) );
     float VoH = abs( dot( Vlocal, Hlocal ) );
 
-    bool skipFixes = isHair;
-
 #if( RTXCR_INTEGRATION == 1 )
     if( isHair )
     {
@@ -847,33 +854,27 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     }
     else
 #endif
-    if( isDiffuse )
+    if( isTransmission )
+    {
+        rayLocal = -rayLocal;
+        geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
+
+        float Kdiff = 1.0 / Math::Pi( 1.0 ); // standard Lambert
+        Kdiff /= LEAF_TRANSLUCENCY;
+
+        // NoL is canceled by "Cosine" distribution
+        throughput *= Math::Pow01( albedo, 1.2 ); // "greener" for foliage  because the chlorophyll absorbs other wavelengths more efficiently than it does during a surface reflection
+        throughput *= Math::Pi( 1.0 ) * Kdiff; // PI ( from sampler ) / PI ( from Kdiff )
+    }
+    else if( isDiffuse )
     {
         float NoV = abs( dot( Nlocal, Vlocal ) );
+
         float Kdiff = BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH );
+        if( !isTransmission && geometryProps.Has( FLAG_LEAF ) )
+            Kdiff /= 1.0 - LEAF_TRANSLUCENCY;
 
-        // Translucency
-        if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) )
-        {
-            if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
-            {
-                // Transmission
-                rayLocal = -rayLocal;
-                geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
-                skipFixes = true;
-
-                // Transmission albedo: "greener" for foliage  because the chlorophyll absorbs other wavelengths more efficiently than it does during a surface reflection
-                albedo = Math::Pow01( albedo, 1.2 );
-
-                // Yes, no Burley for transmission
-                Kdiff = 1.0 / Math::Pi( 1.0 ); // standard Lambert
-                Kdiff /= LEAF_TRANSLUCENCY;
-            }
-            else
-                Kdiff /= 1.0 - LEAF_TRANSLUCENCY;
-        }
-
-        // NoL is canceled by "Cosine::GetPDF"
+        // NoL is canceled by "Cosine" distribution
         throughput *= albedo;
         throughput *= Math::Pi( 1.0 ) * Kdiff; // PI ( from sampler ) / PI ( from Kdiff )
     }
@@ -893,7 +894,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     float NoLgeom = dot( geometryProps.N, ray );
     float roughnessThreshold = saturate( materialProps.roughness / 0.15 );
 
-    if( !skipFixes && NoLgeom < 0.0 )
+    if( !isTransmission && !isHair && NoLgeom < 0.0 )
     {
         if( isDiffuse || Rng::Hash::GetFloat( ) < roughnessThreshold )
             throughput = 0.0; // terminate ray pointing inside the surface
