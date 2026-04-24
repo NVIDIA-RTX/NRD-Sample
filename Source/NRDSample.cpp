@@ -595,7 +595,7 @@ private:
     Settings m_SettingsDefault = {};
     const std::vector<uint32_t>* m_checkMeTests = nullptr;
     const std::vector<uint32_t>* m_improveMeTests = nullptr;
-    float4 m_HairBaseColor = float4(0.1f, 0.1f, 0.1f, 1.0f);
+    float3 m_HairBaseColor = float3(0.25f, 0.15f, 0.15f);
     float3 m_PrevLocalPos = {};
     float2 m_HairBetas = float2(0.25f, 0.3f);
     uint2 m_RenderResolution = {};
@@ -3267,7 +3267,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gCameraGlobalPos = float4(cameraGlobalPos, CAMERA_RELATIVE);
         constants.gCameraGlobalPosPrev = float4(cameraGlobalPosPrev, 0.0f);
         constants.gViewDirection = float4(viewDir, 0.0f);
-        constants.gHairBaseColor = m_HairBaseColor;
+        constants.gHairBaseColor = float4(Color::FromSrgb(m_HairBaseColor), 0.0f);
         constants.gHairBetas = m_HairBetas;
         constants.gOutputSize = outputSize;
         constants.gRenderSize = renderSize;

@@ -917,10 +917,10 @@ void GetMaterialFactors( float3 N, float3 V, float3 albedo, float3 Rf0, float ro
 {
     NRD_MaterialFactors( N, V, albedo, Rf0, roughness, diffFactor, specFactor );
 
-    // We can combine radiance ( for everything ) and irradiance ( for hair ) in denoising if "material ID" test is enabled
+    // "material ID" is a must! Hair has modified normals needed for better denoising, thus material factors for "modulation" and "de-modulation" will be different without this modification
     if( isHair && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
     {
-        diffFactor = NRD_EPS; // no diffuse for hair
+        diffFactor = 1.0;
         specFactor = 1.0;
     }
 }
@@ -979,6 +979,10 @@ float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps mat
     float lumDiff = Color::Luminance( albedo * ( 1.0 - Fenv ) );
 
     float diffProb = lumDiff / max( lumDiff + lumSpec, NRD_EPS );
+
+    // Should not be there, but no diffuse for hair
+    if( geometryProps.Has( FLAG_HAIR ) )
+        diffProb = 0.0;
 
     // Boost diffussiness ( aka diffuse-like behavior ) if roughness is high
     if( useMagicBoost )
