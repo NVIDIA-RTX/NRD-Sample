@@ -912,15 +912,29 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     return ray;
 }
 
-float3 GetMaterialDemodulation( GeometryProps geometryProps, MaterialProps materialProps )
+// Material de-modulation for NRD
+void GetMaterialFactors( float3 N, float3 V, float3 albedo, float3 Rf0, float roughness, bool isHair, out float3 diffFactor, out float3 specFactor )
+{
+    NRD_MaterialFactors( N, V, albedo, Rf0, roughness, diffFactor, specFactor );
+
+    // We can combine radiance ( for everything ) and irradiance ( for hair ) in denoising if "material ID" test is enabled
+    if( isHair && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
+    {
+        diffFactor = NRD_EPS; // no diffuse for hair
+        specFactor = 1.0;
+    }
+}
+
+// Material de-modulation for SHARC
+float3 GetMaterialFactor( GeometryProps geometryProps, MaterialProps materialProps )
 {
     float3 albedo, Rf0;
     BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
 
-    float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
-    float3 Fenv = _NRD_EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
+    float3 diffFactor, specFactor;
+    NRD_MaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, materialProps.roughness, diffFactor, specFactor );
 
-    return ( albedo + Fenv ) * 0.95 + 0.05;
+    return diffFactor + specFactor;
 }
 
 float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float eta, out float3 Xoffset, out float3 ray )

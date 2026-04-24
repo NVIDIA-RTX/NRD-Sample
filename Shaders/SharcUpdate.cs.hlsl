@@ -97,7 +97,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
     // Primary
     MaterialProps materialProps = GetMaterialProps( geometryProps );
 
-    float3 materialDemodulation0 = GetMaterialDemodulation( geometryProps, materialProps );
+    float3 materialDemodulation0 = GetMaterialFactor( geometryProps, materialProps );
     float pathThroughput = 1.0; // materials maybe demodulated via "1.0 / Color::Luminance( materialDemodulation0 )", but it will require adjustments in other places...
 
     float3 L = GetLighting( geometryProps, materialProps, LIGHTING | SHADOW );
@@ -197,7 +197,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
             {
                 SharcHitData sharcHitData;
                 sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
-                sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
+                sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
                 sharcHitData.normalWorld = geometryProps.N;
                 sharcHitData.emissive = materialProps.Lemi;
 

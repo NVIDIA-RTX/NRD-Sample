@@ -1,6 +1,7 @@
 // © 2022 NVIDIA Corporation
 
 #include "Include/Shared.hlsli"
+#include "Include/RaytracingShared.hlsli"
 
 // Inputs
 NRI_RESOURCE( Texture2D<float>, gIn_ViewZ, t, 0, SET_OTHER );
@@ -66,10 +67,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     Ldirect = Ldirect * shadow + Lemi;
 
     // G-buffer
-    float3 albedo, Rf0;
-    float4 baseColorMetalness = gIn_BaseColor_Metalness[ pixelPos ];
-    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( baseColorMetalness.xyz, baseColorMetalness.w, albedo, Rf0 );
-
     float3 Xv = Geometry::ReconstructViewPosition( pixelUv, gCameraFrustum, viewZ, gOrthoMode );
     float3 V = gOrthoMode == 0 ? normalize( Geometry::RotateVector( gViewToWorld, 0 - Xv ) ) : gViewDirection.xyz;
 
@@ -135,15 +132,13 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     #endif
 
     // Material modulation ( convert radiance back into irradiance )
-    float3 diffFactor, specFactor;
-    NRD_MaterialFactors( N, V, albedo, Rf0, roughness, diffFactor, specFactor );
+    float4 baseColorMetalness = gIn_BaseColor_Metalness[ pixelPos ];
 
-    // We can combine radiance ( for everything ) and irradiance ( for hair ) in denoising if material ID test is enabled
-    if( materialID == MATERIAL_ID_HAIR )
-    {
-        diffFactor = 1.0;
-        specFactor = 1.0;
-    }
+    float3 albedo, Rf0;
+    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( baseColorMetalness.xyz, baseColorMetalness.w, albedo, Rf0 );
+
+    float3 diffFactor, specFactor;
+    GetMaterialFactors( N, V, albedo, Rf0, roughness, materialID == MATERIAL_ID_HAIR, diffFactor, specFactor );
 
     // Composition
     float3 Ldiff = diff.xyz * diffFactor;

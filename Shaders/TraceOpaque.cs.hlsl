@@ -102,14 +102,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         float3 albedo, Rf0;
         BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
 
-        NRD_MaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, roughness0, diffFactor0, specFactor0 );
-
-        // We can combine radiance ( for everything ) and irradiance ( for hair ) in denoising if material ID test is enabled
-        if( geometryProps.Has( FLAG_HAIR ) && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
-        {
-            diffFactor0 = 1.0;
-            specFactor0 = 1.0;
-        }
+        GetMaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, roughness0, geometryProps.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
     }
 
     // SHARC debug visualization
@@ -122,7 +115,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
 
     SharcHitData sharcHitData;
     sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
-    sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
+    sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
     sharcHitData.normalWorld = geometryProps.N;
     sharcHitData.emissive = materialProps.Lemi;
 
@@ -271,7 +264,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 float3 jitter = mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
 
                 SharcHitData sharcHitData;
-                sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
+                sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
                 sharcHitData.normalWorld = geometryProps.N;
                 sharcHitData.emissive = materialProps.Lemi;
 

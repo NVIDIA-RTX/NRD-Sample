@@ -119,7 +119,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         float3 jitter = mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
 
         SharcHitData sharcHitData;
-        sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
+        sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
         sharcHitData.normalWorld = geometryProps.N;
         sharcHitData.emissive = materialProps.Lemi;
 
