@@ -75,8 +75,8 @@ void main( int2 pixelPos : SV_DispatchThreadId )
     float4 spec = gIn_Spec[ pixelPos ];
 
     #if( NRD_MODE == SH )
-        float4 diff1 = gIn_DiffSh[ pixelPos ];
-        float4 spec1 = gIn_SpecSh[ pixelPos ];
+        float3 diff1 = gIn_DiffSh[ pixelPos ].xyz;
+        float3 spec1 = gIn_SpecSh[ pixelPos ].xyz;
     #endif
 
     // Decode SH mode outputs
