@@ -73,21 +73,20 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         return float4( 0.0, 0.0, 0.0, FP16_MAX );
 
     // SHARC state
-    HashGridParameters hashGridParams;
-    hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-    hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-    hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-    hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+    HashGridParameters hashGridParameters;
+    hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
+    hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
+    hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+    hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
 
-    HashMapData hashMapData;
-    hashMapData.capacity = SHARC_CAPACITY;
-    hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+    HashGridData hashGridData;
+    hashGridData.capacity = SHARC_CAPACITY;
+    hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
 
     SharcParameters sharcParams;
-    sharcParams.gridParameters = hashGridParams;
-    sharcParams.hashMapData = hashMapData;
+    sharcParams.hashGridParameters = hashGridParameters;
+    sharcParams.hashGridData = hashGridData;
     sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-    sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
     sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
     sharcParams.resolvedBuffer = gInOut_SharcResolved;
 

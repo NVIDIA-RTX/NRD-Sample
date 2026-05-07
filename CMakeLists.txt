@@ -87,7 +87,7 @@ fetchcontent_declare(
     DOWNLOAD_EXTRACT_TIMESTAMP 1
     DOWNLOAD_NO_PROGRESS 1
     SOURCE_SUBDIR "ignore CMakeLists.txt"
-    URL https://github.com/NVIDIA-RTX/SHARC/archive/6893c9af2a16df07de0cd1b70a85404e2f8fc5e8.zip
+    URL https://github.com/NVIDIA-RTX/SHARC/archive/76238ef61abc67cd7ab29ea8a763e3226adc5ca5.zip
 )
 list(APPEND DEPS sharc)
 

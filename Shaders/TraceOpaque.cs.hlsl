@@ -27,23 +27,26 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, SET
 
 float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos )
 {
-    // Reproject previous frame
     float3 prevLdiff, prevLspec;
     float prevFrameWeight = ReprojectIrradiance( true, false, gIn_PrevComposedDiff, gIn_PrevComposedSpec_PrevViewZ, geometryProps, pixelPos, prevLdiff, prevLspec );
 
     // Estimate how strong lighting at hit depends on the view direction
-    float diffuseProbabilityBiased = EstimateDiffuseProbability( geometryProps, materialProps, true );
-    float3 prevLsum = prevLdiff + prevLspec * diffuseProbabilityBiased;
+    float normCurvature = saturate( sqrt( abs( materialProps.curvature ) ) / 2.5 );
+    float specConfidence = GetSpecMagicCurve( materialProps.roughness );
+    specConfidence = lerp( specConfidence, 1.0, normCurvature );
 
-    float diffuseLikeMotion = lerp( diffuseProbabilityBiased, 1.0, Math::Sqrt01( materialProps.curvature ) ); // TODO: review
-    prevFrameWeight *= diffuseLikeMotion;
+    float diffLum = Color::Luminance( prevLdiff );
+    float specLum = Color::Luminance( prevLspec );
+    float specWeight = specLum / ( diffLum + specLum + NRD_EPS );
 
-    float a = Color::Luminance( prevLdiff );
-    float b = Color::Luminance( prevLspec );
-    prevFrameWeight *= lerp( diffuseProbabilityBiased, 1.0, ( a + NRD_EPS ) / ( a + b + NRD_EPS ) );
+    prevFrameWeight *= lerp( 1.0, specConfidence, specWeight );
+
+    float3 prevLsum = prevLdiff + prevLspec * specConfidence;
 
     // Avoid really bad reprojection
-    return float4( prevLsum * saturate( prevFrameWeight / 0.001 ), prevFrameWeight );
+    prevLsum *= saturate( prevFrameWeight / 0.05 );
+
+    return float4( prevLsum, prevFrameWeight );
 }
 
 float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
@@ -107,11 +110,11 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
 
     // SHARC debug visualization
 #if( USE_SHARC_DEBUG != 0 )
-    HashGridParameters hashGridParams;
-    hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-    hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-    hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-    hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+    HashGridParameters hashGridParameters;
+    hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
+    hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
+    hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+    hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
 
     SharcHitData sharcHitData;
     sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
@@ -119,21 +122,20 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
     sharcHitData.normalWorld = geometryProps.N;
     sharcHitData.emissive = materialProps.Lemi;
 
-    HashMapData hashMapData;
-    hashMapData.capacity = SHARC_CAPACITY;
-    hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+    HashGridData hashGridData;
+    hashGridData.capacity = SHARC_CAPACITY;
+    hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
 
     SharcParameters sharcParams;
-    sharcParams.gridParameters = hashGridParams;
-    sharcParams.hashMapData = hashMapData;
+    sharcParams.hashGridParameters = hashGridParameters;
+    sharcParams.hashGridData = hashGridData;
     sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-    sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
     sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
     sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
     float3 color;
     #if( USE_SHARC_DEBUG == 2 )
-        color = HashGridDebugColoredHash( sharcHitData.positionWorld, sharcHitData.normalWorld, hashGridParams );
+        color = HashGridDebugColoredHash( sharcHitData.positionWorld, sharcHitData.normalWorld, hashGridParameters );
     #else
         bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, color, true );
 
@@ -241,15 +243,15 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos );
 
                 // L2 cache - SHARC
-                HashGridParameters hashGridParams;
-                hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-                hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-                hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-                hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+                HashGridParameters hashGridParameters;
+                hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
+                hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
+                hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+                hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
 
                 float3 Xglobal = GetGlobalPos( geometryProps.X );
-                uint level = HashGridGetLevel( Xglobal, hashGridParams );
-                float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
+                uint level = HashGridGetLevel( Xglobal, hashGridParameters );
+                float voxelSize = HashGridGetVoxelSize( level, hashGridParameters );
 
                 float footprint = geometryProps.hitT * lobeTanHalfAngleAtOrigin * 2.0;
                 float footprintNorm = saturate( footprint / voxelSize );
@@ -268,15 +270,14 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 sharcHitData.normalWorld = geometryProps.N;
                 sharcHitData.emissive = materialProps.Lemi;
 
-                HashMapData hashMapData;
-                hashMapData.capacity = SHARC_CAPACITY;
-                hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+                HashGridData hashGridData;
+                hashGridData.capacity = SHARC_CAPACITY;
+                hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
 
                 SharcParameters sharcParams;
-                sharcParams.gridParameters = hashGridParams;
-                sharcParams.hashMapData = hashMapData;
+                sharcParams.hashGridParameters = hashGridParameters;
+                sharcParams.hashGridData = hashGridData;
                 sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-                sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
                 sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
                 sharcParams.resolvedBuffer = gInOut_SharcResolved;
 

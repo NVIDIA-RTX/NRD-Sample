@@ -3299,7 +3299,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gExposure = m_Settings.exposure;
         constants.gMipBias = mipBias;
         constants.gOrthoMode = orthoMode;
-        constants.gMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
+        constants.gMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 2; // looks like SHARC is OK with this
         constants.gDenoiserType = (uint32_t)m_Settings.denoiser;
         constants.gDisableShadowsAndEnableImportanceSampling = (sunDirection.z < 0.0f && m_Settings.importanceSampling) ? 1 : 0;
         constants.gFrameIndex = frameIndex;

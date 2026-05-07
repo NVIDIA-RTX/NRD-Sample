@@ -85,13 +85,15 @@
 #define SHARC_CAPACITY                      ( 1 << 22 )
 #define SHARC_SCENE_SCALE                   45.0
 #define SHARC_DOWNSCALE                     5
-#define SHARC_ANTI_FIREFLY                  false
-#define SHARC_STALE_FRAME_NUM_MIN           32 // new version uses 8 by default, old value offers more stability in voxels with low number of samples ( critical for glass )
+#define SHARC_RESPONSIVE_FRAME_NUM          32
+#define SHARC_STALE_FRAME_NUM_MIN           8 // default
 #define SHARC_SEPARATE_EMISSIVE             1
 #define SHARC_MATERIAL_DEMODULATION         1
 #define SHARC_USE_FP16                      0
 #define SHARC_RADIANCE_SCALE                100.0 // matches max emission intensity range ( must be > SUN_INTENSITY )
 #define SHARC_RESAMPLING_DEPTH_MIN          1
+#define SHARC_PROPAGATION_DEPTH             4 // new version use 2, it looks worse
+#define SHARC_ENABLE_RESPONSIVE_LIGHTING    0 // TODO: hook up
 
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking
