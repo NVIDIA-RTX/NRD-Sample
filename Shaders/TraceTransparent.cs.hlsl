@@ -172,7 +172,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
 //========================================================================================
 
 [numthreads( 16, 16, 1 )]
-void main( int2 pixelPos : SV_DispatchThreadId )
+void main( int2 pixelPos : SV_DispatchThreadID )
 {
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
     float2 sampleUv = pixelUv + gJitter;

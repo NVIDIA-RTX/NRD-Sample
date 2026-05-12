@@ -388,7 +388,7 @@ void WriteResult( uint2 outPixelPos, float4 diff, float4 spec, float4 diffSh, fl
 }
 
 [numthreads( 16, 16, 1 )]
-void main( uint2 pixelPos : SV_DispatchThreadId )
+void main( uint2 pixelPos : SV_DispatchThreadID )
 {
     // Pixel and sample UV
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;

@@ -23,7 +23,7 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_ComposedDiff, u, 0
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_ComposedSpec_ViewZ, u, 1, SET_OTHER );
 
 [numthreads( 16, 16, 1 )]
-void main( int2 pixelPos : SV_DispatchThreadId )
+void main( int2 pixelPos : SV_DispatchThreadID )
 {
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
 

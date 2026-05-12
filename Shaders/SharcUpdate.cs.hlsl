@@ -220,7 +220,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
 }
 
 [numthreads( 16, 16, 1 )]
-void main( uint2 pixelPos : SV_DispatchThreadId )
+void main( uint2 pixelPos : SV_DispatchThreadID )
 {
     // Current gradient data
     Rng::Hash::Initialize( pixelPos, gFrameIndex );
