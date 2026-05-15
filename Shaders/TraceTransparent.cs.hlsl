@@ -184,11 +184,6 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     // Initialize RNG
     Rng::Hash::Initialize( pixelPos, gFrameIndex );
 
-    // Composed without glass
-    float3 diff = gIn_ComposedDiff[ pixelPos ];
-    float3 spec = gIn_ComposedSpec_ViewZ[ pixelPos ].xyz;
-    float3 Lsum = diff + spec;
-
     // Primary ray for transparent geometry only
     float3 cameraRayOrigin = ( float3 )0;
     float3 cameraRayDirection = ( float3 )0;
@@ -201,8 +196,8 @@ void main( int2 pixelPos : SV_DispatchThreadID )
 
     GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmin0, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_TRANSPARENT, 0 );
 
-    // Trace delta events
-    if( !geometryPropsT.IsMiss( ) && geometryPropsT.hitT < tmin0 )
+    float3 Lsum = 0;
+    if( !geometryPropsT.IsMiss( ) && geometryPropsT.hitT < tmin0  )
     {
         // Append "glass" mask to "hair" mask
         viewZAndTaaMask = -abs( viewZAndTaaMask );
@@ -225,7 +220,6 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         desc.pixelPos = pixelPos;
 
         // IMPORTANT: use 1 reflection path and 1 refraction path at the primary glass hit to significantly reduce noise
-        // TODO: use probabilistic split at the primary glass hit when denoising becomes available
         desc.isReflection = true;
         float3 reflection = TraceTransparent( desc );
         Lsum = reflection;
@@ -234,10 +228,15 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         float3 refraction = TraceTransparent( desc );
         Lsum += refraction;
     }
+    else
+    {
+        // Composed without glass
+        float3 diff = gIn_ComposedDiff[ pixelPos ];
+        float3 spec = gIn_ComposedSpec_ViewZ[ pixelPos ].xyz;
 
-    // Apply exposure
-    Lsum = ApplyExposure( Lsum );
+        Lsum = diff + spec;
+    }
 
     // Output
-    gOut_Composed[ pixelPos ] = Lsum;
+    gOut_Composed[ pixelPos ] = Lsum * gExposure; // apply exposure
 }

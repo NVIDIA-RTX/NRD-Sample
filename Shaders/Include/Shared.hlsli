@@ -289,13 +289,6 @@ float3 GetMotion( float3 X, float3 Xprev )
     return motion;
 }
 
-float3 ApplyExposure( float3 Lsum )
-{
-    Lsum *= gExposure;
-
-    return Lsum;
-}
-
 float3 ApplyTonemap( float3 Lsum )
 {
     Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
