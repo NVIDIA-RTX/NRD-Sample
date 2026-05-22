@@ -199,6 +199,8 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     // Debug
     if( gOnScreen != SHOW_FINAL )
     {
+        Lspec = 0.0;
+
         if( gOnScreen == SHOW_DENOISED_DIFFUSE )
             Ldiff = diff.xyz;
         else if( gOnScreen == SHOW_DENOISED_SPECULAR )
