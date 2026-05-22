@@ -9,7 +9,7 @@ NRI_RESOURCE( Texture2D<float4>, gIn_Validation, t, 2, SET_OTHER );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_Final, u, 0, SET_OTHER );
 
 [numthreads( 16, 16, 1 )]
-void main( uint2 pixelPos : SV_DispatchThreadId )
+void main( uint2 pixelPos : SV_DispatchThreadID )
 {
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvOutputSize;
 

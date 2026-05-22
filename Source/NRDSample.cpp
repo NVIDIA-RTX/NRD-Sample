@@ -676,7 +676,7 @@ private:
     Settings m_SettingsDefault = {};
     const std::vector<uint32_t>* m_checkMeTests = nullptr;
     const std::vector<uint32_t>* m_improveMeTests = nullptr;
-    float4 m_HairBaseColor = float4(0.1f, 0.1f, 0.1f, 1.0f);
+    float3 m_HairBaseColor = float3(0.25f, 0.15f, 0.15f);
     float3 m_PrevLocalPos = {};
     float2 m_HairBetas = float2(0.25f, 0.3f);
     uint2 m_RenderResolution = {};
@@ -3819,7 +3819,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gCameraGlobalPos = float4(cameraGlobalPos, CAMERA_RELATIVE);
         constants.gCameraGlobalPosPrev = float4(cameraGlobalPosPrev, 0.0f);
         constants.gViewDirection = float4(viewDir, 0.0f);
-        constants.gHairBaseColor = m_HairBaseColor;
+        constants.gHairBaseColor = float4(Color::FromSrgb(m_HairBaseColor), 0.0f);
         constants.gHairBetas = m_HairBetas;
         constants.gOutputSize = outputSize;
         constants.gRenderSize = renderSize;
@@ -3848,11 +3848,11 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gFocalLength = (0.5f * (35.0f * 0.001f)) / tan(radians(m_Settings.camFov * 0.5f)); // for 35 mm sensor size (aka old-school 35 mm film)
         constants.gTAA = (m_Settings.denoiser != DENOISER_REFERENCE && m_Settings.TAA) ? 1.0f / (1.0f + taaMaxAccumulatedFrameNum) : 1.0f;
         constants.gHdrScale = displayDesc.isHDR ? displayDesc.maxLuminance / 80.0f : 1.0f;
-        constants.gExposure = m_Settings.exposure;
+        constants.gExposure = (onScreen <= SHOW_DENOISED_SPECULAR && NRD_MODE < OCCLUSION) ? m_Settings.exposure : 1.0f;
         constants.gMipBias = mipBias;
         constants.gOrthoMode = orthoMode;
         constants.gMinProbability = minProbability;
-        constants.gMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
+        constants.gMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 2; // looks like SHARC is OK with this
         constants.gDenoiserType = (uint32_t)m_Settings.denoiser;
         constants.gDisableShadowsAndEnableImportanceSampling = (sunDirection.z < 0.0f && m_Settings.importanceSampling && NRD_MODE < OCCLUSION) ? 1 : 0;
         constants.gFrameIndex = frameIndex;

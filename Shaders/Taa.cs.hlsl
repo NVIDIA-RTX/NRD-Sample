@@ -54,7 +54,7 @@ float3 XyzToLab( float3 x )
 }
 
 [numthreads( GROUP_X, GROUP_Y, 1 )]
-void main( int2 threadPos : SV_GroupThreadId, int2 pixelPos : SV_DispatchThreadId, uint threadIndex : SV_GroupIndex )
+void main( int2 threadPos : SV_GroupThreadID, int2 pixelPos : SV_DispatchThreadID, uint threadIndex : SV_GroupIndex )
 {
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
 

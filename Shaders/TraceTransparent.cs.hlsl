@@ -64,12 +64,9 @@ float3 TraceTransparent( TraceTransparentDesc desc )
             */
 
             [flatten]
-            if( gDenoiserType == DENOISER_REFERENCE || gRR )
+            if( gRR || gSR ) // TNN prefers white noise
                 rnd = Rng::Hash::GetFloat( );
-            else
-                F = clamp( F, PT_GLASS_MIN_F, 1.0 - PT_GLASS_MIN_F ); // TODO: needed?
-
-            isReflection = rnd < F; // TODO: if "F" is clamped, "pathThroughput" should be adjusted too
+            isReflection = rnd < F;
         }
 
         // Trace
@@ -103,15 +100,15 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         Lcached = float4( prevLdiff + prevLspec, reprojectionWeight );
 
         // L2 cache - SHARC
-        HashGridParameters hashGridParams;
-        hashGridParams.cameraPosition = gCameraGlobalPos.xyz;
-        hashGridParams.sceneScale = SHARC_SCENE_SCALE;
-        hashGridParams.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-        hashGridParams.levelBias = SHARC_GRID_LEVEL_BIAS;
+        HashGridParameters hashGridParameters;
+        hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
+        hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
+        hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+        hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
 
         float3 Xglobal = GetGlobalPos( geometryProps.X );
-        uint level = HashGridGetLevel( Xglobal, hashGridParams );
-        float voxelSize = HashGridGetVoxelSize( level, hashGridParams );
+        uint level = HashGridGetLevel( Xglobal, hashGridParameters );
+        float voxelSize = HashGridGetVoxelSize( level, hashGridParameters );
 
         float2 rndScaled = ImportanceSampling::Cosine::GetRay( Rng::Hash::GetFloat2( ) ).xy;
         rndScaled *= voxelSize;
@@ -122,19 +119,18 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         float3 jitter = mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
 
         SharcHitData sharcHitData;
-        sharcHitData.materialDemodulation = GetMaterialDemodulation( geometryProps, materialProps );
+        sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
         sharcHitData.normalWorld = geometryProps.N;
         sharcHitData.emissive = materialProps.Lemi;
 
-        HashMapData hashMapData;
-        hashMapData.capacity = SHARC_CAPACITY;
-        hashMapData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+        HashGridData hashGridData;
+        hashGridData.capacity = SHARC_CAPACITY;
+        hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
 
         SharcParameters sharcParams;
-        sharcParams.gridParameters = hashGridParams;
-        sharcParams.hashMapData = hashMapData;
+        sharcParams.hashGridParameters = hashGridParameters;
+        sharcParams.hashGridData = hashGridData;
         sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-        sharcParams.enableAntiFireflyFilter = SHARC_ANTI_FIREFLY;
         sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
         sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
@@ -177,7 +173,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
 //========================================================================================
 
 [numthreads( 16, 16, 1 )]
-void main( int2 pixelPos : SV_DispatchThreadId )
+void main( int2 pixelPos : SV_DispatchThreadID )
 {
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
     float2 sampleUv = pixelUv + gJitter;
@@ -188,11 +184,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
 
     // Initialize RNG
     Rng::Hash::Initialize( pixelPos, gFrameIndex );
-
-    // Composed without glass
-    float3 diff = gIn_ComposedDiff[ pixelPos ];
-    float3 spec = gIn_ComposedSpec_ViewZ[ pixelPos ].xyz;
-    float3 Lsum = diff + spec * float( gOnScreen == SHOW_FINAL );
 
     // Primary ray for transparent geometry only
     float3 cameraRayOrigin = ( float3 )0;
@@ -206,7 +197,7 @@ void main( int2 pixelPos : SV_DispatchThreadId )
 
     GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmin0, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_TRANSPARENT, 0 );
 
-    // Trace delta events
+    float3 Lsum = 0;
     if( !geometryPropsT.IsMiss( ) && geometryPropsT.hitT < tmin0 && gOnScreen == SHOW_FINAL )
     {
         // Append "glass" mask to "hair" mask
@@ -230,7 +221,6 @@ void main( int2 pixelPos : SV_DispatchThreadId )
         desc.pixelPos = pixelPos;
 
         // IMPORTANT: use 1 reflection path and 1 refraction path at the primary glass hit to significantly reduce noise
-        // TODO: use probabilistic split at the primary glass hit when denoising becomes available
         desc.isReflection = true;
         float3 reflection = TraceTransparent( desc );
         Lsum = reflection;
@@ -239,10 +229,15 @@ void main( int2 pixelPos : SV_DispatchThreadId )
         float3 refraction = TraceTransparent( desc );
         Lsum += refraction;
     }
+    else
+    {
+        // Composed without glass
+        float3 diff = gIn_ComposedDiff[ pixelPos ];
+        float3 spec = gIn_ComposedSpec_ViewZ[ pixelPos ].xyz;
 
-    // Apply exposure
-    Lsum = ApplyExposure( Lsum );
+        Lsum = diff + spec;
+    }
 
     // Output
-    gOut_Composed[ pixelPos ] = Lsum;
+    gOut_Composed[ pixelPos ] = Lsum * gExposure; // apply exposure
 }

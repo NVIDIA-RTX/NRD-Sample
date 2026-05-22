@@ -115,10 +115,8 @@
 #define PT_SHADOW_RAY_OFFSET                0.25 // pixels
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels
 #define PT_GLASS_RAY_OFFSET                 0.05 // pixels
-#define PT_MAX_FIREFLY_RELATIVE_INTENSITY   20.0 // no more than 20x energy increase in case of probabilistic sampling
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
-#define PT_GLASS_MIN_F                      0.05 // adds a bit of stability and bias
-#define PT_DELTA_BOUNCES_NUM                8
+#define PT_DELTA_BOUNCES_NUM                16
 #define PT_PSR_BOUNCES_NUM                  2
 #define PT_RAY_FLAGS                        0
 
@@ -126,13 +124,15 @@
 #define SHARC_CAPACITY                      ( 1 << 22 )
 #define SHARC_SCENE_SCALE                   45.0
 #define SHARC_DOWNSCALE                     5
-#define SHARC_ANTI_FIREFLY                  false
-#define SHARC_STALE_FRAME_NUM_MIN           32 // new version uses 8 by default, old value offers more stability in voxels with low number of samples ( critical for glass )
+#define SHARC_RESPONSIVE_FRAME_NUM          32
+#define SHARC_STALE_FRAME_NUM_MIN           8 // default
 #define SHARC_SEPARATE_EMISSIVE             1
 #define SHARC_MATERIAL_DEMODULATION         1
 #define SHARC_USE_FP16                      0
 #define SHARC_RADIANCE_SCALE                100.0 // matches max emission intensity range ( must be > SUN_INTENSITY )
 #define SHARC_RESAMPLING_DEPTH_MIN          1
+#define SHARC_PROPAGATION_DEPTH             4 // new version use 2, it looks worse
+#define SHARC_ENABLE_RESPONSIVE_LIGHTING    0 // TODO: hook up
 
 // Blue noise
 #define BLUE_NOISE_SPATIAL_DIM              128 // see StaticTexture::ScramblingRanking
@@ -384,16 +384,6 @@ float3 GetMotion( float3 X, float3 Xprev )
     motion.z = viewZprev - viewZ;
 
     return motion;
-}
-
-float3 ApplyExposure( float3 Lsum )
-{
-    #if( NRD_MODE < OCCLUSION )
-        if( gOnScreen <= SHOW_DENOISED_SPECULAR )
-            Lsum *= gExposure;
-    #endif
-
-    return Lsum;
 }
 
 float3 ApplyTonemap( float3 Lsum )

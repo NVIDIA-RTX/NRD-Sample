@@ -13,7 +13,7 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float>, gOut_SpecHitDistance, u,
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Normal_Roughness, u, 4, SET_OTHER );
 
 [numthreads( 16, 16, 1 )]
-void main( uint2 pixelPos : SV_DispatchThreadId )
+void main( uint2 pixelPos : SV_DispatchThreadID )
 {
     float2 pixelUv = ( float2( pixelPos ) + 0.5 ) * gInvRenderSize;
 

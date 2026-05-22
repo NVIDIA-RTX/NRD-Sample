@@ -281,6 +281,37 @@ float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin,
     return rayQuery.CommittedStatus( ) == COMMITTED_NOTHING ? INF : rayQuery.CommittedRayT( );
 }
 
+float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+{
+    RayDesc rayDesc;
+    rayDesc.Origin = origin;
+    rayDesc.Direction = direction;
+    rayDesc.TMin = Tmin;
+    rayDesc.TMax = Tmax;
+
+    RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
+    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+
+    while( rayQuery.Proceed( ) )
+        CheckNonOpaqueTriangle( rayQuery, mipAndCone );
+
+    float lightIntensity = 0.0;
+    float lightDistance = INF;
+
+    if( rayQuery.CommittedStatus( ) != COMMITTED_NOTHING )
+    {
+        lightDistance = rayQuery.CommittedRayT( );
+
+        uint instanceIndex = rayQuery.CommittedInstanceID( ) + rayQuery.CommittedGeometryIndex( );
+        InstanceData instanceData = gIn_InstanceData[ instanceIndex ];
+
+        bool isForcedEmission = ( instanceData.textureOffsetAndFlags & ( FLAG_FORCED_EMISSION << FLAG_FIRST_BIT ) ) != 0;
+        lightIntensity = isForcedEmission ? gEmissionIntensityCubes : gEmissionIntensityLights;
+    }
+
+    return float2( lightDistance, lightIntensity );
+}
+
 GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
 {
     RayDesc rayDesc;
@@ -701,7 +732,9 @@ float2 GetBlueNoise( uint2 pixelPos, Texture2D<uint3> gIn_ScramblingRankingSpp, 
 
 float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout MaterialProps materialProps, inout float3 throughput, uint sampleMaxNum, bool isDiffuse, uint2 pixelPos, uint pathIndex, uint bounceIndex, uint flags )
 {
-    bool isHair = ( flags & GR_HAIR ) != 0 && RTXCR_INTEGRATION == 1 && geometryProps.Has( FLAG_HAIR );
+    bool isHair = RTXCR_INTEGRATION && ( flags & GR_HAIR ) != 0 && geometryProps.Has( FLAG_HAIR );
+    bool isTransmission = USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse && Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY; // white noise is fine here
+
     float3x3 mLocalBasis = isHair ? Hair_GetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
     float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
 
@@ -724,21 +757,22 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 
     // Importance sampling
     float3 rayLocal = 0;
-    uint emissiveHitNum = 0;
+    float sumIntensity = 0.0;
+    float choosenIntensity = 1.0; // can be 0, but 1 is safer. In any case 1st reached light will get 100% selection probability overriding this with a real value
 
     for( uint sampleIndex = 0; sampleIndex < sampleMaxNum; sampleIndex++ )
     {
         // Get random
         float2 rnd = Rng::Hash::GetFloat2( );
         if( ( flags & GR_ALLOW_BN ) != 0 && USE_BLUE_NOISE_FOR_RADIANCE )
-            rnd = frac( blueBase + Sequence::Halton2D( sampleIndex ) ); // TODO: "Weyl2D" works worse... but why?
+            rnd = frac( blueBase + Sequence::Halton2D( sampleIndex ) ); // "Weyl2D" works worse...
 
         // Generate a ray in local space
         float3 candidateRayLocal;
     #if( RTXCR_INTEGRATION == 1 )
         if( isHair )
         {
-            float2 rand[2] = { Rng::Hash::GetFloat2( ), Rng::Hash::GetFloat2( ) };
+            float2 rand[2] = { Rng::Hash::GetFloat2( ), Rng::Hash::GetFloat2( ) }; // TODO: blue noise support
 
             float3 specular = 0.0;
             float3 diffuse = 0.0;
@@ -759,40 +793,58 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         }
 
         // If IS enabled, check the candidate in LightBVH
-        bool isEmissiveHit = false;
+        float lightIntensity = 0.0;
         if( gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1 )
         {
             float3 candidateRay = Geometry::RotateVectorInverse( mLocalBasis, candidateRayLocal );
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
             float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N );
 
-            float distanceToLight = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
-            isEmissiveHit = distanceToLight != INF;
+            // Ensure correct check for transmission
+            if( isTransmission )
+            {
+                candidateRay = -candidateRay;
+                Xoffset = geometryProps.X - LEAF_THICKNESS * geometryProps.N;
+            }
+
+            float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+            lightIntensity = lightProps.y;
 
         #if( USE_BIAS_FIX == 1 )
             // Checking the candidate ray in "gWorldTlas" to get occlusion information eliminates negligible specular and hair bias
-            if( isEmissiveHit && !isDiffuse )
+            if( lightIntensity != 0.0 && !isDiffuse )
             {
-                float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, distanceToLight, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
-                isEmissiveHit = distanceToOccluder >= distanceToLight;
+                float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, lightProps.x, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+                lightIntensity *= distanceToOccluder >= lightProps.x;
             }
         #endif
         }
 
-        // Count rays hitting emissive surfaces
-        if( isEmissiveHit )
-            emissiveHitNum++;
-
-        // Save either the first ray or the last ray hitting an emissive
-        // TODO: the selection should be probabilistic and based on the intensity percentage across all hit candidates, currently emission intensity is uniform, so all candidates are equally "good"
-        if( isEmissiveHit || sampleIndex == 0 )
+        // Potentially fall back to non-IS ray
+        if( sampleIndex == 0 )
             rayLocal = candidateRayLocal;
+
+        // Weighted Reservoir Sampling: brighter hits have a mathematically higher chance to "overwrite" the choice
+        sumIntensity += lightIntensity;
+
+        if( lightIntensity != 0.0 && Rng::Hash::GetFloat( ) < lightIntensity / sumIntensity ) // white noise is fine here
+        {
+            rayLocal = candidateRayLocal;
+            choosenIntensity = lightIntensity;
+        }
     }
 
     // Adjust throughput by percentage of rays hitting any emissive surface
     // IMPORTANT: do not modify throughput if there is no an emissive hit, it's needed for a non-IS ray
-    if( emissiveHitNum != 0 )
-        throughput *= float( emissiveHitNum ) / float( sampleMaxNum );
+    if( sumIntensity != 0.0 )
+    {
+        float multiplier = sumIntensity / ( choosenIntensity * sampleMaxNum );
+
+        // TODO: suppress ( but not fully ) some rare high energy fireflies ( seem to be unbiased )
+        multiplier = min( multiplier, 8.0 );
+
+        throughput *= multiplier;
+    }
 
     // Update throughput
 #if( NRD_MODE < OCCLUSION )
@@ -820,13 +872,29 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     }
     else
 #endif
-    if( isDiffuse )
+    if( isTransmission )
+    {
+        rayLocal = -rayLocal;
+        geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
+
+        float Kdiff = 1.0 / Math::Pi( 1.0 ); // standard Lambert
+        Kdiff /= LEAF_TRANSLUCENCY;
+
+        // NoL is canceled by "Cosine" distribution
+        throughput *= Math::Pow01( albedo, 1.2 ); // "greener" for foliage  because the chlorophyll absorbs other wavelengths more efficiently than it does during a surface reflection
+        throughput *= Math::Pi( 1.0 ) * Kdiff; // PI ( from sampler ) / PI ( from Kdiff )
+    }
+    else if( isDiffuse )
     {
         float NoV = abs( dot( Nlocal, Vlocal ) );
 
-        // NoL is canceled by "Cosine::GetPDF"
+        float Kdiff = BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH );
+        if( !isTransmission && geometryProps.Has( FLAG_LEAF ) )
+            Kdiff /= 1.0 - LEAF_TRANSLUCENCY;
+
+        // NoL is canceled by "Cosine" distribution
         throughput *= albedo;
-        throughput *= Math::Pi( 1.0 ) * BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH ); // PI / PI
+        throughput *= Math::Pi( 1.0 ) * Kdiff; // PI ( from sampler ) / PI ( from Kdiff )
     }
     else
     {
@@ -836,29 +904,16 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         throughput *= F;
         throughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
     }
-
-    // Translucency
-    if( USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse )
-    {
-        if( Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY )
-        {
-            rayLocal = -rayLocal;
-            geometryProps.X -= LEAF_THICKNESS * geometryProps.N;
-            throughput /= LEAF_TRANSLUCENCY;
-        }
-        else
-            throughput /= 1.0 - LEAF_TRANSLUCENCY;
-    }
 #endif
 
     // Transform to world space
     float3 ray = Geometry::RotateVectorInverse( mLocalBasis, rayLocal );
 
-    // Path termination or ray direction fix
+    // Fixes
     float NoLgeom = dot( geometryProps.N, ray );
     float roughnessThreshold = saturate( materialProps.roughness / 0.15 );
 
-    if( !isHair && NoLgeom < 0.0 )
+    if( !isTransmission && !isHair && NoLgeom < 0.0 )
     {
         if( isDiffuse || Rng::Hash::GetFloat( ) < roughnessThreshold )
             throughput = 0.0; // terminate ray pointing inside the surface
@@ -876,15 +931,29 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     return ray;
 }
 
-float3 GetMaterialDemodulation( GeometryProps geometryProps, MaterialProps materialProps )
+// Material de-modulation for NRD
+void GetMaterialFactors( float3 N, float3 V, float3 albedo, float3 Rf0, float roughness, bool isHair, out float3 diffFactor, out float3 specFactor )
+{
+    NRD_MaterialFactors( N, V, albedo, Rf0, roughness, diffFactor, specFactor );
+
+    // "material ID" is a must! Hair has modified normals needed for better denoising, thus material factors for "modulation" and "de-modulation" will be different without this modification
+    if( isHair && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
+    {
+        diffFactor = 1.0;
+        specFactor = 1.0;
+    }
+}
+
+// Material de-modulation for SHARC
+float3 GetMaterialFactor( GeometryProps geometryProps, MaterialProps materialProps )
 {
     float3 albedo, Rf0;
     BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
 
-    float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
-    float3 Fenv = _NRD_EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
+    float3 diffFactor, specFactor;
+    NRD_MaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, materialProps.roughness, diffFactor, specFactor );
 
-    return ( albedo + Fenv ) * 0.95 + 0.05;
+    return diffFactor + specFactor;
 }
 
 float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float eta, out float3 Xoffset, out float3 ray )
@@ -930,21 +999,21 @@ float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps mat
 
     float diffProb = lumDiff / max( lumDiff + lumSpec, NRD_EPS );
 
+    // Should not be there, but no diffuse for hair
+    if( geometryProps.Has( FLAG_HAIR ) )
+        diffProb = 0.0;
+
     // Boost diffussiness ( aka diffuse-like behavior ) if roughness is high
     if( useMagicBoost )
         diffProb = lerp( diffProb, 1.0, GetSpecMagicCurve( materialProps.roughness ) );
-
-    // Clamp probability to a sane range. High energy fireflies are very undesired. They can be get rid of only
-    // if the number of accumulated samples exeeds 100-500. NRD accumulates for not more than 30 frames only
-    float diffProbClamped = clamp( diffProb, 1.0 / PT_MAX_FIREFLY_RELATIVE_INTENSITY, 1.0 - 1.0 / PT_MAX_FIREFLY_RELATIVE_INTENSITY );
 
     [flatten]
     if( diffProb < PT_EVIL_TWIN_LOBE_TOLERANCE )
         return 0.0; // no diffuse materials are common ( metals )
     else if( diffProb > 1.0 - PT_EVIL_TWIN_LOBE_TOLERANCE )
         return 1.0; // no specular materials are uncommon ( broken material model? )
-    else
-        return diffProbClamped;
+
+    return diffProb; // return unclamped ( clamp elsewhere if needed )
 }
 
 float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3> texDiff, Texture2D<float4> texSpecViewZ, GeometryProps geometryProps, uint2 pixelPos, out float3 Ldiff, out float3 Lspec )
