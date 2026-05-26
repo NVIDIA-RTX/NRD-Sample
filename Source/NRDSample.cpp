@@ -1426,10 +1426,6 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::Combo("Resolution", &m_Settings.tracingMode, resolution, helper::GetCountOf(resolution));
                         ImGui::PopStyleColor();
 
-                        ImGui::Checkbox("Diff", &m_Settings.indirectDiffuse);
-                        ImGui::SameLine();
-                        ImGui::Checkbox("Spec", &m_Settings.indirectSpecular);
-                        ImGui::SameLine();
                         ImGui::Checkbox("Trim lobe", &m_Settings.specularLobeTrimming);
                         ImGui::SameLine();
                         ImGui::Checkbox("Normal map", &m_Settings.normalMap);
