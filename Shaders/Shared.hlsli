@@ -4,15 +4,8 @@
 // SETTINGS
 //=============================================================================================
 
-// Fused or separate denoising selection
-// 0 - DIFFUSE and SPECULAR
-// 1 - DIFFUSE_SPECULAR
-#define NRD_COMBINED                        1
-
 // NORMAL - common (non specialized) denoisers
 // SH - SH (spherical harmonics or spherical gaussian) denoisers
-// OCCLUSION - OCCLUSION (ambient or specular occlusion only) denoisers
-// DIRECTIONAL_OCCLUSION - DIRECTIONAL_OCCLUSION (ambient occlusion in SH mode) denoisers
 #define NRD_MODE                            NORMAL // NRD sample recompilation required
 #define SIGMA_TRANSLUCENCY                  1
 
@@ -41,8 +34,6 @@
 #define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
 #define USE_WHITE_FURNACE                   0 // energy conservation test
 #define USE_BLUE_NOISE_FOR_RADIANCE         ( 0 && !gRR && gDenoiserType != DENOISER_REFERENCE ) // helps to reduce residual boiling, but worsens IQ due to limited coverage of all possible directions
-#define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
-#define USE_RUSSIAN_ROULETTE                0 // bad practice for real-time denoising
 
 //=============================================================================================
 // CONSTANTS
@@ -51,40 +42,11 @@
 // NRD variant
 #define NORMAL                              0
 #define SH                                  1 // NORMAL + SH (SG) resolve
-#define OCCLUSION                           2
-#define DIRECTIONAL_OCCLUSION               3 // diffuse OCCLUSION + SH (SG) resolve
 
 // Denoiser
 #define DENOISER_REBLUR                     0
 #define DENOISER_RELAX                      1
 #define DENOISER_REFERENCE                  2
-
-// Resolution
-#define RESOLUTION_FULL                     0
-#define RESOLUTION_FULL_PROBABILISTIC       1
-#define RESOLUTION_HALF                     2
-
-// What is on screen?
-// - HDR
-#define SHOW_FINAL                          0
-#define SHOW_DENOISED_DIFFUSE               1
-#define SHOW_DENOISED_SPECULAR              2
-// - LDR
-#define SHOW_AMBIENT_OCCLUSION              3
-#define SHOW_SPECULAR_OCCLUSION             4
-#define SHOW_SHADOW                         5
-#define SHOW_BASE_COLOR                     6
-#define SHOW_NORMAL                         7
-#define SHOW_ROUGHNESS                      8
-#define SHOW_METALNESS                      9
-#define SHOW_MATERIAL_ID                    10
-#define SHOW_PSR_THROUGHPUT                 11
-#define SHOW_WORLD_UNITS                    12
-#define SHOW_INSTANCE_INDEX                 13
-#define SHOW_UV                             14
-#define SHOW_CURVATURE                      15
-#define SHOW_MIP_PRIMARY                    16
-#define SHOW_MIP_SPECULAR                   17
 
 // Predefined material override
 #define MATERIAL_GYPSUM                     1
@@ -271,13 +233,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     uint32_t gSR;
     uint32_t gRR;
     uint32_t gIsSrgb;
-    uint32_t gOnScreen;
-    uint32_t gTracingMode;
-    uint32_t gSampleNum;
-    uint32_t gPSR;
-    uint32_t gSHARC;
-    uint32_t gTrimLobe;
-    float gMinProbability;
 };
 
 #if( !defined( __cplusplus ) )
@@ -336,12 +291,7 @@ float3 GetMotion( float3 X, float3 Xprev )
 
 float3 ApplyTonemap( float3 Lsum )
 {
-    #if( NRD_MODE < OCCLUSION )
-        if( gOnScreen <= SHOW_DENOISED_SPECULAR )
-            Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
-    #else
-        Lsum = Lsum.xxx;
-    #endif
+    Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
 
     return Lsum;
 }

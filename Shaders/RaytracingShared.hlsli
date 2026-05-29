@@ -566,8 +566,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
     // Lighting
     Xshadow = geometryProps.X;
 
-#if( NRD_MODE < OCCLUSION )
-    if( ( flags & LIGHTING ) != 0 )
+    if ( ( flags & LIGHTING ) != 0 )
     {
         float3 Csun = GetSunIntensity( gSunDirection.xyz );
         float3 Csky = GetSkyIntensity( -geometryProps.V );
@@ -685,7 +684,6 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
         float hitT = CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask, rayFlags );
         lighting *= float( hitT == INF );
     }
-#endif
 
     return lighting;
 }
@@ -722,7 +720,7 @@ float2 GetBlueNoise( uint2 pixelPos, Texture2D<uint3> gIn_ScramblingRankingSpp, 
 #define GR_HAIR 0x1
 #define GR_ALLOW_BN 0x2
 
-float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout MaterialProps materialProps, inout float3 throughput, uint sampleMaxNum, bool isDiffuse, uint2 pixelPos, uint pathIndex, uint bounceIndex, uint flags )
+float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout MaterialProps materialProps, inout float3 throughput, uint sampleMaxNum, bool isDiffuse, uint2 pixelPos, uint bounceIndex, uint flags )
 {
     bool isHair = RTXCR_INTEGRATION && ( flags & GR_HAIR ) != 0 && geometryProps.Has( FLAG_HAIR );
     bool isTransmission = USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse && Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY; // white noise is fine here
@@ -734,16 +732,9 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     float2 blueBase = 0;
     if( ( flags & GR_ALLOW_BN ) != 0 && USE_BLUE_NOISE_FOR_RADIANCE )
     {
-        uint frameIndex = ( gTracingMode == RESOLUTION_HALF ) ? ( gFrameIndex >> 1 ) : gFrameIndex;
+        blueBase = GetBlueNoise( pixelPos + bounceIndex, gIn_ScramblingRanking32, 32, gFrameIndex ); // longer for radiance, ideally should ~match NRD max history length setting
 
-        #if( NRD_MODE < OCCLUSION )
-            blueBase = GetBlueNoise( pixelPos + bounceIndex, gIn_ScramblingRanking32, 32, frameIndex ); // longer for radiance, ideally should ~match NRD max history length setting
-        #else
-            blueBase = GetBlueNoise( pixelPos + bounceIndex, gIn_ScramblingRanking8, 8, frameIndex ); // shorter for occlusion
-        #endif
-
-        // Shift the sequence by a screen-uniform value to get unique sequences per "pathIndex" and "bounceIndex"
-        blueBase += Sequence::Weyl2D( rsqrt( float2( 5.0, 7.0 ) ), pathIndex );
+        // Shift the sequence by a screen-uniform value to get unique sequences per "bounceIndex"
         blueBase += Sequence::Weyl2D( rsqrt( float2( 11.0, 13.0 ) ), bounceIndex );
     }
 
@@ -839,7 +830,6 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     }
 
     // Update throughput
-#if( NRD_MODE < OCCLUSION )
     float3 albedo, Rf0;
     BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
 
@@ -896,7 +886,6 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         throughput *= F;
         throughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
     }
-#endif
 
     // Transform to world space
     float3 ray = Geometry::RotateVectorInverse( mLocalBasis, rayLocal );
@@ -1056,9 +1045,6 @@ float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3
     // Ignore sky
     weight *= float( !geometryProps.IsMiss( ) );
 
-    // Use only if radiance is on the screen
-    weight *= float( gOnScreen < SHOW_AMBIENT_OCCLUSION );
-
     // Add global confidence
     if( isPrevFrame )
         weight *= gPrevFrameConfidence; // see C++ code for details
@@ -1069,7 +1055,7 @@ float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3
 
     // Avoid NANs
     [flatten]
-    if( any( isnan( Ldiff ) | isinf( Ldiff ) | isnan( Lspec ) | isinf( Lspec ) ) || NRD_MODE >= OCCLUSION ) // TODO: needed?
+    if( any( isnan( Ldiff ) | isinf( Ldiff ) | isnan( Lspec ) | isinf( Lspec ) ) ) // TODO: needed?
     {
         Ldiff = 0;
         Lspec = 0;

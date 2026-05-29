@@ -86,21 +86,16 @@ struct TraceOpaqueResult
     float3 specRadiance;
     float specHitDist;
 
-#if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+#if( NRD_MODE == SH )
     float3 diffDirection;
     float3 specDirection;
 #endif
 };
 
-TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps materialProps0, uint2 pixelPos, float3x3 mirrorMatrix, float4 Lpsr )
+TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos, float3x3 mirrorMatrix, float4 Lpsr )
 {
     TraceOpaqueResult result = ( TraceOpaqueResult )0;
-#if( NRD_MODE < OCCLUSION )
-    result.specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
-#endif
 
-    GeometryProps geometryProps = geometryProps0;
-    MaterialProps materialProps = materialProps0;
     float viewZ0 = Geometry::AffineTransform( gWorldToView, geometryProps.X ).z;
     float roughness0 = materialProps.roughness;
 
@@ -153,13 +148,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
     return result;
 #endif
 
-    uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
-    uint pathNum = gSampleNum << (gTracingMode == RESOLUTION_FULL ? 1 : 0);
-    uint diffPathNum = 0;
-
-[loop]
-for( uint path = 0; path < pathNum; path++ )
-{
     float accumulatedHitDist = 0;
     float accumulatedDiffuseLikeMotion = 0;
     float accumulatedCurvature = 0;
@@ -186,7 +174,7 @@ for( uint path = 0; path < pathNum; path++ )
 
             // Diffuse or specular?
             float rnd = Rng::Hash::GetFloat( );
-            if( bounce == 1 && !gRR && gTracingMode == RESOLUTION_FULL_PROBABILISTIC )
+            if( bounce == 1 && !gRR )
             {
                 // Guarantee a sample in 3x3 area ( for the 1st bounce, see NRD docs )
                 float bayer = Sequence::Bayer4x4( pixelPos, gFrameIndex );
@@ -197,15 +185,7 @@ for( uint path = 0; path < pathNum; path++ )
             }
 
             isDiffuse = rnd < diffuseProbability;
-
-            if( gTracingMode == RESOLUTION_FULL_PROBABILISTIC || bounce > 1 )
-                pathThroughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
-            else
-                isDiffuse = gTracingMode == RESOLUTION_HALF ? checkerboard : ( path & 0x1 );
-
-            // This is not needed in case of "RESOLUTION_FULL_PROBABILISTIC", since hair doesn't have diffuse component
-            if( geometryProps.Has( FLAG_HAIR ) && isDiffuse )
-                break;
+            pathThroughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
 
             // Importance sampling
             uint sampleMaxNum = 0;
@@ -213,59 +193,27 @@ for( uint path = 0; path < pathNum; path++ )
                 sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
             sampleMaxNum = max( sampleMaxNum, 1 );
 
-            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, pixelPos, path, bounce, GR_HAIR | GR_ALLOW_BN  );
+            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, pixelPos, bounce, GR_HAIR | GR_ALLOW_BN  );
 
             // Special case for primary surface ( 1st bounce starts here )
             if( bounce == 1 )
             {
                 isDiffusePath = isDiffuse;
 
-                if( gTracingMode == RESOLUTION_FULL )
-                    Lsum *= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
-
                 // ( Optional ) Save sampling direction for the 1st bounce
-                #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+                #if( NRD_MODE == SH )
                     float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
 
                     if( isDiffuse )
-                        result.diffDirection += psrRay;
+                        result.diffDirection = psrRay;
                     else
-                        result.specDirection += psrRay;
+                        result.specDirection = psrRay;
                 #endif
             }
 
             // Abort tracing if the current bounce contribution is low
-        #if( USE_RUSSIAN_ROULETTE == 1 )
-            /*
-            BAD PRACTICE:
-            Russian Roulette approach is here to demonstrate that it's a bad practice for real time denoising for the following reasons:
-            - increases entropy of the signal
-            - transforms radiance into non-radiance, which is strictly speaking not allowed to be processed spatially (who wants to get a high energy firefly
-            redistributed around surrounding pixels?)
-            - not necessarily converges to the right image, because we do assumptions about the future and approximate the tail of the path via a scaling factor
-            - this approach breaks denoising, especially REBLUR, which has been designed to work with pure radiance
-            */
-
-            // Nevertheless, RR can be used with caution: the code below tuned for good IQ / PERF tradeoff
-            float russianRouletteProbability = Color::Luminance( pathThroughput );
-            russianRouletteProbability = Math::Pow01( russianRouletteProbability, 0.25 );
-            russianRouletteProbability = max( russianRouletteProbability, 0.01 );
-
-            if( Rng::Hash::GetFloat( ) > russianRouletteProbability )
-                break;
-
-            pathThroughput /= russianRouletteProbability;
-        #else
-            /*
-            GOOD PRACTICE:
-            - terminate path if "pathThroughput" is smaller than some threshold
-            - approximate ambient at the end of the path
-            - re-use data from the previous frame
-            */
-
             if( PT_THROUGHPUT_THRESHOLD != 0.0 && Color::Luminance( pathThroughput ) < PT_THROUGHPUT_THRESHOLD )
                 break;
-        #endif
 
             //=========================================================================================================================================================
             // Trace to the next hit
@@ -336,7 +284,6 @@ for( uint path = 0; path < pathNum; path++ )
                 bool isSharcAllowed = !geometryProps.Has( FLAG_HAIR ); // ignore if the hit is hair // TODO: if hair don't allow if hitT is too short
                 isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
                 isSharcAllowed &= Rng::Hash::GetFloat( ) < ( bounce == gBounceNum ? 1.0 : footprintNorm ); // is voxel size acceptable?
-                isSharcAllowed &= gSHARC && NRD_MODE < OCCLUSION; // trivial
 
                 if( isSharcAllowed )
                 {
@@ -395,24 +342,7 @@ for( uint path = 0; path < pathNum; path++ )
             accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, accumulatedCurvature ) * Math::SmoothStep( 0.2, 0.0, accumulatedDiffuseLikeMotion );
             accumulatedDiffuseLikeMotion += 1.0 - importance * ( 1.0 - diffuseLikeMotion );
             accumulatedCurvature += materialProps.curvature; // yes, after hit
-
-        #if( USE_CAMERA_ATTACHED_REFLECTION_TEST == 1 && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
-            // IMPORTANT: lazy ( no checkerboard support ) implementation of reflections masking for objects attached to the camera
-            // TODO: better find a generic solution for tracking of reflections for objects attached to the camera
-            if( bounce == 1 && !isDiffuse && desc.materialProps.roughness < 0.01 )
-            {
-                if( !geometryProps.IsMiss( ) && !geometryProps.Has( FLAG_STATIC ) )
-                    gOut_Normal_Roughness[ desc.pixelPos ].w = MATERIAL_ID_SELF_REFLECTION;
-            }
-        #endif
         }
-    }
-
-    // Debug visualization: specular mip level at the end of the path
-    if( gOnScreen == SHOW_MIP_SPECULAR )
-    {
-        float mipNorm = Math::Sqrt01( geometryProps.mip / MAX_MIP_LEVEL );
-        Lsum = Color::ColorizeZucconi( mipNorm );
     }
 
     // Normalize hit distances for REBLUR before averaging
@@ -425,52 +355,19 @@ for( uint path = 0; path < pathNum; path++ )
     {
         if( isDiffusePath )
         {
-            result.diffRadiance += Lsum;
-            result.diffHitDist += normHitDist;
-            diffPathNum++;
+            result.diffRadiance = Lsum;
+            result.diffHitDist = normHitDist;
         }
         else
         {
-            result.specRadiance += Lsum;
-
-        #if( NRD_MODE < OCCLUSION )
-            NRD_FrontEnd_SpecHitDistAveraging_Add( result.specHitDist, normHitDist );
-        #else
-            result.specHitDist += normHitDist;
-        #endif
+            result.specRadiance = Lsum;
+            result.specHitDist = normHitDist;
         }
     }
-
-    // Return back to the start of the path
-    geometryProps = geometryProps0;
-    materialProps = materialProps0;
-}
 
     // Material de-modulation ( convert irradiance into radiance )
     result.diffRadiance /= diffFactor0;
     result.specRadiance /= specFactor0;
-
-    // Radiance is already divided by sampling probability, we need to average across all paths
-    float radianceNorm = 1.0 / float( gSampleNum );
-    result.diffRadiance *= radianceNorm;
-    result.specRadiance *= radianceNorm;
-
-    // Others are not divided by sampling probability, we need to average across diffuse / specular only paths
-    float diffNorm = diffPathNum == 0 ? 0.0 : 1.0 / float( diffPathNum );
-    float specNorm = pathNum == diffPathNum ? 0.0 : 1.0 / float( pathNum - diffPathNum );
-
-    result.diffHitDist *= diffNorm;
-
-#if( NRD_MODE < OCCLUSION )
-    NRD_FrontEnd_SpecHitDistAveraging_End( result.specHitDist );
-#else
-    result.specHitDist *= specNorm;
-#endif
-
-#if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
-    result.diffDirection *= diffNorm;
-    result.specDirection *= specNorm;
-#endif
 
     return result;
 }
@@ -479,43 +376,15 @@ for( uint path = 0; path < pathNum; path++ )
 // MAIN
 //========================================================================================
 
-void WriteResult( uint2 pixelPos, float4 diff, float4 spec, float4 diffSh, float4 specSh )
+void WriteResult( uint2 outPixelPos, float4 diff, float4 spec, float4 diffSh, float4 specSh )
 {
-    uint2 outPixelPos = pixelPos;
-    if( gTracingMode == RESOLUTION_HALF )
-        outPixelPos.x >>= 1;
+    gOut_Diff[ outPixelPos ] = diff;
+    gOut_Spec[ outPixelPos ] = spec;
 
-    uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
-
-    if( gTracingMode == RESOLUTION_HALF )
-    {
-        if( checkerboard )
-        {
-            gOut_Diff[ outPixelPos ] = diff;
-
-        #if( NRD_MODE == SH )
-            gOut_DiffSh[ outPixelPos ] = diffSh;
-        #endif
-        }
-        else
-        {
-            gOut_Spec[ outPixelPos ] = spec;
-
-        #if( NRD_MODE == SH )
-            gOut_SpecSh[ outPixelPos ] = specSh;
-        #endif
-        }
-    }
-    else
-    {
-        gOut_Diff[ outPixelPos ] = diff;
-        gOut_Spec[ outPixelPos ] = spec;
-
-    #if( NRD_MODE == SH )
-        gOut_DiffSh[ outPixelPos ] = diffSh;
-        gOut_SpecSh[ outPixelPos ] = specSh;
-    #endif
-    }
+#if( NRD_MODE == SH )
+    gOut_DiffSh[ outPixelPos ] = diffSh;
+    gOut_SpecSh[ outPixelPos ] = specSh;
+#endif
 }
 
 [numthreads( 16, 16, 1 )]
@@ -546,7 +415,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     float3 cameraRayDirection = 0;
     GetCameraRay( cameraRayOrigin, cameraRayDirection, sampleUv );
 
-    GeometryProps geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, ( gOnScreen == SHOW_INSTANCE_INDEX || gOnScreen == SHOW_NORMAL ) ? GEOMETRY_ALL : FLAG_NON_TRANSPARENT, 0 );
+    GeometryProps geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
     MaterialProps materialProps0 = GetMaterialProps( geometryProps0 );
 
     //================================================================================================================================================================================
@@ -567,7 +436,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     float viewZAndTaaMask0 = abs( viewZ0 ) * FP16_VIEWZ_SCALE * ( isTaa5x5 ? -1.0 : 1.0 );
 
     [loop]
-    while( bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) && gPSR )
+    while( bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) )
     {
         { // Origin point
             // Accumulate curvature
@@ -663,26 +532,6 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     float3 Xshadow;
     float3 Ldirect = GetLighting( geometryProps0, materialProps0, LIGHTING | SSS, Xshadow );
 
-    if( gOnScreen == SHOW_INSTANCE_INDEX )
-    {
-        Rng::Hash::Initialize( geometryProps0.instanceIndex, 0 );
-
-        uint checkerboard = Sequence::CheckerBoard( pixelPos >> 2, 0 ) != 0;
-        float3 color = Rng::Hash::GetFloat4( ).xyz;
-        color *= ( checkerboard && !geometryProps0.Has( FLAG_STATIC ) ) ? 0.5 : 1.0;
-
-        Ldirect = color;
-    }
-    else if( gOnScreen == SHOW_UV )
-        Ldirect = float3( frac( geometryProps0.uv ), 0 );
-    else if( gOnScreen == SHOW_CURVATURE )
-        Ldirect = sqrt( abs( materialProps0.curvature ) ) * 0.1;
-    else if( gOnScreen == SHOW_MIP_PRIMARY )
-    {
-        float mipNorm = Math::Sqrt01( geometryProps0.mip / MAX_MIP_LEVEL );
-        Ldirect = Color::ColorizeZucconi( mipNorm );
-    }
-
     gOut_DirectLighting[ pixelPos ] = Ldirect; // "psrThroughput" applied in "Composition"
     gOut_PsrThroughput[ pixelPos ] = psrThroughput;
 
@@ -696,10 +545,6 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         // Subtract direct lighting, process it separately
         float3 L = Ldirect * GetLighting( geometryProps0, materialProps0, SHADOW ) + materialProps0.Lemi;
         Lpsr.xyz = max( Lpsr.xyz - L, 0.0 );
-
-        // TODO: it's not a 100% fix
-        if( gTracingMode == RESOLUTION_HALF )
-            Lpsr *= 0.5;
 
         // This is important!
         Lpsr.xyz *= Lpsr.w;
@@ -744,14 +589,9 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     }
     else
     {
-    #if( NRD_MODE == OCCLUSION )
-        outDiff = result.diffHitDist;
-        outSpec = result.specHitDist;
-    #elif( NRD_MODE == SH )
+    #if( NRD_MODE == SH )
         outDiff = REBLUR_FrontEnd_PackSh( result.diffRadiance, result.diffHitDist, result.diffDirection, outDiffSh, USE_SANITIZATION );
         outSpec = REBLUR_FrontEnd_PackSh( result.specRadiance, result.specHitDist, result.specDirection, outSpecSh, USE_SANITIZATION );
-    #elif( NRD_MODE == DIRECTIONAL_OCCLUSION )
-        outDiff = REBLUR_FrontEnd_PackDirectionalOcclusion( result.diffDirection, result.diffHitDist, USE_SANITIZATION );
     #else
         outDiff = REBLUR_FrontEnd_PackRadianceAndNormHitDist( result.diffRadiance, result.diffHitDist, USE_SANITIZATION );
         outSpec = REBLUR_FrontEnd_PackRadianceAndNormHitDist( result.specRadiance, result.specHitDist, USE_SANITIZATION );

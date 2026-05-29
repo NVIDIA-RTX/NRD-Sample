@@ -48,7 +48,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     // Early out - sky
     if( abs( viewZ ) >= INF )
     {
-        gOut_ComposedDiff[ pixelPos ] = Lemi * float( gOnScreen == SHOW_FINAL );
+        gOut_ComposedDiff[ pixelPos ] = Lemi;
         gOut_ComposedSpec_ViewZ[ pixelPos ] = float4( 0, 0, 0, z );
 
         return;
@@ -64,8 +64,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     #endif
 
     float3 Ldirect = gIn_DirectLighting[ pixelPos ];
-    if( gOnScreen < SHOW_INSTANCE_INDEX )
-        Ldirect = Ldirect * shadow + Lemi;
+    Ldirect = Ldirect * shadow + Lemi;
 
     // G-buffer
     float3 Xv = Geometry::ReconstructViewPosition( pixelUv, gCameraFrustum, viewZ, gOrthoMode );
@@ -118,41 +117,6 @@ void main( int2 pixelPos : SV_DispatchThreadID )
             spec.xyz = NRD_SG_ExtractColor( specSg );
         }
 
-        // ( Optional ) AO / SO
-        diff.w = diffSg.normHitDist;
-        spec.w = specSg.normHitDist;
-
-    // Decode OCCLUSION mode outputs
-    #elif( NRD_MODE == OCCLUSION )
-        diff.w = diff.x;
-        spec.w = spec.x;
-
-    // Decode DIRECTIONAL_OCCLUSION mode outputs
-    #elif( NRD_MODE == DIRECTIONAL_OCCLUSION )
-        NRD_SG sg = REBLUR_BackEnd_UnpackDirectionalOcclusion( diff );
-
-        // Regain macro-details
-        diff.w = NRD_SG_ResolveDiffuse( sg, N, V, 1.0 ).x; // or NRD_SH_ResolveDiffuse( sg, N ).x
-
-        // Regain micro-details // TODO: preload N and Z into SMEM
-        float3 Ne = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  1,  0 ) ] ).xyz;
-        float3 Nw = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2( -1,  0 ) ] ).xyz;
-        float3 Nn = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  0,  1 ) ] ).xyz;
-        float3 Ns = NRD_FrontEnd_UnpackNormalAndRoughness( gIn_Normal_Roughness[ pixelPos + int2(  0, -1 ) ] ).xyz;
-
-        float Ze = gIn_ViewZ[ pixelPos + int2(  1,  0 ) ];
-        float Zw = gIn_ViewZ[ pixelPos + int2( -1,  0 ) ];
-        float Zn = gIn_ViewZ[ pixelPos + int2(  0,  1 ) ];
-        float Zs = gIn_ViewZ[ pixelPos + int2(  0, -1 ) ];
-
-        float scale = NRD_SG_ReJitter( sg, sg, V, 1.0, viewZ, Ze, Zw, Zn, Zs, N, Ne, Nw, Nn, Ns ).x;
-
-        diff.w *= scale;
-
-        // ( Optional ) Unresolved
-        if( !gResolve || pixelUv.x < gSeparator )
-            diff.w = NRD_SG_ExtractColor( sg ).x;
-
     // Decode NORMAL mode outputs
     #else
         if( gDenoiserType == DENOISER_RELAX )
@@ -166,13 +130,6 @@ void main( int2 pixelPos : SV_DispatchThreadID )
             spec = REBLUR_BackEnd_UnpackRadianceAndNormHitDist( spec );
         }
     #endif
-
-    // ( Optional ) RELAX doesn't support AO / SO
-    if( gDenoiserType == DENOISER_RELAX )
-    {
-        diff.w = 1.0 / Math::Pi( 1.0 );
-        spec.w = 1.0 / Math::Pi( 1.0 );
-    }
 
     // Material modulation ( convert radiance back into irradiance )
     float4 baseColorMetalness = gIn_BaseColor_Metalness[ pixelPos ];
@@ -195,47 +152,6 @@ void main( int2 pixelPos : SV_DispatchThreadID )
 
     // IMPORTANT: we store diffuse and specular separately to be able to use the reprojection trick. Let's assume that direct lighting can always be reprojected as diffuse
     Ldiff += Ldirect;
-
-    // Debug
-    if( gOnScreen != SHOW_FINAL )
-    {
-        if( gOnScreen == SHOW_DENOISED_DIFFUSE )
-            Ldiff = diff.xyz;
-        else if( gOnScreen == SHOW_DENOISED_SPECULAR )
-            Ldiff = spec.xyz;
-        else if( gOnScreen == SHOW_AMBIENT_OCCLUSION )
-            Ldiff = diff.w;
-        else if( gOnScreen == SHOW_SPECULAR_OCCLUSION )
-            Ldiff = spec.w;
-        else if( gOnScreen == SHOW_SHADOW )
-            Ldiff = shadow;
-        else if( gOnScreen == SHOW_BASE_COLOR )
-            Ldiff = baseColorMetalness.xyz;
-        else if( gOnScreen == SHOW_NORMAL )
-            Ldiff = N * 0.5 + 0.5;
-        else if( gOnScreen == SHOW_ROUGHNESS )
-            Ldiff = roughness;
-        else if( gOnScreen == SHOW_METALNESS )
-            Ldiff = baseColorMetalness.w;
-        else if( gOnScreen == SHOW_MATERIAL_ID )
-            Ldiff = materialID / 3.0;
-        else if( gOnScreen == SHOW_PSR_THROUGHPUT )
-            Ldiff = psrThroughput;
-        else if( gOnScreen == SHOW_WORLD_UNITS )
-        {
-            float3 X = Geometry::AffineTransform( gViewToWorld, Xv );
-            Ldiff = frac( X * gUnitToMetersMultiplier );
-        }
-        else
-            Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? Lspec : Ldirect.xyz;
-
-        // All non-HDR data is linear, so "transfer" is needed to "de-transfer" later ( and make "pipette" working ).
-        // Keep "base color" with "transfer" applied
-        if( gOnScreen > SHOW_DENOISED_SPECULAR && gOnScreen != SHOW_BASE_COLOR )
-            Ldiff = Color::FromSrgb( Ldiff );
-
-        Lspec = 0.0;
-    }
 
     // Output
     gOut_ComposedDiff[ pixelPos ] = Ldiff;

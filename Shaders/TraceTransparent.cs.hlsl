@@ -135,7 +135,6 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
         bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
-        isSharcAllowed &= gSHARC && NRD_MODE < OCCLUSION; // trivial
 
         if( isSharcAllowed )
         {
@@ -198,7 +197,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmin0, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_TRANSPARENT, 0 );
 
     float3 Lsum = 0;
-    if( !geometryPropsT.IsMiss( ) && geometryPropsT.hitT < tmin0 && gOnScreen == SHOW_FINAL )
+    if( !geometryPropsT.IsMiss( ) && geometryPropsT.hitT < tmin0 )
     {
         // Append "glass" mask to "hair" mask
         viewZAndTaaMask = -abs( viewZAndTaaMask );
