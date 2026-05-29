@@ -771,7 +771,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             candidateRayLocal = ImportanceSampling::Cosine::GetRay( rnd );
         else
         {
-            float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, gTrimLobe ? PT_SPEC_LOBE_ENERGY : 1.0 );
+            float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, PT_SPEC_LOBE_ENERGY );
             candidateRayLocal = reflect( -Vlocal, Hlocal );
         }
 
