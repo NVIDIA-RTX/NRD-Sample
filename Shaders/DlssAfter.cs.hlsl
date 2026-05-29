@@ -1,6 +1,6 @@
 // © 2022 NVIDIA Corporation
 
-#include "Include/Shared.hlsli"
+#include "Shared.hlsli"
 
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_Image, u, 0, SET_OTHER );
 

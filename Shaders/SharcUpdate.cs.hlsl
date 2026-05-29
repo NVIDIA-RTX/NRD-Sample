@@ -2,8 +2,8 @@
 
 #define SHARC_UPDATE 1
 
-#include "Include/Shared.hlsli"
-#include "Include/RaytracingShared.hlsli"
+#include "Shared.hlsli"
+#include "RaytracingShared.hlsli"
 
 // Input
 NRI_RESOURCE( Texture2D<float4>, gIn_PrevGradient, t, 0, SET_OTHER );

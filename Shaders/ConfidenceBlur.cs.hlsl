@@ -1,6 +1,6 @@
 // © 2024 NVIDIA Corporation
 
-#include "Include/Shared.hlsli"
+#include "Shared.hlsli"
 
 struct PushConstants
 {

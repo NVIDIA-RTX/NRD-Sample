@@ -1,7 +1,7 @@
 // © 2022 NVIDIA Corporation
 
-#include "Include/Shared.hlsli"
-#include "Include/RaytracingShared.hlsli"
+#include "Shared.hlsli"
+#include "RaytracingShared.hlsli"
 
 // Inputs
 NRI_RESOURCE( StructuredBuffer<MorphVertex>, gIn_MorphMeshVertices, t, 0, SET_MORPH );

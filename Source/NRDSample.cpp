@@ -19,7 +19,7 @@
 //=================================================================================
 
 // NRD mode and other shared settings are here
-#include "../Shaders/Include/Shared.hlsli"
+#include "../Shaders/Shared.hlsli"
 
 constexpr uint32_t MAX_ANIMATED_INSTANCE_NUM = 512;
 constexpr auto BLAS_RIGID_MESH_BUILD_BITS = nri::AccelerationStructureBits::PREFER_FAST_TRACE | nri::AccelerationStructureBits::ALLOW_COMPACTION;

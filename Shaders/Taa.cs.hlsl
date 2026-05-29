@@ -1,6 +1,6 @@
 // © 2022 NVIDIA Corporation
 
-#include "Include/Shared.hlsli"
+#include "Shared.hlsli"
 
 NRI_RESOURCE( Texture2D<float4>, gIn_Mv, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float3>, gIn_Composed, t, 1, SET_OTHER );
