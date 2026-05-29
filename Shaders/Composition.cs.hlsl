@@ -199,8 +199,6 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     // Debug
     if( gOnScreen != SHOW_FINAL )
     {
-        Lspec = 0.0;
-
         if( gOnScreen == SHOW_DENOISED_DIFFUSE )
             Ldiff = diff.xyz;
         else if( gOnScreen == SHOW_DENOISED_SPECULAR )
@@ -229,12 +227,14 @@ void main( int2 pixelPos : SV_DispatchThreadID )
             Ldiff = frac( X * gUnitToMetersMultiplier );
         }
         else
-            Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? spec.xyz : Ldirect.xyz;
+            Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? Lspec : Ldirect.xyz;
 
         // All non-HDR data is linear, so "transfer" is needed to "de-transfer" later ( and make "pipette" working ).
         // Keep "base color" with "transfer" applied
         if( gOnScreen > SHOW_DENOISED_SPECULAR && gOnScreen != SHOW_BASE_COLOR )
             Ldiff = Color::FromSrgb( Ldiff );
+
+        Lspec = 0.0;
     }
 
     // Output

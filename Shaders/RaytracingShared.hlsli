@@ -4,7 +4,6 @@ NRI_RESOURCE( RaytracingAccelerationStructure, gWorldTlas, t, 0, SET_ROOT );
 NRI_RESOURCE( RaytracingAccelerationStructure, gLightTlas, t, 1, SET_ROOT );
 NRI_RESOURCE( StructuredBuffer<InstanceData>, gIn_InstanceData, t, 2, SET_ROOT );
 NRI_RESOURCE( StructuredBuffer<PrimitiveData>, gIn_PrimitiveData, t, 3, SET_ROOT );
-NRI_RESOURCE( StructuredBuffer<MorphPrimitivePositions>, gIn_MorphPrimitivePositionsPrev, t, 4, SET_ROOT );
 
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking4, t, 0, SET_RAY_TRACING );
 NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking8, t, 1, SET_RAY_TRACING );
@@ -411,14 +410,7 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
         props.T = float4( T, primitiveData.bitangentSign );
 
         props.X = origin + direction * props.hitT;
-        if( props.Has( FLAG_MORPH ) )
-        {
-            MorphPrimitivePositions prev = gIn_MorphPrimitivePositionsPrev[ instanceData.morphPrimitiveOffset + rayQuery.CommittedPrimitiveIndex( ) ];
-
-            float3 XprevLocal = barycentrics.x * prev.pos0.xyz + barycentrics.y * prev.pos1.xyz + barycentrics.z * prev.pos2.xyz;
-            props.Xprev = Geometry::AffineTransform( mOverloaded, XprevLocal );
-        }
-        else if( !props.Has( FLAG_STATIC ) )
+        if( !props.Has( FLAG_STATIC ) )
             props.Xprev = Geometry::AffineTransform( mOverloaded, props.X );
         else
             props.Xprev = props.X;

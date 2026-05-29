@@ -447,11 +447,8 @@ for( uint path = 0; path < pathNum; path++ )
 }
 
     // Material de-modulation ( convert irradiance into radiance )
-    if( gOnScreen != SHOW_MIP_SPECULAR )
-    {
-        result.diffRadiance /= diffFactor0;
-        result.specRadiance /= specFactor0;
-    }
+    result.diffRadiance /= diffFactor0;
+    result.specRadiance /= specFactor0;
 
     // Radiance is already divided by sampling probability, we need to average across all paths
     float radianceNorm = 1.0 / float( gSampleNum );
