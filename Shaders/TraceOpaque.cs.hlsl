@@ -181,7 +181,7 @@ for( uint path = 0; path < pathNum; path++ )
             // Diffuse probability
             float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
 
-            // Clamp probability to a sane range ( for all bounces ) to reduce noise and reduce convergence time
+            // Clamp probability to a sane range ( for all bounces ) to reduce noise and convergence time
             diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, gMinProbability, 1.0 - gMinProbability );
 
             // Diffuse or specular?
