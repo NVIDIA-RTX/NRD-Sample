@@ -3674,19 +3674,12 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
     nrd::ReblurHitDistanceParameters hitDistanceParameters = {};
     hitDistanceParameters.A = m_Settings.hitDistScale * m_Settings.meterToUnitsMultiplier;
 
-    float minProbability = 0.0f;
+    // Min / max allowed probability to guarantee a sample in 3x3 or 5x5 area - https://godbolt.org/z/YGYo1rjnM
+    float minProbability = 1.0f / 4.0f; // this works best for any tracing mode
     if (m_Settings.tracingMode == RESOLUTION_FULL_PROBABILISTIC) {
-        nrd::HitDistanceReconstructionMode mode = nrd::HitDistanceReconstructionMode::OFF;
-        if (m_Settings.denoiser == DENOISER_REBLUR)
-            mode = m_ReblurSettings.hitDistanceReconstructionMode;
-        else if (m_Settings.denoiser == DENOISER_RELAX)
-            mode = m_RelaxSettings.hitDistanceReconstructionMode;
-
-        // Min / max allowed probability to guarantee a sample in 3x3 or 5x5 area - https://godbolt.org/z/YGYo1rjnM
-        if (mode == nrd::HitDistanceReconstructionMode::AREA_3X3)
-            minProbability = 1.0f / 4.0f;
-        else if (mode == nrd::HitDistanceReconstructionMode::AREA_5X5)
-            minProbability = 1.0f / 16.0f;
+        nrd::HitDistanceReconstructionMode mode = m_Settings.denoiser == DENOISER_REBLUR ? m_ReblurSettings.hitDistanceReconstructionMode : m_RelaxSettings.hitDistanceReconstructionMode;
+        if (mode == nrd::HitDistanceReconstructionMode::AREA_5X5)
+            minProbability = 1.0f / 16.0f; // this is suboptimal
     }
 
     uint32_t onScreen = m_Settings.onScreen + (NRD_MODE >= OCCLUSION ? SHOW_AMBIENT_OCCLUSION : 0); // preserve original mapping
