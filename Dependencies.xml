@@ -1,5 +1,0 @@
-<project toolsVersion="5.0">
-  <dependency name="nri_data" linkPath="_Data">
-    <package name="nri_data" version="${nri_data_version}" platforms="windows-x86_64 linux-x86_64 linux-aarch64" />
-  </dependency>
-</project>
