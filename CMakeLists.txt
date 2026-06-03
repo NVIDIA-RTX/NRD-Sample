@@ -19,7 +19,6 @@ else()
 endif()
 
 # Options
-cmake_dependent_option(USE_MINIMAL_DATA "Use minimal '_Data' (90MB)" ON "GITHUB_CI" OFF)
 cmake_dependent_option(RTXCR_INTEGRATION "Use RTXCR for hair and skin rendering, download sample scene" ON "NOT GITHUB_CI" OFF)
 
 set(SHADER_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/_Shaders" CACHE STRING "")
@@ -41,45 +40,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
 
-# Download dependencies (Packman)
-if(WIN32)
-    set(PACKMAN_EXT ".cmd")
-else()
-    set(PACKMAN_EXT ".sh")
-endif()
-
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    if(WIN32)
-        set(PACKMAN_PLATFORM "windows-x86_64")
-    else()
-        set(PACKMAN_PLATFORM "linux-x86_64")
-    endif()
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
-    set(PACKMAN_PLATFORM "linux-aarch64")
-else()
-    message(FATAL_ERROR "Unsupported architecture: '${CMAKE_SYSTEM_PROCESSOR}'")
-endif()
-
-message("Packman platform: ${PACKMAN_PLATFORM}")
-
-if(USE_MINIMAL_DATA)
-    set(NRI_DATA_VERSION 2.3_minimal)
-    message("Using minimal '_Data'")
-else()
-    set(NRI_DATA_VERSION 2.3)
-endif()
-
-execute_process(COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/External/Packman/packman${PACKMAN_EXT}" pull "${CMAKE_CURRENT_SOURCE_DIR}/Dependencies.xml" -p ${PACKMAN_PLATFORM} -t nri_data_version=${NRI_DATA_VERSION}
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    RESULT_VARIABLE PACKMAN_RESULT
-)
-
-if(NOT "${PACKMAN_RESULT}" STREQUAL "0")
-    message(FATAL_ERROR "Packman failed(code = ${PACKMAN_RESULT})")
-endif()
-
 # Download dependencies
 set(DEPS)
+
+# Assets
+if(NOT GITHUB_CI)
+    fetchcontent_declare(
+        assets
+        DOWNLOAD_EXTRACT_TIMESTAMP 1
+        DOWNLOAD_NO_PROGRESS 1
+        SOURCE_SUBDIR "ignore CMakeLists.txt"
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_Data"
+        URL https://github.com/NVIDIA-RTX/NRD-Sample/releases/download/v4.17.1/_Data.7z
+    )
+    list(APPEND DEPS assets)
+endif()
 
 # SHARC
 fetchcontent_declare(
@@ -104,11 +79,11 @@ if(RTXCR_INTEGRATION)
 
     fetchcontent_declare(
         claire
-        GIT_REPOSITORY https://github.com/NVIDIA-RTX/RTXCR-Assets.git
-        GIT_TAG v1.1.0
-        GIT_SHALLOW 1
+        DOWNLOAD_EXTRACT_TIMESTAMP 1
+        DOWNLOAD_NO_PROGRESS 1
         SOURCE_SUBDIR "ignore CMakeLists.txt"
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_Data/Scenes/Claire"
+        URL https://github.com/NVIDIA-RTX/RTXCR-Assets/archive/refs/tags/v1.1.0.zip
     )
     list(APPEND DEPS claire)
 endif()

@@ -80,13 +80,7 @@
           "Command": "--scene=Claire/Claire.gltf"
         },
         {
-          "Command": "--scene=Hair/Hair.gltf"
-        },
-        {
           "Command": "--scene=Kitchen/Kitchen.gltf"
-        },
-        {
-          "Command": "--scene=Bistro2/bistro.gltf"
         },
         {
           "Command": "--scene=LivingRoom/living_room.gltf"
