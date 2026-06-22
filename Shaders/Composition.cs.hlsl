@@ -67,7 +67,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     Ldirect = Ldirect * shadow + Lemi;
 
     // G-buffer
-    float3 Xv = Geometry::ReconstructViewPosition( pixelUv, gCameraFrustum, viewZ, gOrthoMode );
+    float3 Xv = Geometry::ReconstructViewPosition( pixelUv + gJitter, gCameraFrustum, viewZ, gOrthoMode );
     float3 V = gOrthoMode == 0 ? normalize( Geometry::RotateVector( gViewToWorld, 0 - Xv ) ) : gViewDirection.xyz;
 
     // Sample NRD outputs
