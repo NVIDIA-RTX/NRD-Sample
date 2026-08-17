@@ -4074,6 +4074,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         m_SigmaSettings.lightDirection[0] = sunDir.x;
         m_SigmaSettings.lightDirection[1] = sunDir.y;
         m_SigmaSettings.lightDirection[2] = sunDir.z;
+        m_SigmaSettings.checkerboardMode = (m_Settings.tracingMode == RESOLUTION_HALF && !m_Settings.RR) ? nrd::CheckerboardMode::WHITE : nrd::CheckerboardMode::OFF;
 
         nrd::Identifier denoiser = NRD_ID(SIGMA_SHADOW);
 

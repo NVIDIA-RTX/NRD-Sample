@@ -764,9 +764,22 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     // Sun shadow
     //================================================================================================================================================================================
 
+    uint2 shadowPixelPos = pixelPos;
+    if( gTracingMode == RESOLUTION_HALF )
+    {
+        uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex );
+        if( checkerboard == 0 )
+            return;
+
+        shadowPixelPos.x >>= 1;
+    }
+
     float2 rnd = Rng::Hash::GetFloat2( );
     if( USE_BLUE_NOISE_FOR_SHADOWS )
-        rnd = GetBlueNoise( pixelPos, gIn_ScramblingRanking4, 4, gFrameIndex );
+    {
+        uint frameIndex = ( gTracingMode == RESOLUTION_HALF ) ? ( gFrameIndex >> 1 ) : gFrameIndex;
+        rnd = GetBlueNoise( pixelPos, gIn_ScramblingRanking4, 4, frameIndex );
+    }
 
     rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
     rnd *= gTanSunAngularRadius;
@@ -800,6 +813,6 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     float penumbra = SIGMA_FrontEnd_PackPenumbra( shadowHitDist, gTanSunAngularRadius );
     float4 translucency = SIGMA_FrontEnd_PackTranslucency( shadowHitDist, shadowTranslucency );
 
-    gOut_ShadowData[ pixelPos ] = penumbra;
-    gOut_Shadow_Translucency[ pixelPos ] = translucency;
+    gOut_ShadowData[ shadowPixelPos ] = penumbra;
+    gOut_Shadow_Translucency[ shadowPixelPos ] = translucency;
 }
