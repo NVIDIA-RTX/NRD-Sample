@@ -450,6 +450,12 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     uint baseTexture = geometryProps.GetBaseTexture( );
     InstanceData instanceData = gIn_InstanceData[ geometryProps.instanceIndex ];
 
+#if( USE_CAMERA_ATTACHED_REFLECTION_TEST == 1 )
+    // Override cube material
+    if( !geometryProps.Has( FLAG_STATIC ) )
+        baseTexture = 224;
+#endif
+
     // Base color
     float3 coords = GetSamplingCoords( baseTexture, geometryProps.uv, geometryProps.mip, MIP_SHARP );
     float4 color = gIn_Textures[ NonUniformResourceIndex( baseTexture ) ].SAMPLE( coords );

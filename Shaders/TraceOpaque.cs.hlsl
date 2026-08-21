@@ -399,10 +399,10 @@ for( uint path = 0; path < pathNum; path++ )
         #if( USE_CAMERA_ATTACHED_REFLECTION_TEST == 1 && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
             // IMPORTANT: lazy ( no checkerboard support ) implementation of reflections masking for objects attached to the camera
             // TODO: better find a generic solution for tracking of reflections for objects attached to the camera
-            if( bounce == 1 && !isDiffuse && desc.materialProps.roughness < 0.01 )
+            if( bounce == 1 && !isDiffuse && materialProps.roughness < 0.04 )
             {
                 if( !geometryProps.IsMiss( ) && !geometryProps.Has( FLAG_STATIC ) )
-                    gOut_Normal_Roughness[ desc.pixelPos ].w = MATERIAL_ID_SELF_REFLECTION;
+                    gOut_Normal_Roughness[ pixelPos ].w = MATERIAL_ID_SELF_REFLECTION;
             }
         #endif
         }
