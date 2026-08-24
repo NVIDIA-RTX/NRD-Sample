@@ -783,7 +783,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
         streamerDesc.constantBufferMemoryLocation = nri::MemoryLocation::DEVICE_UPLOAD;
         streamerDesc.constantBufferSize = DYNAMIC_CONSTANT_BUFFER_SIZE;
         streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::DEVICE_UPLOAD;
-        streamerDesc.dynamicBufferDesc = {0, 0, nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER | nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT};
+        streamerDesc.dynamicBufferDesc = {0, 0, nri::BufferUsageBits::VERTEX | nri::BufferUsageBits::INDEX | nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT};
         streamerDesc.queuedFrameNum = GetQueuedFrameNum();
         NRI_ABORT_ON_FAILURE(NRI.CreateStreamer(*m_Device, streamerDesc, m_Streamer));
     }
@@ -2695,7 +2695,7 @@ void Sample::CreateAccelerationStructures() {
 
     nri::Buffer* scratchBuffer = nullptr;
     {
-        nri::BufferDesc bufferDesc = {scratchSize, 0, nri::BufferUsageBits::SCRATCH_BUFFER};
+        nri::BufferDesc bufferDesc = {scratchSize, 0, nri::BufferUsageBits::SCRATCH};
 
         NRI_ABORT_ON_FAILURE(NRI.CreateCommittedBuffer(*m_Device, nri::MemoryLocation::DEVICE, 0.0f, bufferDesc, scratchBuffer));
     }
@@ -2964,8 +2964,8 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     CreateBuffer(Buffer::SharcHashEntries, "SharcHashEntries", SHARC_CAPACITY, sizeof(uint64_t), nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(Buffer::SharcAccumulated, "SharcAccumulated", SHARC_CAPACITY, sizeof(uint32_t) * 4, nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
     CreateBuffer(Buffer::SharcResolved, "SharcResolved", SHARC_CAPACITY, sizeof(uint32_t) * 4, nri::BufferUsageBits::SHADER_RESOURCE_STORAGE);
-    CreateBuffer(Buffer::WorldScratch, "WorldScratch", worldScratchBufferSize, 1, nri::BufferUsageBits::SCRATCH_BUFFER);
-    CreateBuffer(Buffer::LightScratch, "LightScratch", lightScratchBufferSize, 1, nri::BufferUsageBits::SCRATCH_BUFFER);
+    CreateBuffer(Buffer::WorldScratch, "WorldScratch", worldScratchBufferSize, 1, nri::BufferUsageBits::SCRATCH);
+    CreateBuffer(Buffer::LightScratch, "LightScratch", lightScratchBufferSize, 1, nri::BufferUsageBits::SCRATCH);
 
     // Textures
     CreateTexture(Texture::ViewZ, "ViewZ", nri::Format::R32_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
@@ -4497,7 +4497,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     // Present
     nri::nriBeginAnnotation("Present", nri::BGRA_UNUSED);
     {
-        NRI.QueuePresent(*m_SwapChain, *swapChainTexture.releaseSemaphore);
+        NRI.QueuePresent(*m_SwapChain, *swapChainTexture.releaseSemaphore, 0);
     }
     nri::nriEndAnnotation();
 
