@@ -507,7 +507,7 @@ public:
 
             if (deviceDesc.graphicsAPI == nri::GraphicsAPI::D3D12) {
                 nri::CommandBufferD3D12Desc commandBufferD3D12Desc = {};
-                commandBufferD3D12Desc.d3d12CommandList = (ID3D12GraphicsCommandList*)NRI.GetCommandBufferNativeObject(&commandBuffer);
+                commandBufferD3D12Desc.d3d12CommandList = (ID3D12CommandList*)NRI.GetCommandBufferNativeObject(&commandBuffer);
 
                 m_NRD.DenoiseD3D12(denoisers, denoiserNum, commandBufferD3D12Desc, resourceSnapshot);
             } else if (deviceDesc.graphicsAPI == nri::GraphicsAPI::VK) {
