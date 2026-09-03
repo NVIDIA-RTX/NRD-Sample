@@ -633,6 +633,7 @@ private:
     utils::Scene m_Scene;
     nri::Device* m_Device = nullptr;
     nri::Streamer* m_Streamer = nullptr;
+    nri::StreamerCopyBatch m_StreamerCopyBatch = 0;
     nri::Upscaler* m_DLSR = nullptr;
     nri::Upscaler* m_DLRR = nullptr;
     nri::SwapChain* m_SwapChain = nullptr;
@@ -785,6 +786,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
         streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::DEVICE_UPLOAD;
         streamerDesc.dynamicBufferDesc = {0, 0, nri::BufferUsageBits::VERTEX | nri::BufferUsageBits::INDEX | nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT};
         streamerDesc.queuedFrameNum = GetQueuedFrameNum();
+        streamerDesc.hostDataCapacity = IMGUI_HOST_DATA_CAPACITY;
         NRI_ABORT_ON_FAILURE(NRI.CreateStreamer(*m_Device, streamerDesc, m_Streamer));
     }
 
@@ -2763,7 +2765,7 @@ void Sample::CreateAccelerationStructures() {
 
             // Emit sizes for compaction
             NRI.CmdResetQueries(*commandBuffer, *queryPool, 0, blasNum);
-            NRI.CmdWriteAccelerationStructuresSizes(*commandBuffer, blases.data(), blasNum, *queryPool, 0);
+            NRI.CmdWriteAccelerationStructureSizes(*commandBuffer, blases.data(), blasNum, *queryPool, 0);
             NRI.CmdCopyQueries(*commandBuffer, *queryPool, 0, blasNum, *readbackBuffer, 0);
         }
         NRI.EndCommandBuffer(*commandBuffer);
@@ -3418,7 +3420,7 @@ void Sample::GatherInstanceData() {
         memcpy(topLevelInstance.transform, mCameraTranslation.a, sizeof(topLevelInstance.transform));
         topLevelInstance.instanceId = instanceIndex;
         topLevelInstance.mask = FLAG_NON_TRANSPARENT;
-        topLevelInstance.shaderBindingTableLocalOffset = 0;
+        topLevelInstance.shaderBindingTableRecordOffset = 0;
         topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
         topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_MergedOpaque));
 
@@ -3432,7 +3434,7 @@ void Sample::GatherInstanceData() {
         memcpy(topLevelInstance.transform, mCameraTranslation.a, sizeof(topLevelInstance.transform));
         topLevelInstance.instanceId = instanceIndex;
         topLevelInstance.mask = FLAG_TRANSPARENT;
-        topLevelInstance.shaderBindingTableLocalOffset = 0;
+        topLevelInstance.shaderBindingTableRecordOffset = 0;
         topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
         topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_MergedTransparent));
 
@@ -3446,7 +3448,7 @@ void Sample::GatherInstanceData() {
         memcpy(topLevelInstance.transform, mCameraTranslation.a, sizeof(topLevelInstance.transform));
         topLevelInstance.instanceId = instanceIndex;
         topLevelInstance.mask = FLAG_NON_TRANSPARENT;
-        topLevelInstance.shaderBindingTableLocalOffset = 0;
+        topLevelInstance.shaderBindingTableRecordOffset = 0;
         topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
         topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_MergedEmissive));
 
@@ -3575,7 +3577,7 @@ void Sample::GatherInstanceData() {
                 memcpy(topLevelInstance.transform, mObjectToWorld.a, sizeof(topLevelInstance.transform));
                 topLevelInstance.instanceId = instanceIndex++;
                 topLevelInstance.mask = flags;
-                topLevelInstance.shaderBindingTableLocalOffset = 0;
+                topLevelInstance.shaderBindingTableRecordOffset = 0;
                 topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE | (material.IsAlphaOpaque() ? nri::TopLevelInstanceBits::NONE : nri::TopLevelInstanceBits::FORCE_OPAQUE);
                 topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*m_AccelerationStructures[meshInstance.blasIndex]);
 
@@ -3589,6 +3591,7 @@ void Sample::GatherInstanceData() {
 
     const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*m_Device);
 
+    m_StreamerCopyBatch = NRI.BeginStreamerCopyBatch(*m_Streamer);
     {
         nri::DataSize dataChunk = {};
         dataChunk.data = m_InstanceData.data();
@@ -3597,6 +3600,7 @@ void Sample::GatherInstanceData() {
         nri::StreamBufferDataDesc streamBufferDataDesc = {};
         streamBufferDataDesc.dataChunks = &dataChunk;
         streamBufferDataDesc.dataChunkNum = 1;
+        streamBufferDataDesc.copyBatch = m_StreamerCopyBatch;
         streamBufferDataDesc.dstBuffer = Get(Buffer::InstanceData);
 
         NRI.StreamBufferData(*m_Streamer, streamBufferDataDesc);
@@ -3901,7 +3905,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             NRI.CmdBarrier(commandBuffer, barrierDesc);
         }
 
-        NRI.CmdCopyStreamedData(commandBuffer, *m_Streamer);
+        NRI.CmdCopyStreamedData(commandBuffer, *m_Streamer, m_StreamerCopyBatch);
     }
 
     { // TLAS and SHARC clear
@@ -4449,11 +4453,11 @@ void Sample::RenderFrame(uint32_t frameIndex) {
         renderingDesc.colors = &attachmentDesc;
         renderingDesc.colorNum = 1;
 
-        CmdCopyImguiData(commandBuffer, *m_Streamer);
+        const nri::ImguiRenderData imguiRenderData = CmdCopyImguiData(commandBuffer, *m_Streamer);
 
         NRI.CmdBeginRendering(commandBuffer, renderingDesc);
         {
-            CmdDrawImgui(commandBuffer, swapChainTexture.attachmentFormat, m_SdrScale, m_IsSrgb);
+            CmdDrawImgui(commandBuffer, imguiRenderData, swapChainTexture.attachmentFormat, m_SdrScale, m_IsSrgb);
         }
         NRI.CmdEndRendering(commandBuffer);
 
