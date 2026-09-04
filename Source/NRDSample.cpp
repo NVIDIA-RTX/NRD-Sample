@@ -3234,9 +3234,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
     float baseMipBias = ((m_Settings.TAA || IsDlssEnabled()) ? -0.5f : 0.0f) + log2f(m_Settings.resolutionScale);
     float mipBias = baseMipBias + log2f(renderSize.x / outputSize.x);
 
-    float fps = 1000.0f / m_Timer.GetSmoothedFrameTime();
-    fps = min(fps, 121.0f);
-
     float taaMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 0.5f;
     float prevFrameMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 0.3f;
 
