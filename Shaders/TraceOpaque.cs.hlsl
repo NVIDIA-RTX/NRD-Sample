@@ -465,7 +465,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
 
         { // Hit point
             // Accumulate hit distance representing virtual point position ( see "README/NOISY INPUTS" )
-            accumulatedHitDist += ApplyThinLensEquation( geometryProps0.hitT, accumulatedCurvature ) ; // TODO: take updated from NRD
+            accumulatedHitDist += ApplyThinLensEquation( geometryProps0.hitT, accumulatedCurvature ); // TODO: take updated from NRD
         }
 
         bounceNum--;
