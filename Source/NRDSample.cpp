@@ -3988,7 +3988,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
         nri::FenceSubmitDesc textureAcquiredFence = {};
         textureAcquiredFence.fence = swapChainAcquireSemaphore;
-        textureAcquiredFence.stages = nri::StageBits::COLOR_ATTACHMENT;
+        textureAcquiredFence.stages = nri::StageBits::COPY;
 
         nri::FenceSubmitDesc renderingFinishedFence = {};
         renderingFinishedFence.fence = swapChainTexture.releaseSemaphore;
