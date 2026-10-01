@@ -79,11 +79,11 @@ if(RTXCR_INTEGRATION)
 
     fetchcontent_declare(
         claire
-        DOWNLOAD_EXTRACT_TIMESTAMP 1
-        DOWNLOAD_NO_PROGRESS 1
         SOURCE_SUBDIR "ignore CMakeLists.txt"
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_Data/Scenes/Claire"
-        URL https://github.com/NVIDIA-RTX/RTXCR-Assets/archive/refs/tags/v1.1.0.zip
+        GIT_REPOSITORY https://github.com/NVIDIA-RTX/RTXCR-Assets.git  # due to LFS
+        GIT_TAG v1.1.0
+        GIT_SHALLOW TRUE
     )
     list(APPEND DEPS claire)
 endif()

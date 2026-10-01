@@ -45,6 +45,7 @@ GitHub branches:
 ## HOW TO BUILD
 
 - Install [*Cmake*](https://cmake.org/download/) 3.30+
+- Install [*Git LFS*](https://git-lfs.com/) when using `RTXCR_INTEGRATION` (enabled by default)
 - Build (variant 1) - using *Git* and *CMake* explicitly
     - Clone project and init submodules
     - Generate and build project using *CMake*
