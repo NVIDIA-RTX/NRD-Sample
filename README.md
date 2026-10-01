@@ -50,8 +50,11 @@ GitHub branches:
     - Generate and build project using *CMake*
     - To build the binary with static MSVC runtime, add `-DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"` parameter when deploying the project
 - Build (variant 2) - by running scripts:
-    - Run `1-Deploy`
-    - Run `2-Build`
+    - To deploy the project, run `Scripts/<Platform>/1-Deploy`
+    - To build the project, run `Scripts/<Platform>/2-Build`
+    - To clean generated files, run `Scripts/<Platform>/4-Clean`
+
+`<Platform>` is `Windows` or `Linux`. Use `.bat` on Windows; run `.sh` scripts with `bash` on Linux. Scripts resolve the project root from their own location.
 
 *CMake* options:
 
@@ -60,9 +63,9 @@ GitHub branches:
 
 ## HOW TO RUN
 
-- Run `3-Run` script and answer the cmdline questions to set the runtime parameters
+- Run `Scripts/Windows/3-Run.bat` script and answer the cmdline questions to set the runtime parameters
 - If [Smart Command Line Arguments extension for Visual Studio](https://marketplace.visualstudio.com/items?itemName=MBulli.SmartCommandlineArguments) is installed, all command line arguments will be loaded into corresponding window
-- The executables can be found in `_Bin`. The executable loads resources from `_Data`, therefore please run the samples with working directory set to the project root folder (needed pieces of the command line can be found in `3-Run` script)
+- The executables can be found in `_Bin`. The executable loads resources from `_Data`, therefore please run the samples with working directory set to the project root folder (needed pieces of the command line can be found in `Scripts/Windows/3-Run.bat` script)
 
 Requirements:
 - any GPU supporting "trace ray inline"
