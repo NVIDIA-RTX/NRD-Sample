@@ -770,7 +770,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     #if( RTXCR_INTEGRATION == 1 )
         if( isHair )
         {
-            float2 rand[2] = { Rng::Hash::GetFloat2( ), Rng::Hash::GetFloat2( ) }; // TODO: blue noise support
+            float3 rand[2] = { float3( Rng::Hash::GetFloat2( ), rnd.y ), float3( Rng::Hash::GetFloat2( ), 0.0 ) }; // TODO: blue noise support
 
             float3 specular = 0.0;
             float3 diffuse = 0.0;
@@ -778,7 +778,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 
             RTXCR_HairInteractionSurface hairSurface = Hair_GetSurface( Vlocal );
             RTXCR_HairMaterialInteractionBcsdf hairMaterial = Hair_GetMaterial( );
-            RTXCR_SampleFarFieldBcsdf( hairSurface, hairMaterial, Vlocal, 2.0 * rnd.x - 1.0, rnd.y, rand, candidateRayLocal, specular, diffuse, pdf );
+            RTXCR_SampleFarFieldBcsdf( hairSurface, hairMaterial, Vlocal, 2.0 * rnd.x - 1.0, rand, candidateRayLocal, specular, diffuse, pdf );
         }
         else
     #endif

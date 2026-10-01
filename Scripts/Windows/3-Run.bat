@@ -1,14 +1,16 @@
 @echo off
+setlocal
+for %%I in ("%~dp0..\..") do set "ROOT=%%~fI"
 
-set DIR_BIN=%cd%\_Bin\Release
+set DIR_BIN=%ROOT%\_Bin\Release
 
 if not exist "%DIR_BIN%" (
-    set DIR_BIN=%cd%\_Bin\Debug
+    set DIR_BIN=%ROOT%\_Bin\Debug
 )
 
 if not exist "%DIR_BIN%" (
     echo The project is not compiled!
-    exit /b
+    exit /b 1
 )
 echo Running NRD sample from '%DIR_BIN%'...
 
@@ -136,6 +138,6 @@ echo 5 - Claire
     goto CHOOSE_SCENE
 
 :RUN
-start "NRD sample" "%DIR_BIN%\NRDSample.exe" --width=%WIDTH% --height=%HEIGHT% --api=%API% --scene=%SCENE% --dlssQuality=%DLSS% --debugNRD
+start "NRD sample" /D "%ROOT%" "%DIR_BIN%\NRDSample.exe" --width=%WIDTH% --height=%HEIGHT% --api=%API% --scene=%SCENE% --dlssQuality=%DLSS% --debugNRD
 
 exit /b
