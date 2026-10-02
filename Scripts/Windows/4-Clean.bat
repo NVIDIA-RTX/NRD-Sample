@@ -27,8 +27,5 @@ if exist "%ROOT%\_NRI_SDK" (
 call "%ROOT%\External\NRIFramework\Scripts\Windows\4-Clean.bat"
 if %ERRORLEVEL% NEQ 0 exit /B %ERRORLEVEL%
 
-pushd "%ROOT%\External\NRD" || exit /B 1
-call "4-Clean.bat"
-set RESULT=%ERRORLEVEL%
-popd
-exit /B %RESULT%
+call "%ROOT%\External\NRD\Scripts\Windows\4-Clean.bat"
+exit /B %ERRORLEVEL%
