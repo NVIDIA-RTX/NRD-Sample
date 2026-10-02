@@ -3,13 +3,6 @@ cmake_minimum_required(VERSION 3.30)
 include(FetchContent)
 include(CMakeDependentOption)
 
-# Architecture
-if((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64") OR (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64"))
-    set(IS_ARM64 TRUE)
-else()
-    set(IS_ARM64 FALSE)
-endif()
-
 # GitHub actions?
 if("$ENV{GITHUB_ACTIONS}" STREQUAL "")
     set(GITHUB_CI FALSE CACHE BOOL "GitHub Actions runner" FORCE)
@@ -33,11 +26,16 @@ endif()
 # Create project
 project(NRDSample LANGUAGES C CXX)
 
-# Globals?
+# Arm64?
+if((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64") OR (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64"))
+    set(IS_ARM64 TRUE)
+else()
+    set(IS_ARM64 FALSE)
+endif()
+
+# Enable grouping of source files into folders in IDEs
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
 
 # Download dependencies
@@ -51,7 +49,7 @@ if(NOT GITHUB_CI)
         DOWNLOAD_NO_PROGRESS 1
         SOURCE_SUBDIR "ignore CMakeLists.txt"
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_Data"
-        URL https://github.com/NVIDIA-RTX/NRD-Sample/releases/download/v4.17.1/_Data.7z
+        URL "https://github.com/NVIDIA-RTX/NRD-Sample/releases/download/v4.17.1/_Data.7z"
     )
     list(APPEND DEPS assets)
 endif()
@@ -62,7 +60,7 @@ fetchcontent_declare(
     DOWNLOAD_EXTRACT_TIMESTAMP 1
     DOWNLOAD_NO_PROGRESS 1
     SOURCE_SUBDIR "ignore CMakeLists.txt"
-    URL https://github.com/NVIDIA-RTX/SHARC/archive/76238ef61abc67cd7ab29ea8a763e3226adc5ca5.zip
+    URL "https://github.com/NVIDIA-RTX/SHARC/archive/76238ef61abc67cd7ab29ea8a763e3226adc5ca5.zip"
 )
 list(APPEND DEPS sharc)
 
@@ -73,7 +71,7 @@ if(RTXCR_INTEGRATION)
         DOWNLOAD_EXTRACT_TIMESTAMP 1
         DOWNLOAD_NO_PROGRESS 1
         SOURCE_SUBDIR "ignore CMakeLists.txt"
-        URL https://github.com/NVIDIA-RTX/RTXCR-Material-Library/archive/refs/tags/v1.3.0.zip
+        URL "https://github.com/NVIDIA-RTX/RTXCR-Material-Library/archive/refs/tags/v1.3.0.zip"
     )
     list(APPEND DEPS rtxcr)
 
@@ -81,7 +79,7 @@ if(RTXCR_INTEGRATION)
         claire
         SOURCE_SUBDIR "ignore CMakeLists.txt"
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_Data/Scenes/Claire"
-        GIT_REPOSITORY https://github.com/NVIDIA-RTX/RTXCR-Assets.git  # due to LFS
+        GIT_REPOSITORY "https://github.com/NVIDIA-RTX/RTXCR-Assets.git"  # due to LFS
         GIT_TAG v1.2.0
         GIT_SHALLOW TRUE
     )
@@ -93,24 +91,6 @@ if(DEPS)
     message(STATUS "${DEPS} ...")
 
     fetchcontent_makeavailable(${DEPS})
-endif()
-
-# Compile options
-if(NOT IS_ARM64)
-    set(SIMD -mssse3)
-endif()
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(COMPILE_OPTIONS ${SIMD} -Wextra -Wno-missing-field-initializers)
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    set(COMPILE_OPTIONS ${SIMD} -Wextra -Wno-missing-field-initializers)
-elseif(MSVC)
-    set(COMPILE_OPTIONS /W4 /WX
-        /wd4324 # padding was added at the end of a structure because you specified an alignment specifier
-        /wd4834 # discarding return value of function with 'nodiscard' attribute
-    )
-else()
-    message(WARNING "Unknown compiler!")
 endif()
 
 # Compile definitions
@@ -165,45 +145,77 @@ get_target_property(NRI_SOURCE_DIR NRI SOURCE_DIR)
 get_target_property(NRD_SOURCE_DIR NRD SOURCE_DIR)
 
 # NRD sample
-file(GLOB NRD_SAMPLE_SOURCE "Source/*.cpp")
-source_group("" FILES ${NRD_SAMPLE_SOURCE})
-
-add_executable(${PROJECT_NAME} ${NRD_SAMPLE_SOURCE})
-
-target_include_directories(${PROJECT_NAME} PRIVATE
-    "Source"
-    "External"
-    "$ENV{VULKAN_SDK}/include"
+set(NRD_SAMPLE_SOURCE "Source/NRDSample.cpp")
+source_group(""
+    FILES
+        ${NRD_SAMPLE_SOURCE}
 )
 
-target_compile_definitions(${PROJECT_NAME} PRIVATE
-    ${COMPILE_DEFINITIONS}
-    PROJECT_NAME=${PROJECT_NAME}
-    SHADERMAKE_PATH=${SHADERMAKE_PATH}
-    SHADERMAKE_DXC_PATH=${SHADERMAKE_DXC_PATH}
-    SHADERMAKE_DXC_VK_PATH=${SHADERMAKE_DXC_VK_PATH}
-    ML_SOURCE_DIR=${ML_SOURCE_DIR}
-    NRI_SOURCE_DIR=${NRI_SOURCE_DIR}/Include
-    NRD_SOURCE_DIR=${NRD_SOURCE_DIR}/Shaders
-    SHARC_SOURCE_DIR=${sharc_SOURCE_DIR}/include
-    RTXCR_SOURCE_DIR=${rtxcr_SOURCE_DIR}/shaders/include/rtxcr
-    RTXCR_INTEGRATION=$<BOOL:${RTXCR_INTEGRATION}>
+add_executable(${PROJECT_NAME})
+target_sources(${PROJECT_NAME}
+    PRIVATE
+        ${NRD_SAMPLE_SOURCE}
 )
-target_compile_options(${PROJECT_NAME} PRIVATE ${COMPILE_OPTIONS})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    NRIFramework
-    NRD
-    NRDIntegration
+target_include_directories(${PROJECT_NAME}
+    PRIVATE
+        "Source"
+        "External"
+        "$ENV{VULKAN_SDK}/include"
+)
+
+target_compile_definitions(${PROJECT_NAME}
+    PRIVATE
+        ${COMPILE_DEFINITIONS}
+        PROJECT_NAME=${PROJECT_NAME}
+        SHADERMAKE_PATH=${SHADERMAKE_PATH}
+        SHADERMAKE_DXC_PATH=${SHADERMAKE_DXC_PATH}
+        SHADERMAKE_DXC_VK_PATH=${SHADERMAKE_DXC_VK_PATH}
+        ML_SOURCE_DIR=${ML_SOURCE_DIR}
+        NRI_SOURCE_DIR=${NRI_SOURCE_DIR}/Include
+        NRD_SOURCE_DIR=${NRD_SOURCE_DIR}/Shaders
+        SHARC_SOURCE_DIR=${sharc_SOURCE_DIR}/include
+        RTXCR_SOURCE_DIR=${rtxcr_SOURCE_DIR}/shaders/include/rtxcr
+        RTXCR_INTEGRATION=$<BOOL:${RTXCR_INTEGRATION}>
+)
+target_compile_options(${PROJECT_NAME}
+    PRIVATE
+        # Options for Clang/GCC compilers
+        $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>>:
+            $<$<NOT:$<CXX_COMPILER_FRONTEND_VARIANT:MSVC>>:
+                -Wextra
+                $<$<NOT:$<BOOL:${IS_ARM64}>>:-mssse3>
+            >
+            -Wno-missing-field-initializers
+        >
+        # Options for MSVC frontend
+        $<$<CXX_COMPILER_FRONTEND_VARIANT:MSVC>:
+            /W4
+            /WX
+            /wd4324 # padding was added at the end of a structure because you specified an alignment specifier
+            /wd4834 # discarding return value of function with 'nodiscard' attribute
+        >
+)
+target_compile_features(${PROJECT_NAME}
+    PRIVATE
+        cxx_std_17
+)
+
+target_link_libraries(${PROJECT_NAME}
+    PRIVATE
+        NRIFramework
+        NRD
+        NRDIntegration
 )
 
 if(UNIX)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_DL_LIBS} pthread X11)
 endif()
 
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    FOLDER "Sample"
-    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+set_target_properties(${PROJECT_NAME}
+    PROPERTIES
+        FOLDER "Sample"
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 
@@ -217,7 +229,10 @@ file(GLOB_RECURSE SHADERS
     "Shaders/*.hlsl"
     "Shaders/*.hlsli"
 )
-set_source_files_properties(${SHADERS} PROPERTIES VS_TOOL_OVERRIDE "None")
+set_source_files_properties(${SHADERS}
+    PROPERTIES
+        VS_TOOL_OVERRIDE "None"
+)
 
 set(SHADERMAKE_GENERAL_ARGS
     --project "NRDSample"
@@ -253,13 +268,20 @@ if(NRI_ENABLE_VK_SUPPORT)
 endif()
 list(APPEND SHADERMAKE_COMMANDS "") # fix for "The system cannot find the batch label specified - VCEnd"
 
-add_custom_target(${PROJECT_NAME}Shaders ALL
-    ${SHADERMAKE_COMMANDS}
-    DEPENDS ShaderMake
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+add_custom_target(${PROJECT_NAME}Shaders
+    ALL
+        ${SHADERMAKE_COMMANDS}
+    DEPENDS
+        ShaderMake
+    WORKING_DIRECTORY
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+    SOURCES
+        ${SHADERS}
     VERBATIM
-    SOURCES ${SHADERS}
 )
 
-set_target_properties(${PROJECT_NAME}Shaders PROPERTIES FOLDER "Sample")
+set_target_properties(${PROJECT_NAME}Shaders
+    PROPERTIES
+        FOLDER "Sample"
+)
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}Shaders)
