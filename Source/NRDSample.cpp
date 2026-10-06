@@ -787,7 +787,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
             upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
             upscalerDesc.type = nri::UpscalerType::DLRR;
             upscalerDesc.mode = mode;
-            upscalerDesc.flags = upscalerFlags;
+            upscalerDesc.flags = upscalerFlags | nri::UpscalerBits::DEPTH_LINEAR;
             NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_DLRR));
 
             nri::VideoMemoryInfo videoMemoryInfo2 = {};
@@ -992,7 +992,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::Checkbox("DLSS-SR", &m_Settings.SR);
                         ImGui::SameLine();
                     }
-                    if (!m_Settings.SR) {
+                    if (!IsDlssEnabled()) {
                         ImGui::Checkbox("TAA", &m_Settings.TAA);
                         ImGui::SameLine();
                     }
@@ -3751,8 +3751,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     const Texture taaHistoryOutput = isEven ? Texture::TaaHistoryPing : Texture::TaaHistoryPong;
 
     if (IsDlssEnabled()) {
-        // Before DLSS
-        if (m_Settings.SR) {
+        { // Before DLSS
             helper::Annotation annotation(NRI, commandBuffer, "Before DLSS");
 
             const TextureState transitions[] = {
