@@ -484,8 +484,10 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     float localCurvature = length( Nlocal.xy ) / pixelSize;
 
     // Emission
+    float3 Lemi = 0.0;
+#if( USE_WHITE_FURNACE == 0 )
     coords = GetSamplingCoords( baseTexture + 3, geometryProps.uv, geometryProps.mip, MIP_VISIBILITY );
-    float3 Lemi = gIn_Textures[ NonUniformResourceIndex( baseTexture + 3 ) ].SAMPLE( coords ).xyz;
+    Lemi = gIn_Textures[ NonUniformResourceIndex( baseTexture + 3 ) ].SAMPLE( coords ).xyz;
     Lemi *= instanceData.emissionAndRoughnessScale.xyz;
     Lemi *= ( baseColor + 0.01 ) / ( max( baseColor, max( baseColor, baseColor ) ) + 0.01 );
 
@@ -499,6 +501,7 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     }
     else
         Lemi *= gEmissionIntensityLights;
+#endif
 
     // Material overrides
     [flatten]
@@ -542,6 +545,19 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     metalness = lerp( metalness, 0.0, emissionLevel );
     roughness = lerp( roughness, 1.0, emissionLevel );
 
+#if( USE_WHITE_FURNACE == 1 )
+    // Grid instance IDs follow the CPU layout: X-major, Y-minor
+    uint instanceID = geometryProps.instanceIndex - gMaterialGridInstanceOffset;
+    [flatten]
+    if( gMaterialGridInstanceOffset != 0xFFFFFFFF && instanceID < ( MATERIAL_GRID_DIM * MATERIAL_GRID_DIM ) )
+    {
+        roughness = float( instanceID / MATERIAL_GRID_DIM ) / float( MATERIAL_GRID_DIM - 1 );
+        metalness = float( instanceID % MATERIAL_GRID_DIM ) / float( MATERIAL_GRID_DIM - 1 );
+    }
+
+    baseColor = 1.0;
+#endif
+
     // TODO: roughness AA
 
     // Output
@@ -553,11 +569,48 @@ MaterialProps GetMaterialProps( GeometryProps geometryProps )
     props.metalness = metalness;
     props.curvature = geometryProps.curvature + localCurvature;
 
-#if USE_WHITE_FURNACE
-    props.baseColor = 1.0;
-#endif
-
     return props;
+}
+
+// Full-lobe directional albedo of correlated Smith GGX with Fresnel = 1.
+// Rational fit to numerical integration over roughness and NoV, including grazing angles
+float GetGgxDirectionalAlbedo( float roughness, float NoV )
+{
+    float a = saturate( roughness * roughness );
+    NoV = saturate( NoV );
+
+    float P0 = 0.118279716 + NoV * ( -0.0734542982 + NoV * ( -1.23538709 + NoV * ( 2.68416424 + NoV * -1.53020219 ) ) );
+    float P1 = 0.521229221 + NoV * ( 4.07235657 + NoV * ( -9.42805642 + NoV * 6.1811558 ) );
+    float P2 = -1.09054096 + NoV * ( 3.11982197 + NoV * -3.06561452 );
+    float P3 = 3.69325704 + NoV * 3.16781228;
+    float P4 = -1.61330299;
+    float P = P0 + a * ( P1 + a * ( P2 + a * ( P3 + a * P4 ) ) );
+
+    float Q0 = NoV * ( -1.03743405 + NoV * ( -2.81118631 + NoV * ( -0.951232433 + NoV * 3.30048115 ) ) );
+    float Q1 = 1.03497508 + NoV * ( 11.8604721 + NoV * ( -2.80723625 + NoV * -3.39815293 ) );
+    float Q2 = -2.94789186 + NoV * ( -7.33046764 + NoV * 6.04505656 );
+    float Q3 = 3.98680103 + NoV * 3.76197424;
+    float Q4 = -1.76042778;
+    float Q = Q0 + a * ( Q1 + a * ( Q2 + a * ( Q3 + a * Q4 ) ) );
+
+    return saturate( 1.0 - a * NoV * P * Math::PositiveRcp( NoV * NoV + a * Q ) );
+}
+
+float3 GetSpecularEnergyCompensation( float3 baseColor, float metalness, float roughness, float NoV, float VoH )
+{
+    // Turquin's approximation: reuse the single-scattering lobe and its sampling PDF.
+    // https://blog.selfshadow.com/publications/turquin/ms_comp_final.pdf
+    float E = GetGgxDirectionalAlbedo( roughness, NoV );
+
+    // Compensate the dielectric and metal endpoints before interpolating by metalness
+    float3 Fdielectric = BRDF::FresnelTerm( ML_RF0_DIELECTRICS.xxx, VoH );
+    float3 Fmetal = BRDF::FresnelTerm( baseColor, VoH );
+    float3 Fms = lerp( Fdielectric * ML_RF0_DIELECTRICS, Fmetal * baseColor, metalness );
+
+    float3 Rf0 = lerp( ML_RF0_DIELECTRICS, baseColor, metalness );
+    float3 F = BRDF::FresnelTerm( Rf0, VoH );
+
+    return 1.0 + Fms * Math::PositiveRcp( F ) * ( Math::PositiveRcp( E ) - 1.0 );
 }
 
 // Compile-time flags for "GetLighting"
@@ -612,6 +665,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
             // Pseudo sky importance sampling
             float3 Cimp = lerp( Csky, Csun, Math::SmoothStep( 0.0, 0.2, materialProps.roughness ) );
             Cimp *= Math::SmoothStep( -0.01, 0.05, gSunDirection.z );
+            Cimp *= float( USE_WHITE_FURNACE == 0 ); // furnace radiance is already integrated by the path tracer
 
             // Common BRDF
             float3 N = materialProps.N;
@@ -629,7 +683,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
             float3 F = BRDF::FresnelTerm( Rf0, VoH );
             float Kdiff = BRDF::DiffuseTerm( materialProps.roughness, NoL, NoV, VoH );
 
-            float3 Cspec = saturate( F * D * G * NoL );
+            float3 Cspec = saturate( F * D * G * NoL ) * GetSpecularEnergyCompensation( materialProps.baseColor, materialProps.metalness, materialProps.roughness, NoV, VoH );
             float3 Cdiff = Kdiff * Csun * albedo * NoL;
 
             lighting = Cspec * Cimp;
@@ -896,11 +950,16 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     }
     else
     {
-        // See paragraph "Usage in Monte Carlo renderer" from http://jcgt.org/published/0007/04/01/paper.pdf
-        float3 F = BRDF::FresnelTerm_Schlick( Rf0, VoH );
+        float NoV = abs( Vlocal.z );
+        float NoH = saturate( Hlocal.z );
+        float D = BRDF::DistributionTerm( materialProps.roughness, NoH );
+        float G = BRDF::GeometryTermMod( materialProps.roughness, NoL, NoV, VoH, NoH );
+        float3 F = BRDF::FresnelTerm( Rf0, VoH );
 
-        throughput *= F;
-        throughput *= BRDF::GeometryTerm_Smith( materialProps.roughness, NoL );
+        // GetPDF includes the reflection Jacobian; normalize it for the trimmed sampling domain
+        float pdf = ImportanceSampling::VNDF::GetPDF( Vlocal, NoH, materialProps.roughness ) / PT_SPEC_LOBE_ENERGY;
+        throughput *= F * D * G * NoL * Math::PositiveRcp( pdf );
+        throughput *= GetSpecularEnergyCompensation( materialProps.baseColor, materialProps.metalness, materialProps.roughness, NoV, VoH );
     }
 #endif
 
