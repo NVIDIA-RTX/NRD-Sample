@@ -111,6 +111,13 @@
 #define TAA_SIGMA_SCALE                     2.0 // allow nano ghosting ( was 1.0 ) // TODO: can negatively affect moving shadows
 #define GARBAGE                             sqrt( -1.0 ) // sqrt( -1.0 ) or -log( 0.0 ) or 32768.0
 
+// Camera-attached material grid
+#if( USE_WHITE_FURNACE == 1 )
+    #define MATERIAL_GRID_DIM               11
+#else
+    #define MATERIAL_GRID_DIM               3
+#endif
+
 // Instance flags
 #define FLAG_FIRST_BIT                      24 // this + number of flags must be <= 32
 #define NON_FLAG_MASK                       ( ( 1 << FLAG_FIRST_BIT ) - 1 )
@@ -233,6 +240,7 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     uint32_t gSR;
     uint32_t gRR;
     uint32_t gIsSrgb;
+    uint32_t gMaterialGridInstanceOffset;
 };
 
 #if( !defined( __cplusplus ) )
@@ -395,7 +403,7 @@ float3 GetSunIntensity( float3 v )
 
     sunColor *= Math::SmoothStep( -0.01, 0.05, gSunDirection.z );
 
-#if USE_WHITE_FURNACE
+#if( USE_WHITE_FURNACE == 1 )
     return 0.0;
 #else
     return Color::FromGamma( sunColor ) * SUN_INTENSITY;
@@ -416,7 +424,7 @@ float3 GetSkyIntensity( float3 v )
     float ground = 0.5 + 0.5 * Math::SmoothStep( -1.0, 0.0, v.z );
     skyColor *= ground;
 
-#if USE_WHITE_FURNACE
+#if( USE_WHITE_FURNACE == 1 )
     return 1.0;
 #else
     return Color::FromGamma( skyColor ) * SKY_INTENSITY + GetSunIntensity( v );

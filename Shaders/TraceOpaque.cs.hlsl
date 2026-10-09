@@ -301,7 +301,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                     }
 
                     // Apply occlusion estimation for the last bounce
-                #if USE_AO_FOR_LAST_BOUNCE
+                #if( USE_AO_FOR_LAST_BOUNCE == 1 )
                     if( bounce == gBounceNum )
                         sharcRadiance *= Math::Sqrt01( geometryProps.hitT / voxelSize );
                 #endif
@@ -436,7 +436,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     float viewZAndTaaMask0 = abs( viewZ0 ) * FP16_VIEWZ_SCALE * ( isTaa5x5 ? -1.0 : 1.0 );
 
     [loop]
-    while( bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) )
+    while( !USE_WHITE_FURNACE && bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) )
     {
         { // Origin point
             // Accumulate curvature

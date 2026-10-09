@@ -607,6 +607,7 @@ private:
     uint32_t m_TransparentObjectsNum = 0;
     uint32_t m_EmissiveObjectsNum = 0;
     uint32_t m_ProxyInstancesNum = 0;
+    uint32_t m_MaterialGridInstanceOffset = uint32_t(-1);
     uint32_t m_LastSelectedTest = uint32_t(-1);
     uint32_t m_TestNum = uint32_t(-1);
     int32_t m_DlssQuality = int32_t(-1);
@@ -1104,7 +1105,8 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                     ImGui::Checkbox("Objects", &m_Settings.animatedObjects);
                     if (m_Settings.animatedObjects) {
                         ImGui::SameLine();
-                        ImGui::Checkbox("9", &m_Settings.nineBrothers);
+                        snprintf(buf, sizeof(buf), "%dx%d", MATERIAL_GRID_DIM, MATERIAL_GRID_DIM);
+                        ImGui::Checkbox(buf, &m_Settings.nineBrothers);
                         ImGui::SameLine();
                         ImGui::Checkbox("Blink", &m_Settings.blink);
                         ImGui::SameLine();
@@ -1664,15 +1666,15 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 
         float3 basePos = float3(m_Camera.state.globalPosition);
 
-        m_Settings.animatedObjectNum = 9;
+        m_Settings.animatedObjectNum = (MATERIAL_GRID_DIM * MATERIAL_GRID_DIM);
 
-        for (int32_t i = -1; i <= 1; i++) {
-            for (int32_t j = -1; j <= 1; j++) {
-                const uint32_t index = (i + 1) * 3 + (j + 1);
+        for (uint32_t i = 0; i < MATERIAL_GRID_DIM; i++) {
+            for (uint32_t j = 0; j < MATERIAL_GRID_DIM; j++) {
+                const uint32_t index = i * MATERIAL_GRID_DIM + j;
 
-                float x = float(i) * scale * 4.0f;
-                float y = float(j) * scale * 4.0f;
-                float z = 10.0f * scale;
+                float x = (float(i) - float(MATERIAL_GRID_DIM / 2)) * scale * 4.0f;
+                float y = (float(j) - float(MATERIAL_GRID_DIM / 2)) * scale * 4.0f;
+                float z = lerp(10.0f, 40.0f, (float(MATERIAL_GRID_DIM) - 3.0f) / 8.0f) * scale;
 
                 float3 pos = basePos + vRight * x + vTop * y + vForward * z;
 
@@ -1762,8 +1764,8 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
     m_RelaxSettings.specularMaxAccumulatedFrameNum = maxAccumulatedFrameNum;
     m_RelaxSettings.specularMaxFastAccumulatedFrameNum = maxFastAccumulatedFrameNum;
 
-    UpdateConstantBuffer(frameIndex, maxAccumulatedFrameNum);
     GatherInstanceData();
+    UpdateConstantBuffer(frameIndex, maxAccumulatedFrameNum);
 
     nri::nriEndAnnotation();
 }
@@ -2969,6 +2971,7 @@ void Sample::GatherInstanceData() {
     uint64_t staticInstanceCount = m_Scene.instances.size() - m_AnimatedInstances.size();
     uint64_t instanceCount = staticInstanceCount + (isAnimatedObjects ? m_Settings.animatedObjectNum : 0);
     uint32_t instanceIndex = 0;
+    m_MaterialGridInstanceOffset = uint32_t(-1);
 
     m_InstanceData.clear();
     m_WorldTlasData.clear();
@@ -3141,6 +3144,8 @@ void Sample::GatherInstanceData() {
                 nri::TopLevelInstance topLevelInstance = {};
                 memcpy(topLevelInstance.transform, mObjectToWorld.a, sizeof(topLevelInstance.transform));
                 topLevelInstance.instanceId = instanceIndex++;
+                if (m_Settings.nineBrothers && i == staticInstanceCount)
+                    m_MaterialGridInstanceOffset = topLevelInstance.instanceId;
                 topLevelInstance.mask = flags;
                 topLevelInstance.shaderBindingTableRecordOffset = 0;
                 topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE | (material.IsAlphaOpaque() ? nri::TopLevelInstanceBits::NONE : nri::TopLevelInstanceBits::FORCE_OPAQUE);
@@ -3312,6 +3317,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gSR = (m_Settings.SR && !m_Settings.RR) ? 1 : 0;
         constants.gRR = m_Settings.RR ? 1 : 0;
         constants.gIsSrgb = m_IsSrgb;
+        constants.gMaterialGridInstanceOffset = m_MaterialGridInstanceOffset;
     }
 
     m_GlobalConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
