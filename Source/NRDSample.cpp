@@ -2,6 +2,8 @@
 
 #include "NRIFramework.h"
 
+#include <filesystem>
+
 #include "Extensions/NRIWrapperD3D12.h"
 #include "Extensions/NRIWrapperVK.h"
 
@@ -34,7 +36,6 @@ constexpr bool ALLOW_BLAS_MERGING = true;
 constexpr bool ALLOW_HDR = NRIF_PLATFORM == NRIF_WINDOWS && NRD_MODE < OCCLUSION; // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true;                               // saves a bit of memory and performance
 constexpr uint8_t DLSS_PRESET = 13; // preset M(13) (expensive, correct specular tracking, default preset is broken), the alternative is F(6) (CNN, correct specular tracking)
-constexpr nri::UpscalerType upscalerType = nri::UpscalerType::DLSR;
 constexpr int32_t MAX_HISTORY_FRAME_NUM = (int32_t)std::min(60u, std::min(nrd::REBLUR_MAX_HISTORY_FRAME_NUM, nrd::RELAX_MAX_HISTORY_FRAME_NUM));
 constexpr uint32_t TEXTURES_PER_MATERIAL = 4;
 constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM = 32;
@@ -332,6 +333,14 @@ struct AnimatedInstance {
     }
 };
 
+static inline const char* GetSuperResolutionName(nri::UpscalerType type) {
+    if (type == nri::UpscalerType::DLSR)
+        return "DLSS-SR";
+    if (type == nri::UpscalerType::XESS)
+        return "XeSS";
+    return "FSR";
+}
+
 static inline nri::TextureBarrierDesc TextureBarrierFromUnknown(nri::Texture* texture, nri::AccessLayoutStage after) {
     nri::TextureBarrierDesc textureBarrier = {};
     textureBarrier.texture = texture;
@@ -531,7 +540,7 @@ public:
     }
 
     inline void InitCmdLine(cmdline::parser& cmdLine) override {
-        cmdLine.add<int32_t>("dlssQuality", 'd', "DLSS quality: [-1: 4]", false, -1, cmdline::range(-1, 4));
+        cmdLine.add<int32_t>("dlssQuality", 'd', "Upscaling quality: [-1: 4]", false, -1, cmdline::range(-1, 4));
         cmdLine.add("debugNRD", 0, "enable NRD validation");
     }
 
@@ -634,6 +643,7 @@ private:
     nri::Device* m_Device = nullptr;
     nri::Streamer* m_Streamer = nullptr;
     nri::StreamerCopyBatch m_StreamerCopyBatch = 0;
+    nri::UpscalerType m_UpscalerType = nri::UpscalerType::FSR;
     nri::Upscaler* m_DLSR = nullptr;
     nri::Upscaler* m_DLRR = nullptr;
     nri::SwapChain* m_SwapChain = nullptr;
@@ -778,7 +788,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
     NRI_ABORT_ON_FAILURE(nri::nriGetInterface(*m_Device, NRI_INTERFACE(nri::UpscalerInterface), (nri::UpscalerInterface*)&NRI));
 
     NRI_ABORT_ON_FAILURE(NRI.GetQueue(*m_Device, nri::QueueType::GRAPHICS, 0, m_GraphicsQueue));
-    NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, 0, m_FrameFence));
+    NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, {}, m_FrameFence));
 
     { // Create streamer
         nri::StreamerDesc streamerDesc = {};
@@ -803,7 +813,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
         NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_NIS[1]));
     }
 
-    // Create upscalers: DLSR and DLRR
+    // Create upscalers
     m_RenderResolution = GetOutputResolution();
 
     if (m_DlssQuality != -1) {
@@ -821,16 +831,23 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
         else if (m_DlssQuality == 3)
             mode = nri::UpscalerMode::QUALITY;
 
-        if (NRI.IsUpscalerSupported(*m_Device, nri::UpscalerType::DLSR)) {
+        { // Super resolution
+            if (NRI.IsUpscalerSupported(*m_Device, nri::UpscalerType::DLSR))
+                m_UpscalerType = nri::UpscalerType::DLSR;
+            else if (NRI.IsUpscalerSupported(*m_Device, nri::UpscalerType::XESS))
+                m_UpscalerType = nri::UpscalerType::XESS;
+            else
+                m_UpscalerType = nri::UpscalerType::FSR;
+
             nri::VideoMemoryInfo videoMemoryInfo1 = {};
             NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo1);
 
             nri::UpscalerDesc upscalerDesc = {};
             upscalerDesc.upscaleResolution = {(nri::Dim_t)GetOutputResolution().x, (nri::Dim_t)GetOutputResolution().y};
-            upscalerDesc.type = upscalerType;
+            upscalerDesc.type = m_UpscalerType;
             upscalerDesc.mode = mode;
             upscalerDesc.flags = upscalerFlags;
-            upscalerDesc.preset = DLSS_PRESET;
+            upscalerDesc.preset = m_UpscalerType == nri::UpscalerType::DLSR ? DLSS_PRESET : 0;
             NRI_ABORT_ON_FAILURE(NRI.CreateUpscaler(*m_Device, upscalerDesc, m_DLSR));
 
             nri::UpscalerProps upscalerProps = {};
@@ -846,7 +863,7 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
             NRI.QueryVideoMemoryInfo(*m_Device, nri::MemoryLocation::DEVICE, videoMemoryInfo2);
 
             printf("Render resolution (%u, %u)\n", m_RenderResolution.x, m_RenderResolution.y);
-            printf("DLSS-SR: allocated %.2f Mb\n", (videoMemoryInfo2.usageSize - videoMemoryInfo1.usageSize) / (1024.0f * 1024.0f));
+            printf("%s: allocated %.2f Mb\n", GetSuperResolutionName(m_UpscalerType), (videoMemoryInfo2.usageSize - videoMemoryInfo1.usageSize) / (1024.0f * 1024.0f));
 
             m_Settings.SR = true;
         }
@@ -1237,7 +1254,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                         ImGui::SameLine();
                     }
                     if (m_DLSR && !m_Settings.RR) {
-                        ImGui::Checkbox("DLSS-SR", &m_Settings.SR);
+                        ImGui::Checkbox(GetSuperResolutionName(m_UpscalerType), &m_Settings.SR);
                         ImGui::SameLine();
                     }
                     if (!IsDlssEnabled()) {
@@ -2201,6 +2218,11 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
 void Sample::LoadScene() {
     // Proxy geometry, which will be instancinated
     std::string sceneFile = utils::GetFullPath("Cubes/Cubes.gltf", utils::DataFolder::SCENES);
+#if (USE_WHITE_FURNACE == 1)
+    std::string spheresSceneFile = utils::GetFullPath("Cubes/Spheres.gltf", utils::DataFolder::SCENES);
+    if (std::filesystem::is_regular_file(spheresSceneFile))
+        sceneFile = spheresSceneFile;
+#endif
     NRI_ABORT_ON_FALSE(utils::LoadScene(sceneFile, m_Scene, !ALLOW_BLAS_MERGING));
 
     m_ProxyInstancesNum = helper::GetCountOf(m_Scene.instances);
@@ -2331,10 +2353,10 @@ nri::Format Sample::CreateSwapChain() {
         NRI_ABORT_ON_FAILURE(NRI.CreateTextureView(textureViewDesc, colorAttachment));
 
         nri::Fence* acquireSemaphore = nullptr;
-        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, acquireSemaphore));
+        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, {nri::SWAPCHAIN_SEMAPHORE}, acquireSemaphore));
 
         nri::Fence* releaseSemaphore = nullptr;
-        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, nri::SWAPCHAIN_SEMAPHORE, releaseSemaphore));
+        NRI_ABORT_ON_FAILURE(NRI.CreateFence(*m_Device, {nri::SWAPCHAIN_SEMAPHORE}, releaseSemaphore));
 
         SwapChainTexture& swapChainTexture = m_SwapChainTextures.emplace_back();
 
@@ -4242,8 +4264,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     const Texture taaHistoryOutput = isEven ? Texture::TaaHistoryPing : Texture::TaaHistoryPong;
 
     if (IsDlssEnabled()) {
-        { // Before DLSS
-            helper::Annotation annotation(NRI, commandBuffer, "Before DLSS");
+        { // Before upscaling
+            helper::Annotation annotation(NRI, commandBuffer, "Before upscaling");
 
             const TextureState transitions[] = {
                 // Input
@@ -4267,8 +4289,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             NRI.CmdDispatch(commandBuffer, {rectGridW, rectGridH, 1});
         }
 
-        { // DLSS
-            helper::Annotation annotation(NRI, commandBuffer, "DLSS");
+        { // Upscaling
+            helper::Annotation annotation(NRI, commandBuffer, m_Settings.RR ? "DLSS-RR" : GetSuperResolutionName(m_UpscalerType));
 
             const TextureState transitions[] = {
                 // Input
@@ -4312,8 +4334,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 dispatchUpscaleDesc.guides.upscaler.mv = {Get(Texture::Mv), GetDescriptor(Texture::Mv)};
                 dispatchUpscaleDesc.guides.upscaler.depth = {Get(Texture::ViewZ), GetDescriptor(Texture::ViewZ)};
 
-                if (m_DLSR && upscalerType == nri::UpscalerType::FSR) // workaround for "conditional expression is constant"
-                {
+                if (m_UpscalerType == nri::UpscalerType::FSR) {
                     dispatchUpscaleDesc.settings.fsr.zNear = 0.1f;
                     dispatchUpscaleDesc.settings.fsr.verticalFov = radians(m_Settings.camFov);
                     dispatchUpscaleDesc.settings.fsr.frameTime = m_Timer.GetSmoothedFrameTime();
@@ -4327,8 +4348,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             RestoreBindings(commandBuffer);
         }
 
-        { // After DLSS
-            helper::Annotation annotation(NRI, commandBuffer, "After Dlss");
+        { // After upscaling
+            helper::Annotation annotation(NRI, commandBuffer, "After upscaling");
 
             const TextureState transitions[] = {
                 // Output

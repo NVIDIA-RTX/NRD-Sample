@@ -336,6 +336,7 @@ for( uint path = 0; path < pathNum; path++ )
                 bool isSharcAllowed = !geometryProps.Has( FLAG_HAIR ); // ignore if the hit is hair // TODO: if hair don't allow if hitT is too short
                 isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
                 isSharcAllowed &= Rng::Hash::GetFloat( ) < ( bounce == gBounceNum ? 1.0 : footprintNorm ); // is voxel size acceptable?
+                isSharcAllowed &= !USE_WHITE_FURNACE;
                 isSharcAllowed &= gSHARC && NRD_MODE < OCCLUSION; // trivial
 
                 if( isSharcAllowed )
