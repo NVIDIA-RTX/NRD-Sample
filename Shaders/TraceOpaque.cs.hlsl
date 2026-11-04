@@ -124,7 +124,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
     SharcHitData sharcHitData;
     sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
     sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
-    sharcHitData.normalWorld = geometryProps.N;
+    sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
     sharcHitData.emissive = materialProps.Lemi;
 
     HashGridData hashGridData;
@@ -138,14 +138,14 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
     sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
     sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
-    float3 color;
+    float3 color = 0;
     #if( USE_SHARC_DEBUG == 2 )
         color = HashGridDebugColoredHash( sharcHitData.positionWorld, sharcHitData.normalWorld, hashGridParameters );
     #else
         bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, color, true );
 
         // Highlight invalid cells
-        // color = isValid ?  color : float3( 1.0, 0.0, 0.0 );
+        color = isValid ?  color : float3( 1.0, 0.0, 0.0 );
     #endif
 
     result.diffRadiance = color / diffFactor0;
@@ -319,7 +319,7 @@ for( uint path = 0; path < pathNum; path++ )
 
                 SharcHitData sharcHitData;
                 sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
-                sharcHitData.normalWorld = geometryProps.N;
+                sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
                 sharcHitData.emissive = materialProps.Lemi;
 
                 HashGridData hashGridData;

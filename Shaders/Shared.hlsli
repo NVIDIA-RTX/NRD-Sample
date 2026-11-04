@@ -23,6 +23,7 @@
 #define USE_MOVING_EMISSION_FIX             1 // fixes a dark tail, left by an animated emissive object
 #define USE_IS_FOR_ALL_BOUNCES              1 // slower, but better lighting for 2nd+ bounces
 #define USE_BLUE_NOISE_FOR_SHADOWS          ( 1 && !gRR && gDenoiserType != DENOISER_REFERENCE ) // a must have for SIGMA
+#define USE_SHARC_THIN_NORMAL_MERGING       1 // do not split SHARC voxels based on normals, merging works better on foliage and hair
 
 // Default = 0
 #define USE_SANITIZATION                    0 // NRD sample is NAN/INF free
@@ -35,14 +36,16 @@
 #define USE_RANDOMIZED_ROUGHNESS            0 // randomize roughness ( a common case in games )
 #define USE_STOCHASTIC_SAMPLING             0 // needed?
 #define USE_LOAD                            0 // Load vs SampleLevel
-#define USE_SHARC_DEBUG                     0 // 1 - show cache, 2 - show grid (NRD sample recompile required)
 #define USE_TAA_DEBUG                       0 // 1 - show weight
 #define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
 #define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
-#define USE_WHITE_FURNACE                   0 // energy conservation test
 #define USE_BLUE_NOISE_FOR_RADIANCE         ( 0 && !gRR && gDenoiserType != DENOISER_REFERENCE ) // helps to reduce residual boiling, but worsens IQ due to limited coverage of all possible directions
 #define USE_CAMERA_ATTACHED_REFLECTION_TEST 0 // test special treatment for reflections of objects attached to the camera
 #define USE_RUSSIAN_ROULETTE                0 // bad practice for real-time denoising
+
+// NRD sample recompile required
+#define USE_SHARC_DEBUG                     0 // 1 - show cache, 2 - show grid
+#define USE_WHITE_FURNACE                   0 // energy conservation test
 
 //=============================================================================================
 // CONSTANTS
@@ -331,7 +334,12 @@ float3 GetMotion( float3 X, float3 Xprev )
     float2 sampleUv = Geometry::GetScreenUv( gWorldToClip, X );
 
     float viewZprev = Geometry::AffineTransform( gWorldToViewPrev, Xprev ).z;
-    float2 sampleUvPrev = Geometry::GetScreenUv( gWorldToClipPrev, Xprev );
+
+    // Reject projections on or behind the previous camera plane
+    float2 sampleUvPrev = 2.0; // outside the previous frame, so history is rejected
+    float w = Geometry::ProjectiveTransform( gWorldToClipPrev, Xprev ).w;
+    if( w > 0.0 )
+        sampleUvPrev = Geometry::GetScreenUv( gWorldToClipPrev, Xprev );
 
     // IMPORTANT: scaling to "pixel" unit significantly improves utilization of FP16
     motion.xy = ( sampleUvPrev - sampleUv ) * gRectSize;
@@ -339,7 +347,7 @@ float3 GetMotion( float3 X, float3 Xprev )
     // IMPORTANT: 2.5D motion is preferred over 3D motion due to imprecision issues caused by FP16 rounding negative effects
     motion.z = viewZprev - viewZ;
 
-    return motion;
+    return clamp( motion, -FP16_MAX, FP16_MAX );
 }
 
 float3 ApplyTonemap( float3 Lsum )

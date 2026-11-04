@@ -120,7 +120,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
 
         SharcHitData sharcHitData;
         sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
-        sharcHitData.normalWorld = geometryProps.N;
+        sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
         sharcHitData.emissive = materialProps.Lemi;
 
         HashGridData hashGridData;

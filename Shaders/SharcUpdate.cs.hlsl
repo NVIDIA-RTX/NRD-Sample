@@ -20,7 +20,13 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Gradient, u, 1, SE
 float4 Trace( uint2 pixelPos, compiletime int mode )
 {
     // Sample position
-    float2 jitter = mode == PREV ? ( gJitterPrev * gRectSizePrev ) : ( gJitter * gRectSize ); // it works well for 1 path per pixel, better use "Rng::Hash::GetFloat2( )" in other cases
+    /*
+    // Camera jitter works well for 1 path/pixel in SHARC update, but can leave small coverage gaps in rare cases.
+    // Use independent random jitter to improve coverage, even when camera jitter is disabled.
+    float2 jitter = mode == PREV ? ( gJitterPrev * gRectSizePrev ) : ( gJitter * gRectSize );
+    */
+
+    float2 jitter = Rng::Hash::GetFloat2( ) - 0.5;
     float2 sampleUv = ( pixelPos + 0.5 + jitter ) * gInvSharcRenderSize;
 
     // Primary ray
@@ -111,7 +117,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         SharcHitData sharcHitData;
         sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
         sharcHitData.materialDemodulation = materialDemodulation0;
-        sharcHitData.normalWorld = geometryProps.N;
+        sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
         sharcHitData.emissive = materialProps.Lemi;
 
         SharcSetThroughput( sharcState, 1.0 );
@@ -197,7 +203,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
                 SharcHitData sharcHitData;
                 sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
                 sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
-                sharcHitData.normalWorld = geometryProps.N;
+                sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
                 sharcHitData.emissive = materialProps.Lemi;
 
                 // This introduces discrepancies with "PREV" if output radiance includes more than 1 bounce lighting
