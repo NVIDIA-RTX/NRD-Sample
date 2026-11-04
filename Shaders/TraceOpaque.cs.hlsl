@@ -126,7 +126,6 @@ struct TraceOpaqueResult
 #endif
 };
 
-// The caller selects the first lobe in deterministic tracing modes; probabilistic tracing updates it.
 TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos, uint path, float3x3 mirrorMatrix, float4 Lpsr, inout bool isDiffusePath )
 {
     TraceOpaqueResult result = ( TraceOpaqueResult )0;
