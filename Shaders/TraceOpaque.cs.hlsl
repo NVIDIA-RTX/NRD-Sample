@@ -349,286 +349,305 @@ void WriteResult( uint2 outPixelPos, float4 diff, float4 spec, float4 diffSh, fl
 [numthreads( 16, 16, 1 )]
 void main( uint2 pixelPos : SV_DispatchThreadID )
 {
-    // Pixel and sample UV
-    float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
-    float2 sampleUv = pixelUv + gJitter;
-
-    // Do not generate NANs for unused threads
-    if( pixelUv.x > 1.0 || pixelUv.y > 1.0 )
-    {
-    #if( USE_DRS_STRESS_TEST == 1 )
-        WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
-    #endif
-
-        return;
-    }
-
-    // Initialize RNG
-    Rng::Hash::Initialize( pixelPos, gFrameIndex );
-
     //================================================================================================================================================================================
     // Primary ray
     //================================================================================================================================================================================
 
-    float3 cameraRayOrigin = 0;
-    float3 cameraRayDirection = 0;
-    GetCameraRay( cameraRayOrigin, cameraRayDirection, sampleUv );
+    GeometryProps geometryProps0;
+    MaterialProps materialProps0;
+    {
+        // Pixel and sample UV
+        float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
+        float2 sampleUv = pixelUv + gJitter;
 
-    GeometryProps geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
-    MaterialProps materialProps0 = GetMaterialProps( geometryProps0 );
+        // Do not generate NANs for unused threads
+        if( pixelUv.x > 1.0 || pixelUv.y > 1.0 )
+        {
+        #if( USE_DRS_STRESS_TEST == 1 )
+            WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+        #endif
+
+            return;
+        }
+
+        // Initialize RNG
+        Rng::Hash::Initialize( pixelPos, gFrameIndex );
+
+        float3 cameraRayOrigin = 0;
+        float3 cameraRayDirection = 0;
+        GetCameraRay( cameraRayOrigin, cameraRayDirection, sampleUv );
+
+        geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
+        materialProps0 = GetMaterialProps( geometryProps0 );
+    }
 
     //================================================================================================================================================================================
     // Primary surface replacement ( aka jump through mirrors )
     //================================================================================================================================================================================
 
-    float3 psrThroughput = 1.0;
     float3x3 mirrorMatrix = Geometry::GetMirrorMatrix( 0 ); // identity
-    float accumulatedHitDist = 0.0;
-    float accumulatedCurvature = 0.0;
-    uint bounceNum = PT_PSR_BOUNCES_NUM;
-
-    float3 X0 = geometryProps0.X;
-    float3 V0 = geometryProps0.V;
-    float viewZ0 = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
-
-    bool isTaa5x5 = geometryProps0.Has( FLAG_HAIR | FLAG_SKIN ) || geometryProps0.IsMiss( ); // switched TAA to "higher quality & slower response" mode
-    float viewZAndTaaMask0 = abs( viewZ0 ) * FP16_VIEWZ_SCALE * ( isTaa5x5 ? -1.0 : 1.0 );
-
-    [loop]
-    while( !USE_WHITE_FURNACE && bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) )
+    float3 psrThroughput = 1.0;
+    float3 Xvirtual;
+    float viewZAndTaaMask0;
+    bool hasPsr;
     {
-        { // Origin point
-            // Accumulate curvature
-            accumulatedCurvature += materialProps0.curvature; // yes, before hit
+        float accumulatedHitDist = 0.0;
+        float accumulatedCurvature = 0.0;
+        uint bounceNum = PT_PSR_BOUNCES_NUM;
 
-            // Accumulate mirror matrix
-            mirrorMatrix = mul( Geometry::GetMirrorMatrix( materialProps0.N ), mirrorMatrix );
+        float3 X0 = geometryProps0.X;
+        float3 V0 = geometryProps0.V;
+        float viewZ0 = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
 
-            // Choose a ray
-            float3 ray = reflect( -geometryProps0.V, materialProps0.N );
+        bool isTaa5x5 = geometryProps0.Has( FLAG_HAIR | FLAG_SKIN ) || geometryProps0.IsMiss( ); // switched TAA to "higher quality & slower response" mode
+        viewZAndTaaMask0 = abs( viewZ0 ) * FP16_VIEWZ_SCALE * ( isTaa5x5 ? -1.0 : 1.0 );
 
-            // Update throughput
-            float3 albedo, Rf0;
-            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
+        [loop]
+        while( !USE_WHITE_FURNACE && bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) )
+        {
+            { // Origin point
+                // Accumulate curvature
+                accumulatedCurvature += materialProps0.curvature; // yes, before hit
 
-            float NoV = abs( dot( materialProps0.N, geometryProps0.V ) );
-            float3 Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps0.roughness );
+                // Accumulate mirror matrix
+                mirrorMatrix = mul( Geometry::GetMirrorMatrix( materialProps0.N ), mirrorMatrix );
 
-            psrThroughput *= Fenv;
+                // Choose a ray
+                float3 ray = reflect( -geometryProps0.V, materialProps0.N );
 
-            // Trace to the next hit
-            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps0.mip, materialProps0.roughness );
-            geometryProps0 = CastRay( GetXoffset( geometryProps0.X, geometryProps0.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
-            materialProps0 = GetMaterialProps( geometryProps0 );
+                // Update throughput
+                float3 albedo, Rf0;
+                BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
+
+                float NoV = abs( dot( materialProps0.N, geometryProps0.V ) );
+                float3 Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps0.roughness );
+
+                psrThroughput *= Fenv;
+
+                // Trace to the next hit
+                float2 mipAndCone = GetConeAngleFromRoughness( geometryProps0.mip, materialProps0.roughness );
+                geometryProps0 = CastRay( GetXoffset( geometryProps0.X, geometryProps0.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+                materialProps0 = GetMaterialProps( geometryProps0 );
+            }
+
+            { // Hit point
+                // Accumulate hit distance representing virtual point position ( see "README/NOISY INPUTS" )
+                accumulatedHitDist += ApplyThinLensEquation( geometryProps0.hitT, accumulatedCurvature ); // TODO: take updated from NRD
+            }
+
+            bounceNum--;
         }
 
-        { // Hit point
-            // Accumulate hit distance representing virtual point position ( see "README/NOISY INPUTS" )
-            accumulatedHitDist += ApplyThinLensEquation( geometryProps0.hitT, accumulatedCurvature ); // TODO: take updated from NRD
-        }
-
-        bounceNum--;
+        Xvirtual = X0 - V0 * accumulatedHitDist;
+        hasPsr = bounceNum != PT_PSR_BOUNCES_NUM;
     }
 
     //================================================================================================================================================================================
     // G-buffer ( guides )
     //================================================================================================================================================================================
 
-    // Motion
-    float3 Xvirtual = X0 - V0 * accumulatedHitDist;
-    float3 XvirtualPrev = Xvirtual + geometryProps0.Xprev - geometryProps0.X;
-    float3 motion = GetMotion( Xvirtual, XvirtualPrev );
-
-    gOut_Mv[ pixelPos ] = float4( motion, viewZAndTaaMask0 ); // IMPORTANT: keep viewZ before PSR ( needed for glass )
-
-    // ViewZ
-    float viewZ = Geometry::AffineTransform( gWorldToView, Xvirtual ).z;
-    viewZ = geometryProps0.IsMiss( ) ? Math::Sign( viewZ ) * INF : viewZ;
-
-    gOut_ViewZ[ pixelPos ] = viewZ;
-
-    // Emission
-    gOut_DirectEmission[ pixelPos ] = materialProps0.Lemi * psrThroughput;
-
-    // Early out
-    if( geometryProps0.IsMiss( ) )
+    float4 Lpsr = 0;
+    float3 Xshadow;
+    float3 Ldirect;
+    float3 diffFactor0;
+    float3 specFactor0;
     {
-    #if( USE_INF_STRESS_TEST == 1 )
-        WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+        // Motion
+        float3 XvirtualPrev = Xvirtual + geometryProps0.Xprev - geometryProps0.X;
+        float3 motion = GetMotion( Xvirtual, XvirtualPrev );
+
+        gOut_Mv[ pixelPos ] = float4( motion, viewZAndTaaMask0 ); // IMPORTANT: keep viewZ before PSR ( needed for glass )
+
+        // ViewZ
+        float viewZ = Geometry::AffineTransform( gWorldToView, Xvirtual ).z;
+        viewZ = geometryProps0.IsMiss( ) ? Math::Sign( viewZ ) * INF : viewZ;
+
+        gOut_ViewZ[ pixelPos ] = viewZ;
+
+        // Emission
+        gOut_DirectEmission[ pixelPos ] = materialProps0.Lemi * psrThroughput;
+
+        // Early out
+        if( geometryProps0.IsMiss( ) )
+        {
+        #if( USE_INF_STRESS_TEST == 1 )
+            WriteResult( pixelPos, GARBAGE, GARBAGE, GARBAGE, GARBAGE );
+        #endif
+
+            return;
+        }
+
+        // Normal, roughness and material ID
+        float3 N = Geometry::RotateVectorInverse( mirrorMatrix, materialProps0.N );
+    #if( RTXCR_INTEGRATION == 1 )
+        if( geometryProps0.Has( FLAG_HAIR ) )
+        {
+            // Generate a better guide for hair
+            float3 B = cross( geometryProps0.V, geometryProps0.T.xyz );
+            float3 n = normalize( cross( geometryProps0.T.xyz, B ) );
+
+            float pixelSize = gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
+            float f = NRD_GetNormalizedStrandThickness( STRAND_THICKNESS / gUnitToMetersMultiplier, pixelSize );
+            f = lerp( 0.0, 0.25, f );
+
+            N = normalize( lerp( n, N, f ) );
+        }
     #endif
 
-        return;
+        float materialID = GetMaterialID( geometryProps0, materialProps0 );
+    #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
+        materialID = frac( geometryProps0.X ).x < 0.05 ? MATERIAL_ID_HAIR : materialID;
+    #endif
+
+        gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( N, materialProps0.roughness, materialID );
+
+        // Base color and metalness
+        gOut_BaseColor_Metalness[ pixelPos ] = float4( Color::ToSrgb( materialProps0.baseColor ), materialProps0.metalness );
+
+        // Direct lighting
+        Ldirect = GetLighting( geometryProps0, materialProps0, LIGHTING | SSS, Xshadow );
+
+        gOut_DirectLighting[ pixelPos ] = Ldirect; // "psrThroughput" applied in "Composition"
+        gOut_PsrThroughput[ pixelPos ] = psrThroughput;
+
+        // Lighting at PSR hit, if found
+        if( !geometryProps0.IsMiss( ) && hasPsr )
+        {
+            // L1 cache - reproject previous frame, carefully treating specular
+            Lpsr = GetRadianceFromPreviousFrame( geometryProps0, materialProps0, pixelPos );
+
+            // Subtract direct lighting, process it separately
+            float3 L = Ldirect * GetLighting( geometryProps0, materialProps0, SHADOW ) + materialProps0.Lemi;
+            Lpsr.xyz = max( Lpsr.xyz - L, 0.0 );
+
+            // This is important!
+            Lpsr.xyz *= Lpsr.w;
+        }
+
+        // Material de-modulation factors
+        {
+            float3 albedo, Rf0;
+            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
+
+            GetMaterialFactors( materialProps0.N, geometryProps0.V, albedo, Rf0, materialProps0.roughness, geometryProps0.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
+        }
     }
 
-    // Normal, roughness and material ID
-    float3 N = Geometry::RotateVectorInverse( mirrorMatrix, materialProps0.N );
-#if( RTXCR_INTEGRATION == 1 )
-    if( geometryProps0.Has( FLAG_HAIR ) )
+    //================================================================================================================================================================================
+    // Sun shadow
+    //================================================================================================================================================================================
+
     {
-        // Generate a better guide for hair
-        float3 B = cross( geometryProps0.V, geometryProps0.T.xyz );
-        float3 n = normalize( cross( geometryProps0.T.xyz, B ) );
+        float2 rnd = Rng::Hash::GetFloat2( );
+        if( USE_BLUE_NOISE_FOR_SHADOWS )
+            rnd = GetBlueNoise( pixelPos, gIn_ScramblingRanking4, 4, gFrameIndex );
 
-        float pixelSize = gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
-        float f = NRD_GetNormalizedStrandThickness( STRAND_THICKNESS / gUnitToMetersMultiplier, pixelSize );
-        f = lerp( 0.0, 0.25, f );
+        rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
+        rnd *= gTanSunAngularRadius;
 
-        N = normalize( lerp( n, N, f ) );
-    }
-#endif
+        float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
+        float3 Xoffset = GetXoffset( Xshadow, sunDirection, PT_SHADOW_RAY_OFFSET );
+        float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps0.mip, gTanSunAngularRadius );
 
-    float materialID = GetMaterialID( geometryProps0, materialProps0 );
-#if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
-    materialID = frac( geometryProps0.X ).x < 0.05 ? MATERIAL_ID_HAIR : materialID;
-#endif
+        float shadowTranslucency = ( Color::Luminance( Ldirect ) != 0.0 && !gDisableShadowsAndEnableImportanceSampling ) ? 1.0 : 0.0;
+        float shadowHitDist = 0.0;
 
-    gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( N, materialProps0.roughness, materialID );
+        while( shadowTranslucency > 0.01 )
+        {
+            GeometryProps geometryPropsShadow = CastRay( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, 0 );
 
-    // Base color and metalness
-    gOut_BaseColor_Metalness[ pixelPos ] = float4( Color::ToSrgb( materialProps0.baseColor ), materialProps0.metalness );
+            // Update hit dist
+            shadowHitDist += geometryPropsShadow.hitT;
 
-    // Direct lighting
-    float3 Xshadow;
-    float3 Ldirect = GetLighting( geometryProps0, materialProps0, LIGHTING | SSS, Xshadow );
+            // Terminate on miss ( before updating translucency! )
+            if( geometryPropsShadow.IsMiss( ) )
+                break;
 
-    gOut_DirectLighting[ pixelPos ] = Ldirect; // "psrThroughput" applied in "Composition"
-    gOut_PsrThroughput[ pixelPos ] = psrThroughput;
+            // ( Biased ) Cheap approximation of shadows through glass
+            float NoV = abs( dot( geometryPropsShadow.N, sunDirection ) );
+            shadowTranslucency *= lerp( geometryPropsShadow.Has( FLAG_TRANSPARENT ) ? 0.9 : 0.0, 0.0, Math::Pow01( 1.0 - NoV, 2.5 ) );
 
-    // Lighting at PSR hit, if found
-    float4 Lpsr = 0;
-    if( !geometryProps0.IsMiss( ) && bounceNum != PT_PSR_BOUNCES_NUM )
-    {
-        // L1 cache - reproject previous frame, carefully treating specular
-        Lpsr = GetRadianceFromPreviousFrame( geometryProps0, materialProps0, pixelPos );
+            // Go to the next hit
+            Xoffset += sunDirection * ( geometryPropsShadow.hitT + 0.001 );
+        }
 
-        // Subtract direct lighting, process it separately
-        float3 L = Ldirect * GetLighting( geometryProps0, materialProps0, SHADOW ) + materialProps0.Lemi;
-        Lpsr.xyz = max( Lpsr.xyz - L, 0.0 );
+        float penumbra = SIGMA_FrontEnd_PackPenumbra( shadowHitDist, gTanSunAngularRadius );
+        float4 translucency = SIGMA_FrontEnd_PackTranslucency( shadowHitDist, shadowTranslucency );
 
-        // This is important!
-        Lpsr.xyz *= Lpsr.w;
-    }
-
-    // Material de-modulation factors
-    float3 diffFactor0, specFactor0;
-    {
-        float3 albedo, Rf0;
-        BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
-
-        GetMaterialFactors( materialProps0.N, geometryProps0.V, albedo, Rf0, materialProps0.roughness, geometryProps0.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
+        gOut_ShadowData[ pixelPos ] = penumbra;
+        gOut_Shadow_Translucency[ pixelPos ] = translucency;
     }
 
     //================================================================================================================================================================================
     // Secondary rays
     //================================================================================================================================================================================
 
-    bool isDiffusePath = true;
-    TraceOpaqueResult result = ( TraceOpaqueResult )0;
-#if( USE_SHARC_DEBUG != 0 )
-    result.irradiance = GetSharcDebugColor( geometryProps0, materialProps0 );
-#else
-    float hitDistViewZ = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
-    result = TraceOpaque( geometryProps0, materialProps0, pixelPos, mirrorMatrix, Lpsr, isDiffusePath );
-
-    // Normalize hit distance for REBLUR using the actual PSR surface, not the virtual guide
-    if( gDenoiserType != DENOISER_RELAX )
-        result.hitDist = REBLUR_FrontEnd_GetNormHitDist( result.hitDist, hitDistViewZ, gHitDistSettings.xyz, isDiffusePath ? 1.0 : materialProps0.roughness );
-
-    if( USE_SANITIZATION && !NRD_IsValidRadiance( result.irradiance ) )
     {
-        result.irradiance = 0;
-        result.hitDist = 0;
-    }
-#endif
-
-    // Material de-modulation ( convert irradiance into radiance )
-    float3 radiance = result.irradiance / ( isDiffusePath ? diffFactor0 : specFactor0 );
-
-#if( USE_MOVING_EMISSION_FIX == 1 )
-    // Or emissives ( not having lighting in diffuse and specular ) can use a different material ID
-    radiance += materialProps0.Lemi / Math::Pi( 2.0 );
-#endif
-
-#if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
-    if( isDiffusePath && frac( geometryProps0.X ).x < 0.05 )
-        radiance = float3( 0, 10, 0 ) * Color::Luminance( radiance );
-#endif
-
-#if( USE_SIMULATED_FIREFLY_TEST == 1 )
-    const float maxFireflyEnergyScaleFactor = 10000.0;
-    float fireflyScale = lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
-    if( isDiffusePath )
-        radiance /= fireflyScale;
-#endif
-
-    float4 outRadiance = 0.0;
-    float4 outSh = 0.0;
-
-    if( gDenoiserType == DENOISER_RELAX )
-    {
-    #if( NRD_MODE == SH )
-        outRadiance = RELAX_FrontEnd_PackSh( radiance, result.hitDist, result.direction, outSh, USE_SANITIZATION );
+        bool isDiffusePath = true;
+        TraceOpaqueResult result = ( TraceOpaqueResult )0;
+    #if( USE_SHARC_DEBUG != 0 )
+        result.irradiance = GetSharcDebugColor( geometryProps0, materialProps0 );
     #else
-        outRadiance = RELAX_FrontEnd_PackRadianceAndHitDist( radiance, result.hitDist, USE_SANITIZATION );
+        float hitDistViewZ = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
+        result = TraceOpaque( geometryProps0, materialProps0, pixelPos, mirrorMatrix, Lpsr, isDiffusePath );
+
+        // Normalize hit distance for REBLUR using the actual PSR surface, not the virtual guide
+        if( gDenoiserType != DENOISER_RELAX )
+            result.hitDist = REBLUR_FrontEnd_GetNormHitDist( result.hitDist, hitDistViewZ, gHitDistSettings.xyz, isDiffusePath ? 1.0 : materialProps0.roughness );
+
+        if( USE_SANITIZATION && !NRD_IsValidRadiance( result.irradiance ) )
+        {
+            result.irradiance = 0;
+            result.hitDist = 0;
+        }
     #endif
-    }
-    else
-    {
-    #if( NRD_MODE == SH )
-        outRadiance = REBLUR_FrontEnd_PackSh( radiance, result.hitDist, result.direction, outSh, USE_SANITIZATION );
-    #else
-        outRadiance = REBLUR_FrontEnd_PackRadianceAndNormHitDist( radiance, result.hitDist, USE_SANITIZATION );
+
+        // Material de-modulation ( convert irradiance into radiance )
+        float3 radiance = result.irradiance / ( isDiffusePath ? diffFactor0 : specFactor0 );
+
+    #if( USE_MOVING_EMISSION_FIX == 1 )
+        // Or emissives ( not having lighting in diffuse and specular ) can use a different material ID
+        radiance += materialProps0.Lemi / Math::Pi( 2.0 );
     #endif
+
+    #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
+        if( isDiffusePath && frac( geometryProps0.X ).x < 0.05 )
+            radiance = float3( 0, 10, 0 ) * Color::Luminance( radiance );
+    #endif
+
+    #if( USE_SIMULATED_FIREFLY_TEST == 1 )
+        const float maxFireflyEnergyScaleFactor = 10000.0;
+        float fireflyScale = lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
+        if( isDiffusePath )
+            radiance /= fireflyScale;
+    #endif
+
+        float4 outRadiance = 0.0;
+        float4 outSh = 0.0;
+
+        if( gDenoiserType == DENOISER_RELAX )
+        {
+        #if( NRD_MODE == SH )
+            outRadiance = RELAX_FrontEnd_PackSh( radiance, result.hitDist, result.direction, outSh, USE_SANITIZATION );
+        #else
+            outRadiance = RELAX_FrontEnd_PackRadianceAndHitDist( radiance, result.hitDist, USE_SANITIZATION );
+        #endif
+        }
+        else
+        {
+        #if( NRD_MODE == SH )
+            outRadiance = REBLUR_FrontEnd_PackSh( radiance, result.hitDist, result.direction, outSh, USE_SANITIZATION );
+        #else
+            outRadiance = REBLUR_FrontEnd_PackRadianceAndNormHitDist( radiance, result.hitDist, USE_SANITIZATION );
+        #endif
+        }
+
+        // Only the lobe selected at the primary / PSR surface has a sample
+        float4 outDiff = isDiffusePath ? outRadiance : 0.0;
+        float4 outSpec = isDiffusePath ? 0.0 : outRadiance;
+        float4 outDiffSh = isDiffusePath ? outSh : 0.0;
+        float4 outSpecSh = isDiffusePath ? 0.0 : outSh;
+
+        WriteResult( pixelPos, outDiff, outSpec, outDiffSh, outSpecSh );
     }
-
-    // Only the lobe selected at the primary / PSR surface has a sample
-    float4 outDiff = isDiffusePath ? outRadiance : 0.0;
-    float4 outSpec = isDiffusePath ? 0.0 : outRadiance;
-    float4 outDiffSh = isDiffusePath ? outSh : 0.0;
-    float4 outSpecSh = isDiffusePath ? 0.0 : outSh;
-
-    WriteResult( pixelPos, outDiff, outSpec, outDiffSh, outSpecSh );
-
-    //================================================================================================================================================================================
-    // Sun shadow
-    //================================================================================================================================================================================
-
-    float2 rnd = Rng::Hash::GetFloat2( );
-    if( USE_BLUE_NOISE_FOR_SHADOWS )
-        rnd = GetBlueNoise( pixelPos, gIn_ScramblingRanking4, 4, gFrameIndex );
-
-    rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
-    rnd *= gTanSunAngularRadius;
-
-    float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
-    float3 Xoffset = GetXoffset( Xshadow, sunDirection, PT_SHADOW_RAY_OFFSET );
-    float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps0.mip, gTanSunAngularRadius );
-
-    float shadowTranslucency = ( Color::Luminance( Ldirect ) != 0.0 && !gDisableShadowsAndEnableImportanceSampling ) ? 1.0 : 0.0;
-    float shadowHitDist = 0.0;
-
-    while( shadowTranslucency > 0.01 )
-    {
-        GeometryProps geometryPropsShadow = CastRay( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, 0 );
-
-        // Update hit dist
-        shadowHitDist += geometryPropsShadow.hitT;
-
-        // Terminate on miss ( before updating translucency! )
-        if( geometryPropsShadow.IsMiss( ) )
-            break;
-
-        // ( Biased ) Cheap approximation of shadows through glass
-        float NoV = abs( dot( geometryPropsShadow.N, sunDirection ) );
-        shadowTranslucency *= lerp( geometryPropsShadow.Has( FLAG_TRANSPARENT ) ? 0.9 : 0.0, 0.0, Math::Pow01( 1.0 - NoV, 2.5 ) );
-
-        // Go to the next hit
-        Xoffset += sunDirection * ( geometryPropsShadow.hitT + 0.001 );
-    }
-
-    float penumbra = SIGMA_FrontEnd_PackPenumbra( shadowHitDist, gTanSunAngularRadius );
-    float4 translucency = SIGMA_FrontEnd_PackTranslucency( shadowHitDist, shadowTranslucency );
-
-    gOut_ShadowData[ pixelPos ] = penumbra;
-    gOut_Shadow_Translucency[ pixelPos ] = translucency;
 }
