@@ -57,59 +57,8 @@ float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
     return isHair ? MATERIAL_ID_HAIR : ( isMetal ? MATERIAL_ID_METAL : MATERIAL_ID_DEFAULT );
 }
 
-//========================================================================================
-// TRACE OPAQUE
-//========================================================================================
-
-/*
-The function has not been designed to trace primary hits. But still can be used to trace
-direct and indirect lighting.
-
-Prerequisites:
-    Rng::Hash::Initialize( )
-
-Derivation:
-    Lsum = L0 + BRDF0 * ( L1 + BRDF1 * ( L2 + BRDF2 * ( L3 +  ... ) ) )
-
-    Lsum = L0 +
-        L1 * BRDF0 +
-        L2 * BRDF0 * BRDF1 +
-        L3 * BRDF0 * BRDF1 * BRDF2 +
-        ...
-*/
-
-struct TraceOpaqueResult
+float3 GetSharcDebugColor( GeometryProps geometryProps, MaterialProps materialProps )
 {
-    float3 diffRadiance;
-    float diffHitDist;
-
-    float3 specRadiance;
-    float specHitDist;
-
-#if( NRD_MODE == SH )
-    float3 diffDirection;
-    float3 specDirection;
-#endif
-};
-
-TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos, float3x3 mirrorMatrix, float4 Lpsr )
-{
-    TraceOpaqueResult result = ( TraceOpaqueResult )0;
-
-    float viewZ0 = Geometry::AffineTransform( gWorldToView, geometryProps.X ).z;
-    float roughness0 = materialProps.roughness;
-
-    // Material de-modulation ( convert irradiance into radiance )
-    float3 diffFactor0, specFactor0;
-    {
-        float3 albedo, Rf0;
-        BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-        GetMaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, roughness0, geometryProps.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
-    }
-
-    // SHARC debug visualization
-#if( USE_SHARC_DEBUG != 0 )
     HashGridParameters hashGridParameters;
     hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
     hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
@@ -143,10 +92,44 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         color = isValid ?  color : float3( 1.0, 0.0, 0.0 );
     #endif
 
-    result.diffRadiance = color / diffFactor0;
+    return color;
+}
 
-    return result;
+//========================================================================================
+// TRACE OPAQUE
+//========================================================================================
+
+/*
+The function has not been designed to trace primary hits. But still can be used to trace
+direct and indirect lighting.
+
+Prerequisites:
+    Rng::Hash::Initialize( )
+
+Derivation:
+    Lsum = L0 + BRDF0 * ( L1 + BRDF1 * ( L2 + BRDF2 * ( L3 +  ... ) ) )
+
+    Lsum = L0 +
+        L1 * BRDF0 +
+        L2 * BRDF0 * BRDF1 +
+        L3 * BRDF0 * BRDF1 * BRDF2 +
+        ...
+*/
+
+struct TraceOpaqueResult
+{
+    float3 irradiance;
+    float hitDist;
+
+#if( NRD_MODE == SH )
+    float3 direction;
 #endif
+};
+
+TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos, float3x3 mirrorMatrix, float4 Lpsr, out bool isDiffusePath )
+{
+    TraceOpaqueResult result = ( TraceOpaqueResult )0;
+    isDiffusePath = false;
 
     float accumulatedHitDist = 0;
     float accumulatedDiffuseLikeMotion = 0;
@@ -154,7 +137,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
 
     float3 Lsum = Lpsr.xyz;
     float3 pathThroughput = 1.0 - Lpsr.w;
-    bool isDiffusePath = false;
 
     [loop]
     for( uint bounce = 1; bounce <= gBounceNum && !geometryProps.IsMiss( ); bounce++ )
@@ -204,10 +186,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 #if( NRD_MODE == SH )
                     float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
 
-                    if( isDiffuse )
-                        result.diffDirection = psrRay;
-                    else
-                        result.specDirection = psrRay;
+                    result.direction = psrRay;
                 #endif
             }
 
@@ -346,29 +325,8 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         }
     }
 
-    // Normalize hit distances for REBLUR before averaging
-    float normHitDist = accumulatedHitDist;
-    if( gDenoiserType != DENOISER_RELAX )
-        normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistSettings.xyz, isDiffusePath ? 1.0 : roughness0 );
-
-    // Accumulate diffuse and specular separately for denoising
-    if( !USE_SANITIZATION || NRD_IsValidRadiance( Lsum ) )
-    {
-        if( isDiffusePath )
-        {
-            result.diffRadiance = Lsum;
-            result.diffHitDist = normHitDist;
-        }
-        else
-        {
-            result.specRadiance = Lsum;
-            result.specHitDist = normHitDist;
-        }
-    }
-
-    // Material de-modulation ( convert irradiance into radiance )
-    result.diffRadiance /= diffFactor0;
-    result.specRadiance /= specFactor0;
+    result.irradiance = Lsum;
+    result.hitDist = accumulatedHitDist;
 
     return result;
 }
@@ -551,53 +509,83 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         Lpsr.xyz *= Lpsr.w;
     }
 
+    // Material de-modulation factors
+    float3 diffFactor0, specFactor0;
+    {
+        float3 albedo, Rf0;
+        BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
+
+        GetMaterialFactors( materialProps0.N, geometryProps0.V, albedo, Rf0, materialProps0.roughness, geometryProps0.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
+    }
+
     //================================================================================================================================================================================
     // Secondary rays
     //================================================================================================================================================================================
 
-    TraceOpaqueResult result = TraceOpaque( geometryProps0, materialProps0, pixelPos, mirrorMatrix, Lpsr );
+    bool isDiffusePath = true;
+    TraceOpaqueResult result = ( TraceOpaqueResult )0;
+#if( USE_SHARC_DEBUG != 0 )
+    result.irradiance = GetSharcDebugColor( geometryProps0, materialProps0 );
+#else
+    float hitDistViewZ = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
+    result = TraceOpaque( geometryProps0, materialProps0, pixelPos, mirrorMatrix, Lpsr, isDiffusePath );
+
+    // Normalize hit distance for REBLUR using the actual PSR surface, not the virtual guide
+    if( gDenoiserType != DENOISER_RELAX )
+        result.hitDist = REBLUR_FrontEnd_GetNormHitDist( result.hitDist, hitDistViewZ, gHitDistSettings.xyz, isDiffusePath ? 1.0 : materialProps0.roughness );
+
+    if( USE_SANITIZATION && !NRD_IsValidRadiance( result.irradiance ) )
+    {
+        result.irradiance = 0;
+        result.hitDist = 0;
+    }
+#endif
+
+    // Material de-modulation ( convert irradiance into radiance )
+    float3 radiance = result.irradiance / ( isDiffusePath ? diffFactor0 : specFactor0 );
 
 #if( USE_MOVING_EMISSION_FIX == 1 )
     // Or emissives ( not having lighting in diffuse and specular ) can use a different material ID
-    result.diffRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
-    result.specRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
+    radiance += materialProps0.Lemi / Math::Pi( 2.0 );
 #endif
 
 #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
-    if( frac( geometryProps0.X ).x < 0.05 )
-        result.diffRadiance = float3( 0, 10, 0 ) * Color::Luminance( result.diffRadiance );
+    if( isDiffusePath && frac( geometryProps0.X ).x < 0.05 )
+        radiance = float3( 0, 10, 0 ) * Color::Luminance( radiance );
 #endif
 
 #if( USE_SIMULATED_FIREFLY_TEST == 1 )
     const float maxFireflyEnergyScaleFactor = 10000.0;
-    result.diffRadiance /= lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
+    float fireflyScale = lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
+    if( isDiffusePath )
+        radiance /= fireflyScale;
 #endif
 
-    float4 outDiff = 0.0;
-    float4 outSpec = 0.0;
-    float4 outDiffSh = 0.0;
-    float4 outSpecSh = 0.0;
+    float4 outRadiance = 0.0;
+    float4 outSh = 0.0;
 
     if( gDenoiserType == DENOISER_RELAX )
     {
     #if( NRD_MODE == SH )
-        outDiff = RELAX_FrontEnd_PackSh( result.diffRadiance, result.diffHitDist, result.diffDirection, outDiffSh, USE_SANITIZATION );
-        outSpec = RELAX_FrontEnd_PackSh( result.specRadiance, result.specHitDist, result.specDirection, outSpecSh, USE_SANITIZATION );
+        outRadiance = RELAX_FrontEnd_PackSh( radiance, result.hitDist, result.direction, outSh, USE_SANITIZATION );
     #else
-        outDiff = RELAX_FrontEnd_PackRadianceAndHitDist( result.diffRadiance, result.diffHitDist, USE_SANITIZATION );
-        outSpec = RELAX_FrontEnd_PackRadianceAndHitDist( result.specRadiance, result.specHitDist, USE_SANITIZATION );
+        outRadiance = RELAX_FrontEnd_PackRadianceAndHitDist( radiance, result.hitDist, USE_SANITIZATION );
     #endif
     }
     else
     {
     #if( NRD_MODE == SH )
-        outDiff = REBLUR_FrontEnd_PackSh( result.diffRadiance, result.diffHitDist, result.diffDirection, outDiffSh, USE_SANITIZATION );
-        outSpec = REBLUR_FrontEnd_PackSh( result.specRadiance, result.specHitDist, result.specDirection, outSpecSh, USE_SANITIZATION );
+        outRadiance = REBLUR_FrontEnd_PackSh( radiance, result.hitDist, result.direction, outSh, USE_SANITIZATION );
     #else
-        outDiff = REBLUR_FrontEnd_PackRadianceAndNormHitDist( result.diffRadiance, result.diffHitDist, USE_SANITIZATION );
-        outSpec = REBLUR_FrontEnd_PackRadianceAndNormHitDist( result.specRadiance, result.specHitDist, USE_SANITIZATION );
+        outRadiance = REBLUR_FrontEnd_PackRadianceAndNormHitDist( radiance, result.hitDist, USE_SANITIZATION );
     #endif
     }
+
+    // Only the lobe selected at the primary / PSR surface has a sample
+    float4 outDiff = isDiffusePath ? outRadiance : 0.0;
+    float4 outSpec = isDiffusePath ? 0.0 : outRadiance;
+    float4 outDiffSh = isDiffusePath ? outSh : 0.0;
+    float4 outSpecSh = isDiffusePath ? 0.0 : outSh;
 
     WriteResult( pixelPos, outDiff, outSpec, outDiffSh, outSpecSh );
 
