@@ -289,7 +289,12 @@ float3 GetMotion( float3 X, float3 Xprev )
     float2 sampleUv = Geometry::GetScreenUv( gWorldToClip, X );
 
     float viewZprev = Geometry::AffineTransform( gWorldToViewPrev, Xprev ).z;
-    float2 sampleUvPrev = Geometry::GetScreenUv( gWorldToClipPrev, Xprev );
+
+    // Reject projections on or behind the previous camera plane
+    float2 sampleUvPrev = 2.0; // outside the previous frame, so history is rejected
+    float w = Geometry::ProjectiveTransform( gWorldToClipPrev, Xprev ).w;
+    if( w > 0.0 )
+        sampleUvPrev = Geometry::GetScreenUv( gWorldToClipPrev, Xprev );
 
     // IMPORTANT: scaling to "pixel" unit significantly improves utilization of FP16
     motion.xy = ( sampleUvPrev - sampleUv ) * gRectSize;
@@ -297,7 +302,7 @@ float3 GetMotion( float3 X, float3 Xprev )
     // IMPORTANT: 2.5D motion is preferred over 3D motion due to imprecision issues caused by FP16 rounding negative effects
     motion.z = viewZprev - viewZ;
 
-    return motion;
+    return clamp( motion, -FP16_MAX, FP16_MAX );
 }
 
 float3 ApplyTonemap( float3 Lsum )
