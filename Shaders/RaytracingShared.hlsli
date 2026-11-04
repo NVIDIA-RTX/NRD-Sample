@@ -118,6 +118,11 @@ struct MaterialProps
     float curvature;
 };
 
+float3 GetNormalForSharc( GeometryProps geometryProps )
+{
+    return ( geometryProps.Has( FLAG_LEAF | FLAG_HAIR ) && USE_SHARC_THIN_NORMAL_MERGING ) ? float3( 0, 0, 1 ) : geometryProps.N;
+}
+
 float3 GetXoffset( float3 X, float3 offsetDir, float amount = PT_BOUNCE_RAY_OFFSET )
 {
     float viewZ = Geometry::AffineTransform( gWorldToView, X ).z;
