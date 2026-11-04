@@ -449,8 +449,6 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     float4 Lpsr = 0;
     float3 Xshadow;
     float3 Ldirect;
-    float3 diffFactor0;
-    float3 specFactor0;
     {
         // Motion
         float3 XvirtualPrev = Xvirtual + geometryProps0.Xprev - geometryProps0.X;
@@ -476,6 +474,9 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
 
             return;
         }
+
+        // PSR throughput
+        gOut_PsrThroughput[ pixelPos ] = psrThroughput;
 
         // Normal, roughness and material ID
         float3 N = Geometry::RotateVectorInverse( mirrorMatrix, materialProps0.N );
@@ -508,28 +509,20 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         Ldirect = GetLighting( geometryProps0, materialProps0, LIGHTING | SSS, Xshadow );
 
         gOut_DirectLighting[ pixelPos ] = Ldirect; // "psrThroughput" applied in "Composition"
-        gOut_PsrThroughput[ pixelPos ] = psrThroughput;
 
         // Lighting at PSR hit, if found
         if( !geometryProps0.IsMiss( ) && hasPsr )
         {
+            float3 L = Ldirect * GetLighting( geometryProps0, materialProps0, SHADOW ) + materialProps0.Lemi;
+
             // L1 cache - reproject previous frame, carefully treating specular
             Lpsr = GetRadianceFromPreviousFrame( geometryProps0, materialProps0, pixelPos );
 
             // Subtract direct lighting, process it separately
-            float3 L = Ldirect * GetLighting( geometryProps0, materialProps0, SHADOW ) + materialProps0.Lemi;
             Lpsr.xyz = max( Lpsr.xyz - L, 0.0 );
 
             // This is important!
             Lpsr.xyz *= Lpsr.w;
-        }
-
-        // Material de-modulation factors
-        {
-            float3 albedo, Rf0;
-            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
-
-            GetMaterialFactors( materialProps0.N, geometryProps0.V, albedo, Rf0, materialProps0.roughness, geometryProps0.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
         }
     }
 
@@ -583,6 +576,16 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     //================================================================================================================================================================================
 
     {
+        // Material de-modulation factors
+        float3 diffFactor0;
+        float3 specFactor0;
+        {
+            float3 albedo, Rf0;
+            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
+
+            GetMaterialFactors( materialProps0.N, geometryProps0.V, albedo, Rf0, materialProps0.roughness, geometryProps0.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
+        }
+
         bool isDiffusePath = true;
         TraceOpaqueResult result = ( TraceOpaqueResult )0;
     #if( USE_SHARC_DEBUG != 0 )
