@@ -57,64 +57,8 @@ float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
     return isHair ? MATERIAL_ID_HAIR : ( isMetal ? MATERIAL_ID_METAL : MATERIAL_ID_DEFAULT );
 }
 
-//========================================================================================
-// TRACE OPAQUE
-//========================================================================================
-
-/*
-The function has not been designed to trace primary hits. But still can be used to trace
-direct and indirect lighting.
-
-Prerequisites:
-    Rng::Hash::Initialize( )
-
-Derivation:
-    Lsum = L0 + BRDF0 * ( L1 + BRDF1 * ( L2 + BRDF2 * ( L3 +  ... ) ) )
-
-    Lsum = L0 +
-        L1 * BRDF0 +
-        L2 * BRDF0 * BRDF1 +
-        L3 * BRDF0 * BRDF1 * BRDF2 +
-        ...
-*/
-
-struct TraceOpaqueResult
+float3 GetSharcDebugColor( GeometryProps geometryProps, MaterialProps materialProps )
 {
-    float3 diffRadiance;
-    float diffHitDist;
-
-    float3 specRadiance;
-    float specHitDist;
-
-#if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
-    float3 diffDirection;
-    float3 specDirection;
-#endif
-};
-
-TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps materialProps0, uint2 pixelPos, float3x3 mirrorMatrix, float4 Lpsr )
-{
-    TraceOpaqueResult result = ( TraceOpaqueResult )0;
-#if( NRD_MODE < OCCLUSION )
-    result.specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
-#endif
-
-    GeometryProps geometryProps = geometryProps0;
-    MaterialProps materialProps = materialProps0;
-    float viewZ0 = Geometry::AffineTransform( gWorldToView, geometryProps.X ).z;
-    float roughness0 = materialProps.roughness;
-
-    // Material de-modulation ( convert irradiance into radiance )
-    float3 diffFactor0, specFactor0;
-    {
-        float3 albedo, Rf0;
-        BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-        GetMaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, roughness0, geometryProps.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
-    }
-
-    // SHARC debug visualization
-#if( USE_SHARC_DEBUG != 0 )
     HashGridParameters hashGridParameters;
     hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
     hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
@@ -148,25 +92,54 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps0, MaterialProps mater
         color = isValid ?  color : float3( 1.0, 0.0, 0.0 );
     #endif
 
-    result.diffRadiance = color / diffFactor0;
+    return color;
+}
 
-    return result;
-#endif
+//========================================================================================
+// TRACE OPAQUE
+//========================================================================================
 
-    uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
-    uint pathNum = gSampleNum << (gTracingMode == RESOLUTION_FULL ? 1 : 0);
-    uint diffPathNum = 0;
+/*
+The function has not been designed to trace primary hits. But still can be used to trace
+direct and indirect lighting.
 
-[loop]
-for( uint path = 0; path < pathNum; path++ )
+Prerequisites:
+    Rng::Hash::Initialize( )
+
+Derivation:
+    Lsum = L0 + BRDF0 * ( L1 + BRDF1 * ( L2 + BRDF2 * ( L3 +  ... ) ) )
+
+    Lsum = L0 +
+        L1 * BRDF0 +
+        L2 * BRDF0 * BRDF1 +
+        L3 * BRDF0 * BRDF1 * BRDF2 +
+        ...
+*/
+
+struct TraceOpaqueResult
 {
+    float3 irradiance;
+    float hitDist;
+
+#if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+    float3 direction;
+#endif
+};
+
+// The caller selects the first lobe in deterministic tracing modes; probabilistic tracing updates it.
+TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos, uint path, float3x3 mirrorMatrix, float4 Lpsr, inout bool isDiffusePath )
+{
+    TraceOpaqueResult result = ( TraceOpaqueResult )0;
+
+    if( gBounceNum == 0 || geometryProps.IsMiss( ) )
+        isDiffusePath = false;
+
     float accumulatedHitDist = 0;
     float accumulatedDiffuseLikeMotion = 0;
     float accumulatedCurvature = 0;
 
     float3 Lsum = Lpsr.xyz;
     float3 pathThroughput = 1.0 - Lpsr.w;
-    bool isDiffusePath = false;
 
     [loop]
     for( uint bounce = 1; bounce <= gBounceNum && !geometryProps.IsMiss( ); bounce++ )
@@ -201,11 +174,16 @@ for( uint path = 0; path < pathNum; path++ )
             if( gTracingMode == RESOLUTION_FULL_PROBABILISTIC || bounce > 1 )
                 pathThroughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
             else
-                isDiffuse = gTracingMode == RESOLUTION_HALF ? checkerboard : ( path & 0x1 );
+                isDiffuse = isDiffusePath;
 
             // This is not needed in case of "RESOLUTION_FULL_PROBABILISTIC", since hair doesn't have diffuse component
             if( geometryProps.Has( FLAG_HAIR ) && isDiffuse )
+            {
+                if( bounce == 1 )
+                    isDiffusePath = false;
+
                 break;
+            }
 
             // Importance sampling
             uint sampleMaxNum = 0;
@@ -227,10 +205,7 @@ for( uint path = 0; path < pathNum; path++ )
                 #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
                     float3 psrRay = Geometry::RotateVectorInverse( mirrorMatrix, ray );
 
-                    if( isDiffuse )
-                        result.diffDirection += psrRay;
-                    else
-                        result.specDirection += psrRay;
+                    result.direction = psrRay;
                 #endif
             }
 
@@ -416,62 +391,8 @@ for( uint path = 0; path < pathNum; path++ )
         Lsum = Color::ColorizeZucconi( mipNorm );
     }
 
-    // Normalize hit distances for REBLUR before averaging
-    float normHitDist = accumulatedHitDist;
-    if( gDenoiserType != DENOISER_RELAX )
-        normHitDist = REBLUR_FrontEnd_GetNormHitDist( accumulatedHitDist, viewZ0, gHitDistSettings.xyz, isDiffusePath ? 1.0 : roughness0 );
-
-    // Accumulate diffuse and specular separately for denoising
-    if( !USE_SANITIZATION || NRD_IsValidRadiance( Lsum ) )
-    {
-        if( isDiffusePath )
-        {
-            result.diffRadiance += Lsum;
-            result.diffHitDist += normHitDist;
-            diffPathNum++;
-        }
-        else
-        {
-            result.specRadiance += Lsum;
-
-        #if( NRD_MODE < OCCLUSION )
-            NRD_FrontEnd_SpecHitDistAveraging_Add( result.specHitDist, normHitDist );
-        #else
-            result.specHitDist += normHitDist;
-        #endif
-        }
-    }
-
-    // Return back to the start of the path
-    geometryProps = geometryProps0;
-    materialProps = materialProps0;
-}
-
-    // Material de-modulation ( convert irradiance into radiance )
-    result.diffRadiance /= diffFactor0;
-    result.specRadiance /= specFactor0;
-
-    // Radiance is already divided by sampling probability, we need to average across all paths
-    float radianceNorm = 1.0 / float( gSampleNum );
-    result.diffRadiance *= radianceNorm;
-    result.specRadiance *= radianceNorm;
-
-    // Others are not divided by sampling probability, we need to average across diffuse / specular only paths
-    float diffNorm = diffPathNum == 0 ? 0.0 : 1.0 / float( diffPathNum );
-    float specNorm = pathNum == diffPathNum ? 0.0 : 1.0 / float( pathNum - diffPathNum );
-
-    result.diffHitDist *= diffNorm;
-
-#if( NRD_MODE < OCCLUSION )
-    NRD_FrontEnd_SpecHitDistAveraging_End( result.specHitDist );
-#else
-    result.specHitDist *= specNorm;
-#endif
-
-#if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
-    result.diffDirection *= diffNorm;
-    result.specDirection *= specNorm;
-#endif
+    result.irradiance = Lsum;
+    result.hitDist = accumulatedHitDist;
 
     return result;
 }
@@ -706,26 +627,123 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         Lpsr.xyz *= Lpsr.w;
     }
 
+    // Material de-modulation factors
+    float3 diffFactor0, specFactor0;
+    {
+        float3 albedo, Rf0;
+        BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps0.baseColor, materialProps0.metalness, albedo, Rf0 );
+
+        GetMaterialFactors( materialProps0.N, geometryProps0.V, albedo, Rf0, materialProps0.roughness, geometryProps0.Has( FLAG_HAIR ), diffFactor0, specFactor0 );
+    }
+
     //================================================================================================================================================================================
     // Secondary rays
     //================================================================================================================================================================================
 
-    TraceOpaqueResult result = TraceOpaque( geometryProps0, materialProps0, pixelPos, mirrorMatrix, Lpsr );
+    float3 diffRadiance = 0;
+    float3 specRadiance = 0;
+    float diffHitDist = 0;
+    float specHitDist = 0;
+#if( NRD_MODE < OCCLUSION )
+    specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
+#endif
+
+#if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+    float3 diffDirection = 0;
+    float3 specDirection = 0;
+#endif
+
+#if( USE_SHARC_DEBUG != 0 )
+    diffRadiance = GetSharcDebugColor( geometryProps0, materialProps0 );
+#else
+    uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
+    uint pathNum = gSampleNum << ( gTracingMode == RESOLUTION_FULL ? 1 : 0 );
+    uint diffPathNum = 0;
+    float hitDistViewZ = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
+
+    [loop]
+    for( uint path = 0; path < pathNum; path++ )
+    {
+        bool isDiffusePath = gTracingMode == RESOLUTION_HALF ? checkerboard : ( path & 0x1 );
+        TraceOpaqueResult result = TraceOpaque( geometryProps0, materialProps0, pixelPos, path, mirrorMatrix, Lpsr, isDiffusePath );
+
+        // Normalize hit distances for REBLUR before averaging ( use the actual PSR surface, not the virtual guide )
+        float normHitDist = result.hitDist;
+        if( gDenoiserType != DENOISER_RELAX )
+            normHitDist = REBLUR_FrontEnd_GetNormHitDist( result.hitDist, hitDistViewZ, gHitDistSettings.xyz, isDiffusePath ? 1.0 : materialProps0.roughness );
+
+    #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+        if( isDiffusePath )
+            diffDirection += result.direction;
+        else
+            specDirection += result.direction;
+    #endif
+
+        // Accumulate diffuse and specular separately for denoising
+        if( !USE_SANITIZATION || NRD_IsValidRadiance( result.irradiance ) )
+        {
+            if( isDiffusePath )
+            {
+                diffRadiance += result.irradiance;
+                diffHitDist += normHitDist;
+                diffPathNum++;
+            }
+            else
+            {
+                specRadiance += result.irradiance;
+
+            #if( NRD_MODE < OCCLUSION )
+                NRD_FrontEnd_SpecHitDistAveraging_Add( specHitDist, normHitDist );
+            #else
+                specHitDist += normHitDist;
+            #endif
+            }
+        }
+    }
+
+    // These are not divided by sampling probability, so average across diffuse / specular only paths
+    float diffNorm = diffPathNum == 0 ? 0.0 : 1.0 / float( diffPathNum );
+    float specNorm = pathNum == diffPathNum ? 0.0 : 1.0 / float( pathNum - diffPathNum );
+
+    diffHitDist *= diffNorm;
+
+    #if( NRD_MODE < OCCLUSION )
+        NRD_FrontEnd_SpecHitDistAveraging_End( specHitDist );
+    #else
+        specHitDist *= specNorm;
+    #endif
+
+    #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+        diffDirection *= diffNorm;
+        specDirection *= specNorm;
+    #endif
+#endif
+
+    // Material de-modulation ( convert irradiance into radiance )
+    diffRadiance /= diffFactor0;
+    specRadiance /= specFactor0;
+
+#if( USE_SHARC_DEBUG == 0 )
+    // Radiance is already divided by sampling probability, so average across all samples
+    float radianceNorm = 1.0 / float( gSampleNum );
+    diffRadiance *= radianceNorm;
+    specRadiance *= radianceNorm;
+#endif
 
 #if( USE_MOVING_EMISSION_FIX == 1 )
     // Or emissives ( not having lighting in diffuse and specular ) can use a different material ID
-    result.diffRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
-    result.specRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
+    diffRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
+    specRadiance += materialProps0.Lemi / Math::Pi( 2.0 );
 #endif
 
 #if( USE_SIMULATED_MATERIAL_ID_TEST == 1 )
     if( frac( geometryProps0.X ).x < 0.05 )
-        result.diffRadiance = float3( 0, 10, 0 ) * Color::Luminance( result.diffRadiance );
+        diffRadiance = float3( 0, 10, 0 ) * Color::Luminance( diffRadiance );
 #endif
 
 #if( USE_SIMULATED_FIREFLY_TEST == 1 )
     const float maxFireflyEnergyScaleFactor = 10000.0;
-    result.diffRadiance /= lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
+    diffRadiance /= lerp( 1.0 / maxFireflyEnergyScaleFactor, 1.0, Rng::Hash::GetFloat( ) );
 #endif
 
     float4 outDiff = 0.0;
@@ -736,26 +754,26 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     if( gDenoiserType == DENOISER_RELAX )
     {
     #if( NRD_MODE == SH )
-        outDiff = RELAX_FrontEnd_PackSh( result.diffRadiance, result.diffHitDist, result.diffDirection, outDiffSh, USE_SANITIZATION );
-        outSpec = RELAX_FrontEnd_PackSh( result.specRadiance, result.specHitDist, result.specDirection, outSpecSh, USE_SANITIZATION );
+        outDiff = RELAX_FrontEnd_PackSh( diffRadiance, diffHitDist, diffDirection, outDiffSh, USE_SANITIZATION );
+        outSpec = RELAX_FrontEnd_PackSh( specRadiance, specHitDist, specDirection, outSpecSh, USE_SANITIZATION );
     #else
-        outDiff = RELAX_FrontEnd_PackRadianceAndHitDist( result.diffRadiance, result.diffHitDist, USE_SANITIZATION );
-        outSpec = RELAX_FrontEnd_PackRadianceAndHitDist( result.specRadiance, result.specHitDist, USE_SANITIZATION );
+        outDiff = RELAX_FrontEnd_PackRadianceAndHitDist( diffRadiance, diffHitDist, USE_SANITIZATION );
+        outSpec = RELAX_FrontEnd_PackRadianceAndHitDist( specRadiance, specHitDist, USE_SANITIZATION );
     #endif
     }
     else
     {
     #if( NRD_MODE == OCCLUSION )
-        outDiff = result.diffHitDist;
-        outSpec = result.specHitDist;
+        outDiff = diffHitDist;
+        outSpec = specHitDist;
     #elif( NRD_MODE == SH )
-        outDiff = REBLUR_FrontEnd_PackSh( result.diffRadiance, result.diffHitDist, result.diffDirection, outDiffSh, USE_SANITIZATION );
-        outSpec = REBLUR_FrontEnd_PackSh( result.specRadiance, result.specHitDist, result.specDirection, outSpecSh, USE_SANITIZATION );
+        outDiff = REBLUR_FrontEnd_PackSh( diffRadiance, diffHitDist, diffDirection, outDiffSh, USE_SANITIZATION );
+        outSpec = REBLUR_FrontEnd_PackSh( specRadiance, specHitDist, specDirection, outSpecSh, USE_SANITIZATION );
     #elif( NRD_MODE == DIRECTIONAL_OCCLUSION )
-        outDiff = REBLUR_FrontEnd_PackDirectionalOcclusion( result.diffDirection, result.diffHitDist, USE_SANITIZATION );
+        outDiff = REBLUR_FrontEnd_PackDirectionalOcclusion( diffDirection, diffHitDist, USE_SANITIZATION );
     #else
-        outDiff = REBLUR_FrontEnd_PackRadianceAndNormHitDist( result.diffRadiance, result.diffHitDist, USE_SANITIZATION );
-        outSpec = REBLUR_FrontEnd_PackRadianceAndNormHitDist( result.specRadiance, result.specHitDist, USE_SANITIZATION );
+        outDiff = REBLUR_FrontEnd_PackRadianceAndNormHitDist( diffRadiance, diffHitDist, USE_SANITIZATION );
+        outSpec = REBLUR_FrontEnd_PackRadianceAndNormHitDist( specRadiance, specHitDist, USE_SANITIZATION );
     #endif
     }
 
