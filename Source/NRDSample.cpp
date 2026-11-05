@@ -35,7 +35,7 @@ constexpr bool CAMERA_RELATIVE = true;
 constexpr bool ALLOW_BLAS_MERGING = true;
 constexpr bool ALLOW_HDR = NRIF_PLATFORM == NRIF_WINDOWS; // use "WIN + ALT + B" to switch HDR mode
 constexpr bool USE_LOW_PRECISION_FP_FORMATS = true;       // saves a bit of memory and performance
-constexpr uint8_t DLSS_PRESET = 13; // preset M(13) (expensive, correct specular tracking, default preset is broken), the alternative is F(6) (CNN, correct specular tracking)
+constexpr uint8_t DLSS_PRESET = 13;                       // preset M(13) (expensive, correct specular tracking, default preset is broken), the alternative is F(6) (CNN, correct specular tracking)
 constexpr int32_t MAX_HISTORY_FRAME_NUM = (int32_t)std::min(60u, std::min(nrd::REBLUR_MAX_HISTORY_FRAME_NUM, nrd::RELAX_MAX_HISTORY_FRAME_NUM));
 constexpr uint32_t TEXTURES_PER_MATERIAL = 4;
 constexpr uint32_t MAX_TEXTURE_TRANSITIONS_NUM = 32;
@@ -1811,6 +1811,9 @@ void Sample::LoadScene() {
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/glass_lens/glass_lens.gltf", m_Scene, !ALLOW_BLAS_MERGING));
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/glass_frame/glass_frame.gltf", m_Scene, !ALLOW_BLAS_MERGING));
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/shirt/shirt.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+    } else if (m_SceneFile.find("transparent-machines") != std::string::npos) {
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/TransparentMachines/transparent-machines-pt0.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/TransparentMachines/transparent-machines-pt1.gltf", m_Scene, !ALLOW_BLAS_MERGING));
     } else {
         sceneFile = utils::GetFullPath(m_SceneFile, utils::DataFolder::SCENES);
         NRI_ABORT_ON_FALSE(utils::LoadScene(sceneFile, m_Scene, !ALLOW_BLAS_MERGING));
@@ -1833,6 +1836,9 @@ void Sample::LoadScene() {
     } else if (m_SceneFile.find("Claire") != std::string::npos) {
         m_Settings.exposure = 1.3f;
         m_Settings.bounceNum = 4;
+        m_Settings.meterToUnitsMultiplier = 100.0f;
+    } else if (m_SceneFile.find("transparent-machines") != std::string::npos) {
+        m_Settings.exposure = 1.0f;
         m_Settings.meterToUnitsMultiplier = 100.0f;
     } else if (m_SceneFile.find("ShaderBalls") != std::string::npos)
         m_Settings.exposure = 1.7f;
