@@ -131,7 +131,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         }
     #endif
 
-    // Material modulation ( convert radiance back into irradiance )
+    // Material modulation ( restore material factors to recover outgoing radiance )
     float4 baseColorMetalness = gIn_BaseColor_Metalness[ pixelPos ];
 
     float3 albedo, Rf0;

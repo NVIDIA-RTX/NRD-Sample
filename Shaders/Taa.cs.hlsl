@@ -53,6 +53,46 @@ float3 XyzToLab( float3 x )
     return float3( l, a, b );
 }
 
+float4 BicubicFilterNoCorners( Texture2D<float4> tex, SamplerState samp, float2 samplePos, float2 invResourceSize, float sharpness )
+{
+    float2 centerPos = floor( samplePos - 0.5 ) + 0.5;
+    float2 f = saturate( samplePos - centerPos );
+    float2 f2 = f * f;
+    float2 f3 = f * f2;
+    float2 w0 = -sharpness * f3 + 2.0 * sharpness * f2 - sharpness * f;
+    float2 w1 = ( 2.0 - sharpness ) * f3 - ( 3.0 - sharpness ) * f2 + 1.0;
+    float2 w2 = -( 2.0 - sharpness ) * f3 + ( 3.0 - 2.0 * sharpness ) * f2 + sharpness * f;
+    float2 w3 = sharpness * f3 - sharpness * f2;
+    float2 wl2 = w1 + w2;
+    float2 tc2 = invResourceSize * ( centerPos + w2 * Math::PositiveRcp( wl2 ) );
+    float2 tc0 = invResourceSize * ( centerPos - 1.0 );
+    float2 tc3 = invResourceSize * ( centerPos + 2.0 );
+
+    float w = wl2.x * w0.y;
+    float4 color = tex.SampleLevel( samp, float2( tc2.x, tc0.y ), 0 ) * w;
+    float sum = w;
+
+    w = w0.x  * wl2.y;
+    color += tex.SampleLevel( samp, float2( tc0.x, tc2.y ), 0 ) * w;
+    sum += w;
+
+    w = wl2.x * wl2.y;
+    color += tex.SampleLevel( samp, float2( tc2.x, tc2.y ), 0 ) * w;
+    sum += w;
+
+    w = w3.x * wl2.y;
+    color += tex.SampleLevel( samp, float2( tc3.x, tc2.y ), 0 ) * w;
+    sum += w;
+
+    w = wl2.x * w3.y;
+    color += tex.SampleLevel( samp, float2( tc2.x, tc3.y ), 0 ) * w;
+    sum += w;
+
+    color *= Math::PositiveRcp( sum );
+
+    return color;
+}
+
 [numthreads( GROUP_X, GROUP_Y, 1 )]
 void main( int2 threadPos : SV_GroupThreadID, int2 pixelPos : SV_DispatchThreadID, uint threadIndex : SV_GroupIndex )
 {

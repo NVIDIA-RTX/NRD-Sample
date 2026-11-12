@@ -21,16 +21,88 @@ NRI_RESOURCE( RWStructuredBuffer<SharcPackedData>, gInOut_SharcResolved, u, 2, S
     #define TEX_SAMPLER gLinearMipmapLinearSampler
 #endif
 
-#if( USE_LOAD == 1 )
-    #define SAMPLE( coords ) Load( int3( coords ) )
-#else
-    #define SAMPLE( coords ) SampleLevel( TEX_SAMPLER, coords.xy, coords.z )
-#endif
+#define SAMPLE( coords ) SampleLevel( TEX_SAMPLER, coords.xy, coords.z )
 
 #if( RTXCR_INTEGRATION == 1 )
 
 #include "HairFarFieldBCSDF.hlsli"
 #include "SubsurfaceScattering.hlsli"
+
+#endif
+
+//==========================================
+// GEOMETRY
+//==========================================
+
+struct GeometryProps
+{
+    float3 X;
+    float3 Xprev;
+    float3 V;
+    float4 T;
+    float3 N;
+    float2 uv;
+    float mip;
+    float hitT;
+    float curvature;
+    uint textureOffsetAndFlags;
+    uint instanceIndex;
+
+    bool Has( uint flag )
+    { return ( textureOffsetAndFlags & ( flag << FLAG_FIRST_BIT ) ) != 0; }
+
+    uint GetBaseTexture( )
+    { return textureOffsetAndFlags & NON_FLAG_MASK; }
+
+    float3 GetForcedEmissionColor( )
+    { return ( ( textureOffsetAndFlags >> 2 ) & 0x1 ) ? float3( 1.0, 0.0, 0.0 ) : float3( 0.0, 1.0, 0.0 ); }
+
+    bool IsMiss( )
+    { return hitT == INF; }
+};
+
+float3 GetXoffset( float3 X, float3 offsetDir, float amount = PT_BOUNCE_RAY_OFFSET )
+{
+    float viewZ = Geometry::AffineTransform( gWorldToView, X ).z;
+    amount *= gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
+
+    return X + offsetDir * amount;
+}
+
+float3 GetMotion( float3 X, float3 Xprev )
+{
+    float3 motion = Xprev - X;
+
+    float viewZ = Geometry::AffineTransform( gWorldToView, X ).z;
+    float2 sampleUv = Geometry::GetScreenUv( gWorldToClip, X );
+
+    float viewZprev = Geometry::AffineTransform( gWorldToViewPrev, Xprev ).z;
+
+    // Reject projections on or behind the previous camera plane
+    float2 sampleUvPrev = 2.0; // outside the previous frame, so history is rejected
+    float w = Geometry::ProjectiveTransform( gWorldToClipPrev, Xprev ).w;
+    if( w > 0.0 )
+        sampleUvPrev = Geometry::GetScreenUv( gWorldToClipPrev, Xprev );
+
+    // IMPORTANT: scaling to "pixel" unit significantly improves utilization of FP16
+    motion.xy = ( sampleUvPrev - sampleUv ) * gRectSize;
+
+    // IMPORTANT: 2.5D motion is preferred over 3D motion due to imprecision issues caused by FP16 rounding negative effects
+    motion.z = viewZprev - viewZ;
+
+    return clamp( motion, -FP16_MAX, FP16_MAX );
+}
+
+float ApplyThinLensEquation( float hitDist, float curvature )
+{
+    return hitDist / ( 2.0 * curvature * hitDist + 1.0 );
+}
+
+//==========================================
+// HAIR
+//==========================================
+
+#if( RTXCR_INTEGRATION == 1 )
 
 RTXCR_HairMaterialInteractionBcsdf Hair_GetMaterial( )
 {
@@ -73,39 +145,16 @@ RTXCR_HairInteractionSurface Hair_GetSurface( float3 Vlocal )
 
 #endif
 
-float3x3 Hair_GetBasis( float3 N, float3 T )
+float3x3 GetHairBasis( float3 N, float3 T )
 {
     float3 B = cross( N, T );
 
     return float3x3( T, B, N );
 }
 
-struct GeometryProps
-{
-    float3 X;
-    float3 Xprev;
-    float3 V;
-    float4 T;
-    float3 N;
-    float2 uv;
-    float mip;
-    float hitT;
-    float curvature;
-    uint textureOffsetAndFlags;
-    uint instanceIndex;
-
-    bool Has( uint flag )
-    { return ( textureOffsetAndFlags & ( flag << FLAG_FIRST_BIT ) ) != 0; }
-
-    uint GetBaseTexture( )
-    { return textureOffsetAndFlags & NON_FLAG_MASK; }
-
-    float3 GetForcedEmissionColor( )
-    { return ( ( textureOffsetAndFlags >> 2 ) & 0x1 ) ? float3( 1.0, 0.0, 0.0 ) : float3( 0.0, 1.0, 0.0 ); }
-
-    bool IsMiss( )
-    { return hitT == INF; }
-};
+//==========================================
+// MATERIAL
+//==========================================
 
 struct MaterialProps
 {
@@ -117,34 +166,6 @@ struct MaterialProps
     float metalness;
     float curvature;
 };
-
-float3 GetNormalForSharc( GeometryProps geometryProps )
-{
-    return ( geometryProps.Has( FLAG_LEAF | FLAG_HAIR ) && USE_SHARC_THIN_NORMAL_MERGING ) ? float3( 0, 0, 1 ) : geometryProps.N;
-}
-
-float3 GetXoffset( float3 X, float3 offsetDir, float amount = PT_BOUNCE_RAY_OFFSET )
-{
-    float viewZ = Geometry::AffineTransform( gWorldToView, X ).z;
-    amount *= gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
-
-    return X + offsetDir * amount;
-}
-
-float2 GetConeAngleFromAngularRadius( float mip, float tanConeAngle )
-{
-    // In any case, we are limited by the output resolution
-    tanConeAngle = max( tanConeAngle, gTanPixelAngularRadius );
-
-    return float2( mip, tanConeAngle );
-}
-
-float2 GetConeAngleFromRoughness( float mip, float roughness )
-{
-    float tanConeAngle = roughness * roughness * 0.05; // TODO: tweaked to be accurate and give perf boost
-
-    return GetConeAngleFromAngularRadius( mip, tanConeAngle );
-}
 
 float2 STF_Bilinear( float2 uv, float2 texSize )
 {
@@ -175,8 +196,6 @@ float3 GetSamplingCoords( uint textureIndex, float2 uv, float mip, int mode )
 
     #if( USE_STOCHASTIC_SAMPLING == 1 )
         mip = floor( mip ) + step( Rng::Hash::GetFloat( ), frac( mip ) );
-    #elif( USE_LOAD == 1 )
-        mip = round( mip );
     #endif
 
     texSize *= exp2( -mip );
@@ -186,11 +205,323 @@ float3 GetSamplingCoords( uint textureIndex, float2 uv, float mip, int mode )
         uv = STF_Bilinear( uv, texSize );
     #endif
 
-    #if( USE_LOAD == 1 )
-        uv = frac( uv ) * texSize;
+    return float3( uv, mip );
+}
+
+MaterialProps GetMaterialProps( GeometryProps geometryProps )
+{
+    MaterialProps props = ( MaterialProps )0;
+
+    // Fast path for miss and hair
+    [branch]
+    if( geometryProps.IsMiss( ) )
+    {
+        props.Lemi = GetSkyIntensity( -geometryProps.V );
+
+        return props;
+    }
+#if( RTXCR_INTEGRATION == 1 )
+    else if( geometryProps.Has( FLAG_HAIR ) )
+    {
+        props.N = geometryProps.N;
+        props.T = geometryProps.T.xyz;
+        props.baseColor = gHairBaseColor.xyz * 0.25; // TODO: still not the best match in terms of energy
+        props.roughness = gHairBetas.x;
+        props.curvature = geometryProps.curvature;
+        props.metalness = 1.0; // no diffuse lobe for hair
+
+        return props;
+    }
+#endif
+
+    uint baseTexture = geometryProps.GetBaseTexture( );
+    InstanceData instanceData = gIn_InstanceData[ geometryProps.instanceIndex ];
+
+    // Base color
+    float3 coords = GetSamplingCoords( baseTexture, geometryProps.uv, geometryProps.mip, MIP_SHARP );
+    float4 color = gIn_Textures[ NonUniformResourceIndex( baseTexture ) ].SAMPLE( coords );
+    color.xyz *= instanceData.baseColorAndMetalnessScale.xyz;
+    color.xyz *= geometryProps.Has( FLAG_TRANSPARENT ) ? 1.0 : Math::PositiveRcp( color.w ); // Correct handling of BC1 with pre-multiplied alpha
+    float3 baseColor = saturate( color.xyz );
+
+    // Roughness and metalness
+    coords = GetSamplingCoords( baseTexture + 1, geometryProps.uv, geometryProps.mip, MIP_SHARP );
+    float3 materialProps = gIn_Textures[ NonUniformResourceIndex( baseTexture + 1 ) ].SAMPLE( coords ).xyz;
+    float roughness = saturate( materialProps.y * instanceData.emissionAndRoughnessScale.w );
+    float metalness = saturate( materialProps.z * instanceData.baseColorAndMetalnessScale.w );
+
+    // Normal
+    coords = GetSamplingCoords( baseTexture + 2, geometryProps.uv * instanceData.normalUvScale, geometryProps.mip, MIP_LESS_SHARP );
+    float2 packedNormal = gIn_Textures[ NonUniformResourceIndex( baseTexture + 2 ) ].SAMPLE( coords ).xy;
+    float3 N = gUseNormalMap ? Geometry::TransformLocalNormal( packedNormal, geometryProps.T, geometryProps.N ) : geometryProps.N;
+    float3 T = geometryProps.T.xyz;
+
+    float3 Nlocal = Geometry::UnpackLocalNormal( packedNormal );
+    Nlocal.xy *= float( gUseNormalMap );
+
+    // Estimate curvature
+    float viewZ = Geometry::AffineTransform( gWorldToView, geometryProps.X ).z;
+    float pixelSize = gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
+    float localCurvature = length( Nlocal.xy ) / pixelSize;
+
+    // Emission
+    float3 Lemi = 0.0;
+#if( USE_WHITE_FURNACE == 0 )
+    coords = GetSamplingCoords( baseTexture + 3, geometryProps.uv, geometryProps.mip, MIP_VISIBILITY );
+    Lemi = gIn_Textures[ NonUniformResourceIndex( baseTexture + 3 ) ].SAMPLE( coords ).xyz;
+    Lemi *= instanceData.emissionAndRoughnessScale.xyz;
+    Lemi *= ( baseColor + 0.01 ) / ( max( baseColor, max( baseColor, baseColor ) ) + 0.01 );
+
+    [flatten]
+    if( geometryProps.Has( FLAG_FORCED_EMISSION ) )
+    {
+        Lemi = geometryProps.GetForcedEmissionColor( );
+        Lemi *= gEmissionIntensityCubes;
+
+        baseColor = 0.0;
+    }
+    else
+        Lemi *= gEmissionIntensityLights;
+#endif
+
+    // Material overrides
+    [flatten]
+    if( gForcedMaterial == MATERIAL_GYPSUM )
+    {
+        roughness = 1.0;
+        baseColor = 0.5;
+        metalness = 0.0;
+    }
+    else if( gForcedMaterial == MATERIAL_COBALT )
+    {
+        roughness = pow( saturate( baseColor.x * baseColor.y * baseColor.z ), 0.33333 );
+        baseColor = float3( 0.672411, 0.637331, 0.585456 );
+        metalness = 1.0;
+
+        #if( USE_ANOTHER_COBALT == 1 )
+            roughness = pow( saturate( roughness - 0.1 ), 0.25 ) * 0.3 + 0.07;
+        #endif
+    }
+
+    metalness = gMetalnessOverride == 0.0 ? metalness : gMetalnessOverride;
+    roughness = gRoughnessOverride == 0.0 ? roughness : gRoughnessOverride;
+
+    #if( USE_PUDDLES == 1 )
+        roughness *= Math::SmoothStep( 0.6, 0.8, length( frac( geometryProps.uv ) * 2.0 - 1.0 ) );
     #endif
 
-    return float3( uv, mip );
+    #if( USE_RANDOMIZED_ROUGHNESS == 1 )
+        float2 noise = ( frac( sin( dot( geometryProps.uv, float2( 12.9898, 78.233 ) * 2.0 ) ) * 43758.5453 ) );
+        float noise01 = abs( noise.x + noise.y ) * 0.5;
+        roughness *= 1.0 + ( noise01 * 2.0 - 1.0 ) * 0.25;
+    #endif
+
+    roughness = saturate( roughness );
+    metalness = saturate( metalness );
+
+    // Transform to diffuse material if emission is here
+    float emissionLevel = Color::Luminance( Lemi );
+    emissionLevel = saturate( emissionLevel * 50.0 );
+
+    metalness = lerp( metalness, 0.0, emissionLevel );
+    roughness = lerp( roughness, 1.0, emissionLevel );
+
+#if( USE_WHITE_FURNACE == 1 )
+    // Grid instance IDs follow the CPU layout: X-major, Y-minor
+    uint instanceID = geometryProps.instanceIndex - gMaterialGridInstanceOffset;
+    [flatten]
+    if( gMaterialGridInstanceOffset != 0xFFFFFFFF && instanceID < ( MATERIAL_GRID_DIM * MATERIAL_GRID_DIM ) )
+    {
+        roughness = float( instanceID / MATERIAL_GRID_DIM ) / float( MATERIAL_GRID_DIM - 1 );
+        metalness = float( instanceID % MATERIAL_GRID_DIM ) / float( MATERIAL_GRID_DIM - 1 );
+    }
+
+    baseColor = 1.0;
+#endif
+
+    // TODO: roughness AA
+
+    // Output
+    props.Lemi = Lemi;
+    props.N = N;
+    props.T = T;
+    props.baseColor = baseColor;
+    props.roughness = roughness;
+    props.metalness = metalness;
+    props.curvature = geometryProps.curvature + localCurvature;
+
+    return props;
+}
+
+// Full-lobe directional albedo of correlated Smith GGX with Fresnel = 1.
+// Rational fit to numerical integration over roughness and NoV, including grazing angles
+float GetGgxDirectionalAlbedo( float roughness, float NoV )
+{
+    float a = saturate( roughness * roughness );
+    NoV = saturate( NoV );
+
+    float P0 = 0.118279716 + NoV * ( -0.0734542982 + NoV * ( -1.23538709 + NoV * ( 2.68416424 + NoV * -1.53020219 ) ) );
+    float P1 = 0.521229221 + NoV * ( 4.07235657 + NoV * ( -9.42805642 + NoV * 6.1811558 ) );
+    float P2 = -1.09054096 + NoV * ( 3.11982197 + NoV * -3.06561452 );
+    float P3 = 3.69325704 + NoV * 3.16781228;
+    float P4 = -1.61330299;
+    float P = P0 + a * ( P1 + a * ( P2 + a * ( P3 + a * P4 ) ) );
+
+    float Q0 = NoV * ( -1.03743405 + NoV * ( -2.81118631 + NoV * ( -0.951232433 + NoV * 3.30048115 ) ) );
+    float Q1 = 1.03497508 + NoV * ( 11.8604721 + NoV * ( -2.80723625 + NoV * -3.39815293 ) );
+    float Q2 = -2.94789186 + NoV * ( -7.33046764 + NoV * 6.04505656 );
+    float Q3 = 3.98680103 + NoV * 3.76197424;
+    float Q4 = -1.76042778;
+    float Q = Q0 + a * ( Q1 + a * ( Q2 + a * ( Q3 + a * Q4 ) ) );
+
+    return saturate( 1.0 - a * NoV * P * Math::PositiveRcp( NoV * NoV + a * Q ) );
+}
+
+float3 GetSpecularEnergyCompensation( float3 baseColor, float metalness, float roughness, float NoV, float VoH )
+{
+    // Turquin's approximation: reuse the single-scattering lobe and its sampling PDF.
+    // https://blog.selfshadow.com/publications/turquin/ms_comp_final.pdf
+    float E = GetGgxDirectionalAlbedo( roughness, NoV );
+
+    // Compensate the dielectric and metal endpoints before interpolating by metalness
+    float3 Fdielectric = BRDF::FresnelTerm( ML_RF0_DIELECTRICS.xxx, VoH );
+    float3 Fmetal = BRDF::FresnelTerm( baseColor, VoH );
+    float3 Fms = lerp( Fdielectric * ML_RF0_DIELECTRICS, Fmetal * baseColor, metalness );
+
+    float3 Rf0 = lerp( ML_RF0_DIELECTRICS, baseColor, metalness );
+    float3 F = BRDF::FresnelTerm( Rf0, VoH );
+
+    return 1.0 + Fms * Math::PositiveRcp( F ) * ( Math::PositiveRcp( E ) - 1.0 );
+}
+
+// Taken out from NRD
+float GetSpecMagicCurve( float roughness )
+{
+    float f = 1.0 - exp2( -200.0 * roughness * roughness );
+    f *= Math::Pow01( roughness, 0.5 );
+
+    return f;
+}
+
+// Material de-modulation for NRD
+void GetMaterialFactors( float3 N, float3 V, float3 albedo, float3 Rf0, float roughness, bool isHair, out float3 diffFactor, out float3 specFactor )
+{
+    NRD_MaterialFactors( N, V, albedo, Rf0, roughness, diffFactor, specFactor );
+
+    // "material ID" is a must! Hair has modified normals needed for better denoising, thus material factors for "modulation" and "de-modulation" will be different without this modification
+    if( isHair && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
+    {
+        diffFactor = 1.0;
+        specFactor = 1.0;
+    }
+}
+
+// Material de-modulation for SHARC
+float3 GetMaterialFactor( GeometryProps geometryProps, MaterialProps materialProps )
+{
+    float3 albedo, Rf0;
+    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+
+    float3 diffFactor, specFactor;
+    NRD_MaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, materialProps.roughness, diffFactor, specFactor );
+
+    return diffFactor + specFactor;
+}
+
+//==========================================
+// TRACER
+//==========================================
+
+bool IsDelta( MaterialProps materialProps )
+{
+    return materialProps.roughness < 0.041 // TODO: tweaked for kitchen
+        && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 )
+        && sqrt( abs( materialProps.curvature ) ) < 2.5;
+}
+
+float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps materialProps, bool useMagicBoost = false )
+{
+    // IMPORTANT: can't be used for hair tracing, but applicable in other hair related calculations
+    float3 albedo, Rf0;
+    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+
+    float NoV = abs( dot( materialProps.N, geometryProps.V ) );
+    float3 Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
+
+    float lumSpec = Color::Luminance( Fenv );
+    float lumDiff = Color::Luminance( albedo * ( 1.0 - Fenv ) );
+
+    float diffProb = lumDiff / max( lumDiff + lumSpec, NRD_EPS );
+
+    // Should not be there, but no diffuse for hair
+    if( geometryProps.Has( FLAG_HAIR ) )
+        diffProb = 0.0;
+
+    // Boost diffussiness ( aka diffuse-like behavior ) if roughness is high
+    if( useMagicBoost )
+        diffProb = lerp( diffProb, 1.0, GetSpecMagicCurve( materialProps.roughness ) );
+
+    [flatten]
+    if( diffProb < PT_EVIL_TWIN_LOBE_TOLERANCE )
+        return 0.0; // no diffuse materials are common ( metals )
+    else if( diffProb > 1.0 - PT_EVIL_TWIN_LOBE_TOLERANCE )
+        return 1.0; // no specular materials are uncommon ( broken material model? )
+
+    return diffProb; // return unclamped ( clamp elsewhere if needed )
+}
+
+float GetClampedDiffuseProbability( GeometryProps geometryProps, MaterialProps materialProps )
+{
+    float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
+
+    // Clamp probability to a sane range for all bounces to reduce noise and convergence time
+    return float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
+}
+
+void GetCameraRay( out float3 origin, out float3 direction, float2 sampleUv )
+{
+    // https://www.slideshare.net/TiagoAlexSousa/graphics-gems-from-cryengine-3-siggraph-2013 ( slides 23+ )
+
+    // Pinhole ray
+    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, gNearZ, gOrthoMode );
+    direction = normalize( Xv );
+
+    // Distorted ray
+    float2 rnd = Rng::Hash::GetFloat2( );
+    rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
+    Xv.xy += rnd * gAperture;
+
+    float3 Fv = direction * gFocalDistance; // z-plane
+    #if 0
+        Fv /= dot( vForward, direction ); // radius
+    #endif
+
+    origin = Geometry::AffineTransform( gViewToWorld, Xv );
+    direction = gOrthoMode == 0.0 ? normalize( Geometry::RotateVector( gViewToWorld, Fv - Xv ) ) : -gViewDirection.xyz;
+}
+
+float GetCircleOfConfusion( float distance ) // diameter
+{
+    float F = gFocalLength; // focal lenght ( deducted from FOV )
+    float A = gAperture; // aperture diameter
+    float P = gFocalDistance; // focal distance
+
+    return gOrthoMode == 0.0 ? abs( A * ( F * ( P - distance ) ) / ( distance * ( P - F ) ) ) : A;
+}
+
+float2 GetConeAngleFromAngularRadius( float mip, float tanConeAngle )
+{
+    // In any case, we are limited by the output resolution
+    tanConeAngle = max( tanConeAngle, gTanPixelAngularRadius );
+
+    return float2( mip, tanConeAngle );
+}
+
+float2 GetConeAngleFromRoughness( float mip, float roughness )
+{
+    float tanConeAngle = roughness * roughness * 0.05; // TODO: tweaked to be accurate and give perf boost
+
+    return GetConeAngleFromAngularRadius( mip, tanConeAngle );
 }
 
 #define CheckNonOpaqueTriangle( rayQuery, mipAndCone ) \
@@ -426,331 +757,88 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
     return props;
 }
 
-MaterialProps GetMaterialProps( GeometryProps geometryProps )
+float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float eta, out float3 Xoffset, out float3 ray )
 {
-    MaterialProps props = ( MaterialProps )0;
-
-    // Fast path for miss and hair
-    [branch]
-    if( geometryProps.IsMiss( ) )
-    {
-        props.Lemi = GetSkyIntensity( -geometryProps.V );
-
-        return props;
-    }
-#if( RTXCR_INTEGRATION == 1 )
-    else if( geometryProps.Has( FLAG_HAIR ) )
-    {
-        props.N = geometryProps.N;
-        props.T = geometryProps.T.xyz;
-        props.baseColor = gHairBaseColor.xyz * 0.25; // TODO: still not the best match in terms of energy
-        props.roughness = gHairBetas.x;
-        props.curvature = geometryProps.curvature;
-        props.metalness = 1.0; // no diffuse lobe for hair
-
-        return props;
-    }
-#endif
-
-    uint baseTexture = geometryProps.GetBaseTexture( );
-    InstanceData instanceData = gIn_InstanceData[ geometryProps.instanceIndex ];
-
-    // Base color
-    float3 coords = GetSamplingCoords( baseTexture, geometryProps.uv, geometryProps.mip, MIP_SHARP );
-    float4 color = gIn_Textures[ NonUniformResourceIndex( baseTexture ) ].SAMPLE( coords );
-    color.xyz *= instanceData.baseColorAndMetalnessScale.xyz;
-    color.xyz *= geometryProps.Has( FLAG_TRANSPARENT ) ? 1.0 : Math::PositiveRcp( color.w ); // Correct handling of BC1 with pre-multiplied alpha
-    float3 baseColor = saturate( color.xyz );
-
-    // Roughness and metalness
-    coords = GetSamplingCoords( baseTexture + 1, geometryProps.uv, geometryProps.mip, MIP_SHARP );
-    float3 materialProps = gIn_Textures[ NonUniformResourceIndex( baseTexture + 1 ) ].SAMPLE( coords ).xyz;
-    float roughness = saturate( materialProps.y * instanceData.emissionAndRoughnessScale.w );
-    float metalness = saturate( materialProps.z * instanceData.baseColorAndMetalnessScale.w );
-
-    // Normal
-    coords = GetSamplingCoords( baseTexture + 2, geometryProps.uv * instanceData.normalUvScale, geometryProps.mip, MIP_LESS_SHARP );
-    float2 packedNormal = gIn_Textures[ NonUniformResourceIndex( baseTexture + 2 ) ].SAMPLE( coords ).xy;
-    float3 N = gUseNormalMap ? Geometry::TransformLocalNormal( packedNormal, geometryProps.T, geometryProps.N ) : geometryProps.N;
-    float3 T = geometryProps.T.xyz;
-
-    float3 Nlocal = Geometry::UnpackLocalNormal( packedNormal );
-    Nlocal.xy *= float( gUseNormalMap );
-
-    // Estimate curvature
-    float viewZ = Geometry::AffineTransform( gWorldToView, geometryProps.X ).z;
-    float pixelSize = gUnproject * lerp( abs( viewZ ), 1.0, abs( gOrthoMode ) );
-    float localCurvature = length( Nlocal.xy ) / pixelSize;
-
-    // Emission
-    float3 Lemi = 0.0;
-#if( USE_WHITE_FURNACE == 0 )
-    coords = GetSamplingCoords( baseTexture + 3, geometryProps.uv, geometryProps.mip, MIP_VISIBILITY );
-    Lemi = gIn_Textures[ NonUniformResourceIndex( baseTexture + 3 ) ].SAMPLE( coords ).xyz;
-    Lemi *= instanceData.emissionAndRoughnessScale.xyz;
-    Lemi *= ( baseColor + 0.01 ) / ( max( baseColor, max( baseColor, baseColor ) ) + 0.01 );
-
-    [flatten]
-    if( geometryProps.Has( FLAG_FORCED_EMISSION ) )
-    {
-        Lemi = geometryProps.GetForcedEmissionColor( );
-        Lemi *= gEmissionIntensityCubes;
-
-        baseColor = 0.0;
-    }
+    if( isReflection )
+        ray = reflect( -geometryProps.V, geometryProps.N );
     else
-        Lemi *= gEmissionIntensityLights;
-#endif
-
-    // Material overrides
-    [flatten]
-    if( gForcedMaterial == MATERIAL_GYPSUM )
     {
-        roughness = 1.0;
-        baseColor = 0.5;
-        metalness = 0.0;
-    }
-    else if( gForcedMaterial == MATERIAL_COBALT )
-    {
-        roughness = pow( saturate( baseColor.x * baseColor.y * baseColor.z ), 0.33333 );
-        baseColor = float3( 0.672411, 0.637331, 0.585456 );
-        metalness = 1.0;
+        float3 I = -geometryProps.V;
+        float NoI = dot( geometryProps.N, I );
+        float k = max( 1.0 - eta * eta * ( 1.0 - NoI * NoI ), 0.0 );
 
-        #if( USE_ANOTHER_COBALT == 1 )
-            roughness = pow( saturate( roughness - 0.1 ), 0.25 ) * 0.3 + 0.07;
-        #endif
+        ray = normalize( eta * I - ( eta * NoI + sqrt( k ) ) * geometryProps.N );
+        eta = 1.0 / eta;
     }
 
-    metalness = gMetalnessOverride == 0.0 ? metalness : gMetalnessOverride;
-    roughness = gRoughnessOverride == 0.0 ? roughness : gRoughnessOverride;
+    float amount = geometryProps.Has( FLAG_TRANSPARENT ) ? PT_GLASS_RAY_OFFSET : PT_BOUNCE_RAY_OFFSET;
+    float s = Math::Sign( dot( ray, geometryProps.N ) );
 
-    #if( USE_PUDDLES == 1 )
-        roughness *= Math::SmoothStep( 0.6, 0.8, length( frac( geometryProps.uv ) * 2.0 - 1.0 ) );
-    #endif
+    Xoffset = GetXoffset( geometryProps.X, geometryProps.N * s, amount );
 
-    #if( USE_RANDOMIZED_ROUGHNESS == 1 )
-        float2 noise = ( frac( sin( dot( geometryProps.uv, float2( 12.9898, 78.233 ) * 2.0 ) ) * 43758.5453 ) );
-        float noise01 = abs( noise.x + noise.y ) * 0.5;
-        roughness *= 1.0 + ( noise01 * 2.0 - 1.0 ) * 0.25;
-    #endif
+    return eta;
+}
 
-    roughness = saturate( roughness );
-    metalness = saturate( metalness );
+struct TracePayload
+{
+    float3 radiance;
+    float3 throughput;
+    float accumulatedHitDist;
+    float accumulatedCurvature;
+    float eta;
+};
 
-    // Transform to diffuse material if emission is here
-    float emissionLevel = Color::Luminance( Lemi );
-    emissionLevel = saturate( emissionLevel * 50.0 );
+// Traces through glass to the next opaque hit or sky; skips non-glass inputs
+bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, bool isReflection, float coneAngle, float seed, compiletime bool isDirectTracing )
+{
+    uint bounceMaxNum = isDirectTracing ? PT_GLASS_DIRECT_BOUNCES_NUM : PT_GLASS_INDIRECT_BOUNCES_NUM;
 
-    metalness = lerp( metalness, 0.0, emissionLevel );
-    roughness = lerp( roughness, 1.0, emissionLevel );
-
-#if( USE_WHITE_FURNACE == 1 )
-    // Grid instance IDs follow the CPU layout: X-major, Y-minor
-    uint instanceID = geometryProps.instanceIndex - gMaterialGridInstanceOffset;
-    [flatten]
-    if( gMaterialGridInstanceOffset != 0xFFFFFFFF && instanceID < ( MATERIAL_GRID_DIM * MATERIAL_GRID_DIM ) )
+    [loop]
+    for( uint bounce = 1; bounce <= bounceMaxNum; bounce++ )
     {
-        roughness = float( instanceID / MATERIAL_GRID_DIM ) / float( MATERIAL_GRID_DIM - 1 );
-        metalness = float( instanceID % MATERIAL_GRID_DIM ) / float( MATERIAL_GRID_DIM - 1 );
-    }
+        // Keep outside of "for" for better performance
+        if( !geometryProps.Has( FLAG_TRANSPARENT ) )
+            break;
 
-    baseColor = 1.0;
-#endif
+        // Reflection or refraction?
+        float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
+        float F = BRDF::FresnelTerm_Dielectric( payload.eta, NoV );
 
-    // TODO: roughness AA
-
-    // Output
-    props.Lemi = Lemi;
-    props.N = N;
-    props.T = T;
-    props.baseColor = baseColor;
-    props.roughness = roughness;
-    props.metalness = metalness;
-    props.curvature = geometryProps.curvature + localCurvature;
-
-    return props;
-}
-
-// Full-lobe directional albedo of correlated Smith GGX with Fresnel = 1.
-// Rational fit to numerical integration over roughness and NoV, including grazing angles
-float GetGgxDirectionalAlbedo( float roughness, float NoV )
-{
-    float a = saturate( roughness * roughness );
-    NoV = saturate( NoV );
-
-    float P0 = 0.118279716 + NoV * ( -0.0734542982 + NoV * ( -1.23538709 + NoV * ( 2.68416424 + NoV * -1.53020219 ) ) );
-    float P1 = 0.521229221 + NoV * ( 4.07235657 + NoV * ( -9.42805642 + NoV * 6.1811558 ) );
-    float P2 = -1.09054096 + NoV * ( 3.11982197 + NoV * -3.06561452 );
-    float P3 = 3.69325704 + NoV * 3.16781228;
-    float P4 = -1.61330299;
-    float P = P0 + a * ( P1 + a * ( P2 + a * ( P3 + a * P4 ) ) );
-
-    float Q0 = NoV * ( -1.03743405 + NoV * ( -2.81118631 + NoV * ( -0.951232433 + NoV * 3.30048115 ) ) );
-    float Q1 = 1.03497508 + NoV * ( 11.8604721 + NoV * ( -2.80723625 + NoV * -3.39815293 ) );
-    float Q2 = -2.94789186 + NoV * ( -7.33046764 + NoV * 6.04505656 );
-    float Q3 = 3.98680103 + NoV * 3.76197424;
-    float Q4 = -1.76042778;
-    float Q = Q0 + a * ( Q1 + a * ( Q2 + a * ( Q3 + a * Q4 ) ) );
-
-    return saturate( 1.0 - a * NoV * P * Math::PositiveRcp( NoV * NoV + a * Q ) );
-}
-
-float3 GetSpecularEnergyCompensation( float3 baseColor, float metalness, float roughness, float NoV, float VoH )
-{
-    // Turquin's approximation: reuse the single-scattering lobe and its sampling PDF.
-    // https://blog.selfshadow.com/publications/turquin/ms_comp_final.pdf
-    float E = GetGgxDirectionalAlbedo( roughness, NoV );
-
-    // Compensate the dielectric and metal endpoints before interpolating by metalness
-    float3 Fdielectric = BRDF::FresnelTerm( ML_RF0_DIELECTRICS.xxx, VoH );
-    float3 Fmetal = BRDF::FresnelTerm( baseColor, VoH );
-    float3 Fms = lerp( Fdielectric * ML_RF0_DIELECTRICS, Fmetal * baseColor, metalness );
-
-    float3 Rf0 = lerp( ML_RF0_DIELECTRICS, baseColor, metalness );
-    float3 F = BRDF::FresnelTerm( Rf0, VoH );
-
-    return 1.0 + Fms * Math::PositiveRcp( F ) * ( Math::PositiveRcp( E ) - 1.0 );
-}
-
-// Compile-time flags for "GetLighting"
-#define LIGHTING    0x01
-#define SHADOW      0x02
-#define SSS         0x04
-
-float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, compiletime uint flags, out float3 Xshadow )
-{
-    float3 lighting = 0.0;
-
-    // Lighting
-    Xshadow = geometryProps.X;
-
-    if ( ( flags & LIGHTING ) != 0 )
-    {
-        float3 Csun = GetSunIntensity( gSunDirection.xyz );
-        float3 Csky = GetSkyIntensity( -geometryProps.V );
-        float NoL = saturate( dot( geometryProps.N, gSunDirection.xyz ) );
-        bool isSSS = ( flags & SSS ) != 0 && geometryProps.Has( FLAG_SKIN );
-        float minThreshold = isSSS ? -0.2 : 0.03; // TODO: hand-tuned for SSS, a helper in RTXCR SDK is needed
-        float shadow = Math::SmoothStep( minThreshold, 0.1, NoL );
-
-    #if( RTXCR_INTEGRATION == 1 )
-        // HAIR MATERIAL
-        if( geometryProps.Has( FLAG_HAIR ) )
-        {
-            float3x3 mLocalBasis = Hair_GetBasis( materialProps.N, materialProps.T );
-            float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
-            float3 Llocal = Geometry::RotateVector( mLocalBasis, gSunDirection.xyz );
-
-            float pdf = 0.0;
-            float3 bsdfSpecular = 0.0;
-            float3 bsdfDiffuse = 0.0;
-
-            RTXCR_HairInteractionSurface hairGeometry = Hair_GetSurface( Vlocal );
-            RTXCR_HairMaterialInteractionBcsdf hairMaterial = Hair_GetMaterial( );
-            RTXCR_HairFarFieldBcsdfEval( hairGeometry, hairMaterial, Llocal, Vlocal, bsdfSpecular, bsdfDiffuse, pdf );
-
-            lighting = Csun * ( bsdfSpecular + bsdfDiffuse );
-        }
+        if( isDirectTracing && bounce == 1 )
+            payload.throughput *= isReflection ? F : 1.0 - F;
         else
-    #endif
-        // COMMON MATERIAL
-        if( shadow != 0.0 )
         {
-            // Extract materials
-            float3 albedo, Rf0;
-            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor.xyz, materialProps.metalness, albedo, Rf0 );
+            float rnd;
+            if( isDirectTracing && !gRR && !gSR ) // these prefer white noise
+                rnd = frac( seed + Sequence::Halton( bounce, 3 ) ); // Halton base 2 works worse
+            else
+                rnd = Rng::Hash::GetFloat( );
 
-            // Pseudo sky importance sampling
-            float3 Cimp = lerp( Csky, Csun, Math::SmoothStep( 0.0, 0.2, materialProps.roughness ) );
-            Cimp *= Math::SmoothStep( -0.01, 0.05, gSunDirection.z );
-            Cimp *= float( USE_WHITE_FURNACE == 0 ); // furnace radiance is already integrated by the path tracer
-
-            // Common BRDF
-            float3 N = materialProps.N;
-            float3 L = gSunDirection.xyz;
-            float3 V = geometryProps.V;
-            float3 H = normalize( L + V );
-
-            float NoL = saturate( dot( N, L ) );
-            float NoH = saturate( dot( N, H ) );
-            float VoH = saturate( dot( V, H ) );
-            float NoV = abs( dot( N, V ) );
-
-            float D = BRDF::DistributionTerm( materialProps.roughness, NoH );
-            float G = BRDF::GeometryTermMod( materialProps.roughness, NoL, NoV, VoH, NoH );
-            float3 F = BRDF::FresnelTerm( Rf0, VoH );
-            float Kdiff = BRDF::DiffuseTerm( materialProps.roughness, NoL, NoV, VoH );
-
-            float3 Cspec = saturate( F * D * G * NoL ) * GetSpecularEnergyCompensation( materialProps.baseColor, materialProps.metalness, materialProps.roughness, NoV, VoH );
-            float3 Cdiff = Kdiff * Csun * albedo * NoL;
-
-            lighting = Cspec * Cimp;
-
-        #if( RTXCR_INTEGRATION == 1 )
-            // SSS-DIFFUSE MATERIAL ( SKIN )
-            if( isSSS )
-            {
-                RTXCR_SubsurfaceMaterialData sssMaterial = ( RTXCR_SubsurfaceMaterialData )0;
-                sssMaterial.transmissionColor = albedo;
-                sssMaterial.scatteringColor = float3( 1.0, 0.3, 0.1 );
-                sssMaterial.scale = 0.4 / gUnitToMetersMultiplier; // TODO: units dependent! cm!
-                sssMaterial.g = 0.0;
-
-                float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N, PT_SHADOW_RAY_OFFSET );
-                float3x3 mLocalBasis = Geometry::GetBasis( geometryProps.N );
-                RTXCR_SubsurfaceInteraction sssGeometry = RTXCR_CreateSubsurfaceInteraction( Xoffset, mLocalBasis[ 2 ], mLocalBasis[ 0 ], mLocalBasis[ 1 ] );
-
-                const bool TRANSMISSION = false; // no expensive transmission, i.e. single scattering
-
-                RTXCR_SubsurfaceSample sssSample;
-                RTXCR_EvalBurleyDiffusionProfile( sssMaterial, sssGeometry, 0.004 / gUnitToMetersMultiplier, TRANSMISSION, Rng::Hash::GetFloat2( ), sssSample ); // TODO: units dependent! m?
-
-                float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, 0.0 );
-                geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS ); // TODO: project to g-buffer?
-
-                if( !geometryProps.IsMiss( ) && geometryProps.Has( FLAG_SKIN ) ) // TODO: another try is needed if this fails, but we can fallback to diffuse without SSS
-                {
-                    Xshadow = geometryProps.X;
-                    materialProps = GetMaterialProps( geometryProps );
-
-                    float NoL = saturate( dot( materialProps.N, L ) );
-                    Cdiff = RTXCR_EvalBssrdf( sssSample, Csun, NoL );
-                }
-            }
-        #endif
-
-            lighting += Cdiff * ( 1.0 - F );
-            lighting *= shadow;
+            isReflection = rnd < F;
         }
+
+        float3 Xoffset, ray;
+        payload.eta = GetDeltaEventRay( geometryProps, isReflection, payload.eta, Xoffset, ray );
+
+        // Finish the incoming segment traced by the caller or previous glass bounce
+        payload.accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, payload.accumulatedCurvature );
+
+        // Add this glass surface's curvature for the outgoing ray
+        payload.accumulatedCurvature += geometryProps.curvature;
+
+        // Move to the next hit
+        uint flags = bounce == bounceMaxNum ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
+        geometryProps = CastRay( Xoffset, ray, 0.0, INF, float2( geometryProps.mip, coneAngle ), gWorldTlas, flags, PT_RAY_FLAGS );
+
+        // TODO: ideally each medium should have its own IOR and extinction ( tint color? )
+        bool isAir = payload.eta < 1.0;
+        float extinction = isAir ? 0.0 : PT_GLASS_EXTINCTION;
+
+        // TODO: fix for non-convex geometry
+        payload.throughput *= geometryProps.IsMiss( ) ? 1.0 : exp( -extinction * geometryProps.hitT * gUnitToMetersMultiplier );
     }
-    else
-        lighting = 1.0;
 
-    // Shadow
-    const uint instanceInclusionMask = FLAG_NON_TRANSPARENT; // Default shadow rays must ignore transparency // TODO: what about translucency?
-    const uint rayFlags = 0;
-
-    if( ( flags & SHADOW ) != 0 && Color::Luminance( lighting ) != 0 && !gDisableShadowsAndEnableImportanceSampling )
-    {
-        float2 rnd = Rng::Hash::GetFloat2( );
-        rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
-        rnd *= gTanSunAngularRadius;
-
-        float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
-        float3 Xoffset = GetXoffset( geometryProps.X, sunDirection, PT_SHADOW_RAY_OFFSET );
-        float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps.mip, gTanSunAngularRadius );
-
-        float hitT = CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask, rayFlags );
-        lighting *= float( hitT == INF );
-    }
-
-    return lighting;
-}
-
-float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, uint flags )
-{
-    float3 unused;
-    return GetLighting( geometryProps, materialProps, flags, unused );
+    return isReflection;
 }
 
 float2 GetBlueNoise( uint2 pixelPos, Texture2D<uint3> gIn_ScramblingRankingSpp, uint spp, uint frameIndex )
@@ -775,6 +863,15 @@ float2 GetBlueNoise( uint2 pixelPos, Texture2D<uint3> gIn_ScramblingRankingSpp, 
     return blue;
 }
 
+uint GetImportanceSampleNum( float roughness, bool isDiffuse, bool isFirstBounce )
+{
+    uint sampleMaxNum = 0;
+    if( gDisableShadowsAndEnableImportanceSampling && ( USE_IS_FOR_ALL_BOUNCES || isFirstBounce ) )
+        sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( roughness ) );
+
+    return max( sampleMaxNum, 1 );
+}
+
 // Compile-time flags for "GenerateRayAndUpdateThroughput"
 #define GR_HAIR 0x1
 #define GR_ALLOW_BN 0x2
@@ -784,7 +881,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     bool isHair = RTXCR_INTEGRATION && ( flags & GR_HAIR ) != 0 && geometryProps.Has( FLAG_HAIR );
     bool isTransmission = USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse && Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY; // white noise is fine here
 
-    float3x3 mLocalBasis = isHair ? Hair_GetBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
+    float3x3 mLocalBasis = isHair ? GetHairBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
     float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
 
     // Get blue noise base
@@ -976,89 +1073,154 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     return ray;
 }
 
-// Material de-modulation for NRD
-void GetMaterialFactors( float3 N, float3 V, float3 albedo, float3 Rf0, float roughness, bool isHair, out float3 diffFactor, out float3 specFactor )
-{
-    NRD_MaterialFactors( N, V, albedo, Rf0, roughness, diffFactor, specFactor );
+//==========================================
+// LIGHTING
+//==========================================
 
-    // "material ID" is a must! Hair has modified normals needed for better denoising, thus material factors for "modulation" and "de-modulation" will be different without this modification
-    if( isHair && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
+float3 SampleSunDirection( float2 rnd )
+{
+    rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
+    rnd *= gTanSunAngularRadius;
+
+    return normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
+}
+
+// Compile-time flags for "GetLighting"
+#define LIGHTING    0x01
+#define SHADOW      0x02
+#define SSS         0x04
+
+float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, compiletime uint flags, out float3 Xshadow )
+{
+    float3 lighting = 0.0;
+
+    // Lighting
+    Xshadow = geometryProps.X;
+
+    if ( ( flags & LIGHTING ) != 0 )
     {
-        diffFactor = 1.0;
-        specFactor = 1.0;
+        float3 Csun = GetSunIntensity( gSunDirection.xyz );
+        float3 Csky = GetSkyIntensity( -geometryProps.V );
+        float NoL = saturate( dot( geometryProps.N, gSunDirection.xyz ) );
+        bool isSSS = ( flags & SSS ) != 0 && geometryProps.Has( FLAG_SKIN );
+        float minThreshold = isSSS ? -0.2 : 0.03; // TODO: hand-tuned for SSS, a helper in RTXCR SDK is needed
+        float shadow = Math::SmoothStep( minThreshold, 0.1, NoL );
+
+    #if( RTXCR_INTEGRATION == 1 )
+        // HAIR MATERIAL
+        if( geometryProps.Has( FLAG_HAIR ) )
+        {
+            float3x3 mLocalBasis = GetHairBasis( materialProps.N, materialProps.T );
+            float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
+            float3 Llocal = Geometry::RotateVector( mLocalBasis, gSunDirection.xyz );
+
+            float pdf = 0.0;
+            float3 bsdfSpecular = 0.0;
+            float3 bsdfDiffuse = 0.0;
+
+            RTXCR_HairInteractionSurface hairGeometry = Hair_GetSurface( Vlocal );
+            RTXCR_HairMaterialInteractionBcsdf hairMaterial = Hair_GetMaterial( );
+            RTXCR_HairFarFieldBcsdfEval( hairGeometry, hairMaterial, Llocal, Vlocal, bsdfSpecular, bsdfDiffuse, pdf );
+
+            lighting = Csun * ( bsdfSpecular + bsdfDiffuse );
+        }
+        else
+    #endif
+        // COMMON MATERIAL
+        if( shadow != 0.0 )
+        {
+            // Extract materials
+            float3 albedo, Rf0;
+            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor.xyz, materialProps.metalness, albedo, Rf0 );
+
+            // Pseudo sky importance sampling
+            float3 Cimp = lerp( Csky, Csun, Math::SmoothStep( 0.0, 0.2, materialProps.roughness ) );
+            Cimp *= Math::SmoothStep( -0.01, 0.05, gSunDirection.z );
+            Cimp *= float( USE_WHITE_FURNACE == 0 ); // furnace radiance is already integrated by the path tracer
+
+            // Common BRDF
+            float3 N = materialProps.N;
+            float3 L = gSunDirection.xyz;
+            float3 V = geometryProps.V;
+            float3 H = normalize( L + V );
+
+            float NoL = saturate( dot( N, L ) );
+            float NoH = saturate( dot( N, H ) );
+            float VoH = saturate( dot( V, H ) );
+            float NoV = abs( dot( N, V ) );
+
+            float D = BRDF::DistributionTerm( materialProps.roughness, NoH );
+            float G = BRDF::GeometryTermMod( materialProps.roughness, NoL, NoV, VoH, NoH );
+            float3 F = BRDF::FresnelTerm( Rf0, VoH );
+            float Kdiff = BRDF::DiffuseTerm( materialProps.roughness, NoL, NoV, VoH );
+
+            float3 Cspec = saturate( F * D * G * NoL ) * GetSpecularEnergyCompensation( materialProps.baseColor, materialProps.metalness, materialProps.roughness, NoV, VoH );
+            float3 Cdiff = Kdiff * Csun * albedo * NoL;
+
+            lighting = Cspec * Cimp;
+
+        #if( RTXCR_INTEGRATION == 1 )
+            // SSS-DIFFUSE MATERIAL ( SKIN )
+            if( isSSS )
+            {
+                RTXCR_SubsurfaceMaterialData sssMaterial = ( RTXCR_SubsurfaceMaterialData )0;
+                sssMaterial.transmissionColor = albedo;
+                sssMaterial.scatteringColor = float3( 1.0, 0.3, 0.1 );
+                sssMaterial.scale = 0.4 / gUnitToMetersMultiplier; // TODO: units dependent! cm!
+                sssMaterial.g = 0.0;
+
+                float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N, PT_SHADOW_RAY_OFFSET );
+                float3x3 mLocalBasis = Geometry::GetBasis( geometryProps.N );
+                RTXCR_SubsurfaceInteraction sssGeometry = RTXCR_CreateSubsurfaceInteraction( Xoffset, mLocalBasis[ 2 ], mLocalBasis[ 0 ], mLocalBasis[ 1 ] );
+
+                const bool TRANSMISSION = false; // no expensive transmission, i.e. single scattering
+
+                RTXCR_SubsurfaceSample sssSample;
+                RTXCR_EvalBurleyDiffusionProfile( sssMaterial, sssGeometry, 0.004 / gUnitToMetersMultiplier, TRANSMISSION, Rng::Hash::GetFloat2( ), sssSample ); // TODO: units dependent! m?
+
+                float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, 0.0 );
+                geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS ); // TODO: project to g-buffer?
+
+                if( !geometryProps.IsMiss( ) && geometryProps.Has( FLAG_SKIN ) ) // TODO: another try is needed if this fails, but we can fallback to diffuse without SSS
+                {
+                    Xshadow = geometryProps.X;
+                    materialProps = GetMaterialProps( geometryProps );
+
+                    float NoL = saturate( dot( materialProps.N, L ) );
+                    Cdiff = RTXCR_EvalBssrdf( sssSample, Csun, NoL );
+                }
+            }
+        #endif
+
+            lighting += Cdiff * ( 1.0 - F );
+            lighting *= shadow;
+        }
     }
-}
-
-// Material de-modulation for SHARC
-float3 GetMaterialFactor( GeometryProps geometryProps, MaterialProps materialProps )
-{
-    float3 albedo, Rf0;
-    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-    float3 diffFactor, specFactor;
-    NRD_MaterialFactors( materialProps.N, geometryProps.V, albedo, Rf0, materialProps.roughness, diffFactor, specFactor );
-
-    return diffFactor + specFactor;
-}
-
-float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float eta, out float3 Xoffset, out float3 ray )
-{
-    if( isReflection )
-        ray = reflect( -geometryProps.V, geometryProps.N );
     else
-    {
-        float3 I = -geometryProps.V;
-        float NoI = dot( geometryProps.N, I );
-        float k = max( 1.0 - eta * eta * ( 1.0 - NoI * NoI ), 0.0 );
+        lighting = 1.0;
 
-        ray = normalize( eta * I - ( eta * NoI + sqrt( k ) ) * geometryProps.N );
-        eta = 1.0 / eta;
+    // Shadow
+    const uint instanceInclusionMask = FLAG_NON_TRANSPARENT; // Default shadow rays must ignore transparency // TODO: what about translucency?
+    const uint rayFlags = 0;
+
+    if( ( flags & SHADOW ) != 0 && Color::Luminance( lighting ) != 0 && !gDisableShadowsAndEnableImportanceSampling )
+    {
+        float2 rnd = Rng::Hash::GetFloat2( );
+        float3 sunDirection = SampleSunDirection( rnd );
+        float3 Xoffset = GetXoffset( geometryProps.X, sunDirection, PT_SHADOW_RAY_OFFSET );
+        float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps.mip, gTanSunAngularRadius );
+
+        float hitT = CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask, rayFlags );
+        lighting *= float( hitT == INF );
     }
 
-    float amount = geometryProps.Has( FLAG_TRANSPARENT ) ? PT_GLASS_RAY_OFFSET : PT_BOUNCE_RAY_OFFSET;
-    float s = Math::Sign( dot( ray, geometryProps.N ) );
-
-    Xoffset = GetXoffset( geometryProps.X, geometryProps.N * s, amount );
-
-    return eta;
+    return lighting;
 }
 
-bool IsDelta( MaterialProps materialProps )
+float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, uint flags )
 {
-    return materialProps.roughness < 0.041 // TODO: tweaked for kitchen
-        && ( materialProps.metalness > 0.941 || Color::Luminance( materialProps.baseColor ) < 0.005 )
-        && sqrt( abs( materialProps.curvature ) ) < 2.5;
-}
-
-float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps materialProps, bool useMagicBoost = false )
-{
-    // IMPORTANT: can't be used for hair tracing, but applicable in other hair related calculations
-    float3 albedo, Rf0;
-    BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-
-    float NoV = abs( dot( materialProps.N, geometryProps.V ) );
-    float3 Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
-
-    float lumSpec = Color::Luminance( Fenv );
-    float lumDiff = Color::Luminance( albedo * ( 1.0 - Fenv ) );
-
-    float diffProb = lumDiff / max( lumDiff + lumSpec, NRD_EPS );
-
-    // Should not be there, but no diffuse for hair
-    if( geometryProps.Has( FLAG_HAIR ) )
-        diffProb = 0.0;
-
-    // Boost diffussiness ( aka diffuse-like behavior ) if roughness is high
-    if( useMagicBoost )
-        diffProb = lerp( diffProb, 1.0, GetSpecMagicCurve( materialProps.roughness ) );
-
-    [flatten]
-    if( diffProb < PT_EVIL_TWIN_LOBE_TOLERANCE )
-        return 0.0; // no diffuse materials are common ( metals )
-    else if( diffProb > 1.0 - PT_EVIL_TWIN_LOBE_TOLERANCE )
-        return 1.0; // no specular materials are uncommon ( broken material model? )
-
-    return diffProb; // return unclamped ( clamp elsewhere if needed )
+    float3 unused;
+    return GetLighting( geometryProps, materialProps, flags, unused );
 }
 
 float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3> texDiff, Texture2D<float4> texSpecViewZ, GeometryProps geometryProps, uint2 pixelPos, out float3 Ldiff, out float3 Lspec )
@@ -1132,4 +1294,82 @@ float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3
     Lspec *= f;
 
     return weight;
+}
+//==========================================
+// SHARC
+//==========================================
+
+float3 GetGlobalPos( float3 X )
+{
+    return gCameraGlobalPos.xyz * gCameraGlobalPos.w + X;
+}
+
+SharcParameters GetSharcParameters( )
+{
+    SharcParameters sharcParams;
+    sharcParams.hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
+    sharcParams.hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
+    sharcParams.hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+    sharcParams.hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
+    sharcParams.hashGridData.capacity = SHARC_CAPACITY;
+    sharcParams.hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
+    sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
+    sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
+    sharcParams.resolvedBuffer = gInOut_SharcResolved;
+
+    return sharcParams;
+}
+
+SharcHitData GetSharcHitData( GeometryProps geometryProps, MaterialProps materialProps, float3 materialDemodulation )
+{
+    SharcHitData sharcHitData;
+    sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
+    sharcHitData.materialDemodulation = materialDemodulation;
+    sharcHitData.normalWorld = ( geometryProps.Has( FLAG_LEAF | FLAG_HAIR ) && USE_SHARC_THIN_NORMAL_MERGING ) ? float3( 0, 0, 1 ) : geometryProps.N;
+    sharcHitData.emissive = materialProps.Lemi;
+
+    return sharcHitData;
+}
+
+SharcHitData GetSharcHitData( GeometryProps geometryProps, MaterialProps materialProps )
+{
+    return GetSharcHitData( geometryProps, materialProps, GetMaterialFactor( geometryProps, materialProps ) );
+}
+
+float GetSharcVoxelSize( float3 X, HashGridParameters hashGridParameters )
+{
+    uint level = HashGridGetLevel( GetGlobalPos( X ), hashGridParameters );
+
+    return HashGridGetVoxelSize( level, hashGridParameters );
+}
+
+float3 GetSharcJitter( float3 N, float voxelSize, float jitterAmount )
+{
+    float2 rndScaled = ImportanceSampling::Cosine::GetRay( Rng::Hash::GetFloat2( ) ).xy;
+    rndScaled *= jitterAmount;
+    rndScaled *= voxelSize;
+    rndScaled *= 1.5;
+
+    float3x3 mBasis = Geometry::GetBasis( N );
+
+    return mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
+}
+
+bool TryGetSharcRadiance( SharcParameters sharcParams, GeometryProps geometryProps, MaterialProps materialProps, float3 jitter, out float3 radiance )
+{
+    SharcHitData sharcHitData = GetSharcHitData( geometryProps, materialProps );
+    float3 Xglobal = sharcHitData.positionWorld;
+    sharcHitData.positionWorld = Xglobal + jitter;
+
+    // Try jittered position first...
+    bool isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, radiance, false );
+    if( !isFound )
+    {
+        // ...if slipped out of the surface or mismatched normals, try non-jittered position
+        sharcHitData.positionWorld = Xglobal;
+
+        isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, radiance, false );
+    }
+
+    return isFound;
 }

@@ -36,121 +36,37 @@ struct TraceTransparentDesc
 //      - add missing component (reflection or refraction) from neighboring pixels
 float3 TraceTransparent( TraceTransparentDesc desc )
 {
-    float eta = BRDF::IOR::Air / BRDF::IOR::Glass;
-
     GeometryProps geometryProps = desc.geometryProps;
-    float pathThroughput = 1.0;
-    bool isReflection = desc.isReflection;
+
+    TracePayload payload = ( TracePayload )0;
+    payload.eta = BRDF::IOR::Air / BRDF::IOR::Glass;
+    payload.throughput = 1.0;
+
+    float coneAngle = GetConeAngleFromRoughness( geometryProps.mip, 0.0 ).y;
     float bayer = Sequence::Bayer4x4( desc.pixelPos, gFrameIndex );
-
-    [loop]
-    for( uint bounce = 1; bounce <= PT_DELTA_BOUNCES_NUM; bounce++ )
-    {
-        // Reflection or refraction?
-        float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
-        float F = BRDF::FresnelTerm_Dielectric( eta, NoV );
-
-        if( bounce == 1 )
-            pathThroughput *= isReflection ? F : 1.0 - F;
-        else
-        {
-            float rnd = frac( bayer + Sequence::Halton( bounce, 3 ) ); // "Halton( bounce, 2 )" works worse than others
-
-            // Bonus dithering to break banding // TODO: needed for "transparent machines"
-            /*
-            float ditherMask = Sequence::Bayer4x4( desc.pixelPos, bounce ); // or
-            //float ditherMask = Rng::Hash::GetFloat( ); // or
-            rnd = saturate( rnd + ( ditherMask - 0.5 ) * 0.04 );
-            */
-
-            [flatten]
-            if( gRR || gSR ) // TNN prefers white noise
-                rnd = Rng::Hash::GetFloat( );
-            isReflection = rnd < F;
-        }
-
-        // Trace
-        uint flags = bounce == PT_DELTA_BOUNCES_NUM ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
-
-        float3 Xoffset, ray;
-        eta = GetDeltaEventRay( geometryProps, isReflection, eta, Xoffset, ray );
-
-        geometryProps = CastRay( Xoffset, ray, 0.0, INF, GetConeAngleFromRoughness( geometryProps.mip, 0.0 ), gWorldTlas, flags, 0 );
-
-        // TODO: ideally each "medium" should have "eta" and "extinction" parameters in "TraceTransparentDesc" and "TraceOpaqueDesc"
-        bool isAir = eta < 1.0;
-        float extinction = isAir ? 0.0 : 1.0; // TODO: tint color?
-        if( !geometryProps.IsMiss() ) // TODO: fix for non-convex geometry
-            pathThroughput *= exp( -extinction * geometryProps.hitT * gUnitToMetersMultiplier );
-
-        // Is opaque hit found?
-        if( !geometryProps.Has( FLAG_TRANSPARENT ) ) // TODO: stop if pathThroughput is low
-            break;
-    }
-
-    // This is always non-transparent
+    bool isReflection = TraceGlass( geometryProps, payload, desc.isReflection, coneAngle, bayer, true );
     MaterialProps materialProps = GetMaterialProps( geometryProps );
 
     float4 Lcached = float4( materialProps.Lemi, 0.0 );
     if( !geometryProps.IsMiss( ) )
     {
-        // L1 cache - reproject previous frame, carefully treating specular
+        // L1 cache - screen-space reprojection
         float3 prevLdiff, prevLspec;
         float reprojectionWeight = ReprojectIrradiance( false, !isReflection, gIn_ComposedDiff, gIn_ComposedSpec_ViewZ, geometryProps, desc.pixelPos, prevLdiff, prevLspec );
         Lcached = float4( prevLdiff + prevLspec, reprojectionWeight );
 
         // L2 cache - SHARC
-        HashGridParameters hashGridParameters;
-        hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
-        hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
-        hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-        hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
-
-        float3 Xglobal = GetGlobalPos( geometryProps.X );
-        uint level = HashGridGetLevel( Xglobal, hashGridParameters );
-        float voxelSize = HashGridGetVoxelSize( level, hashGridParameters );
-
-        float2 rndScaled = ImportanceSampling::Cosine::GetRay( Rng::Hash::GetFloat2( ) ).xy;
-        rndScaled *= voxelSize;
-        rndScaled *= 1.5;
-        rndScaled *= USE_SHARC_DITHERING * float( USE_SHARC_DEBUG == 0 );
-
-        float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-        float3 jitter = mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
-
-        SharcHitData sharcHitData;
-        sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
-        sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
-        sharcHitData.emissive = materialProps.Lemi;
-
-        HashGridData hashGridData;
-        hashGridData.capacity = SHARC_CAPACITY;
-        hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-        SharcParameters sharcParams;
-        sharcParams.hashGridParameters = hashGridParameters;
-        sharcParams.hashGridData = hashGridData;
-        sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-        sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
-        sharcParams.resolvedBuffer = gInOut_SharcResolved;
-
         bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
 
         if( isSharcAllowed )
         {
+            SharcParameters sharcParams = GetSharcParameters( );
+            float voxelSize = GetSharcVoxelSize( geometryProps.X, sharcParams.hashGridParameters );
+            float jitterAmount = USE_SHARC_DITHERING * float( USE_SHARC_DEBUG == 0 );
+            float3 jitter = GetSharcJitter( geometryProps.N, voxelSize, jitterAmount );
+
             float3 sharcRadiance = 0;
-
-            // Try jittered position
-            sharcHitData.positionWorld = Xglobal + jitter;
-            bool isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
-
-            if( !isFound )
-            {
-                // Slipped out of the surface or mismatched normals, try non-jittered position
-                sharcHitData.positionWorld = Xglobal;
-                isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
-            }
-
+            bool isFound = TryGetSharcRadiance( sharcParams, geometryProps, materialProps, jitter, sharcRadiance );
             if( isFound )
                 Lcached = float4( sharcRadiance, 1.0 );
         }
@@ -164,7 +80,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
     }
 
     // Output
-    return Lcached.xyz * pathThroughput;
+    return Lcached.xyz * payload.throughput;
 }
 
 //========================================================================================
@@ -184,20 +100,71 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     // Initialize RNG
     Rng::Hash::Initialize( pixelPos, gFrameIndex );
 
-    // Primary ray for transparent geometry only
+    // Primary ray for glass and, when PSR is active, the first mirror
     float3 cameraRayOrigin = ( float3 )0;
     float3 cameraRayDirection = ( float3 )0;
     GetCameraRay( cameraRayOrigin, cameraRayDirection, sampleUv );
 
     float viewZAndTaaMask = gInOut_Mv[ pixelPos ].w;
     float viewZ = Math::Sign( gNearZ ) * abs( viewZAndTaaMask ) / FP16_VIEWZ_SCALE; // viewZ before PSR
+    float viewZafterPsr = abs( gIn_ComposedSpec_ViewZ[ pixelPos ].w ) / FP16_VIEWZ_SCALE;
+    float eps = max( abs( viewZ ) * 1e-3, 1e-6 ); // tolerate FP16 depth rounding
+    bool hasPsr = PT_PSR_BOUNCES_NUM != 0 && !( abs( viewZafterPsr - abs( viewZ ) ) < eps );
     float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, viewZ, gOrthoMode );
     float tmin0 = gOrthoMode == 0 ? length( Xv ) : abs( Xv.z );
 
-    GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmin0, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_TRANSPARENT, 0 );
+    // PSR needs the first opaque mirror too; reuse this hit instead of tracing the primary ray again
+    uint flags = hasPsr ? GEOMETRY_ALL : FLAG_TRANSPARENT;
+    float tmax = hasPsr ? INF : tmin0;
+    GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmax, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, flags, 0 );
+
+    bool hasGlass = geometryPropsT.Has( FLAG_TRANSPARENT );
+    float3 psrThroughput = 1.0;
+    float3x3 mirrorMatrix = Geometry::GetMirrorMatrix( 0 );
+    float3 Xvirtual = geometryPropsT.X;
+
+    // Search reflected segments only for pixels whose opaque surface was replaced by PSR
+    [branch]
+    if( !hasGlass && hasPsr )
+    {
+        GeometryProps geometryProps = geometryPropsT;
+        float3 X0 = geometryProps.X;
+        float3 V0 = geometryProps.V;
+        float accumulatedHitDist = 0.0;
+        float accumulatedCurvature = 0.0;
+
+        [loop]
+        for( uint bounce = 0; bounce < PT_PSR_BOUNCES_NUM && !geometryProps.IsMiss( ); bounce++ )
+        {
+            MaterialProps materialProps = GetMaterialProps( geometryProps );
+            if( !IsDelta( materialProps ) )
+                break;
+
+            accumulatedCurvature += materialProps.curvature;
+            mirrorMatrix = mul( Geometry::GetMirrorMatrix( materialProps.N ), mirrorMatrix );
+
+            float3 albedo, Rf0;
+            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
+            float NoV = abs( dot( materialProps.N, geometryProps.V ) );
+            psrThroughput *= BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
+
+            float3 ray = reflect( -geometryProps.V, materialProps.N );
+            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, materialProps.roughness );
+            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, PT_RAY_FLAGS );
+            accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, accumulatedCurvature );
+
+            if( geometryProps.Has( FLAG_TRANSPARENT ) )
+            {
+                geometryPropsT = geometryProps;
+                Xvirtual = X0 - V0 * accumulatedHitDist;
+                hasGlass = true;
+                break;
+            }
+        }
+    }
 
     float3 Lsum = 0;
-    if( !geometryPropsT.IsMiss( ) && geometryPropsT.hitT < tmin0 )
+    if( hasGlass )
     {
         // Append "glass" mask to "hair" mask
         viewZAndTaaMask = -abs( viewZAndTaaMask );
@@ -206,13 +173,14 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         // IMPORTANT: surface-based motion can be used only if the object is curved.
         // TODO: let's use the simplest heuristic for now, but better switch to some "smart" interpolation between
         // MVs for the primary opaque surface hit and the primary glass surface hit.
-        float3 mvT = GetMotion( geometryPropsT.X, geometryPropsT.Xprev );
+        float3 XvirtualPrev = Xvirtual + Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.Xprev - geometryPropsT.X );
+        float3 mvT = GetMotion( Xvirtual, XvirtualPrev );
         gInOut_Mv[ pixelPos ] = float4( mvT, viewZAndTaaMask );
 
         // Patch guides for RR
         [branch]
         if( gRR )
-            gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( geometryPropsT.N, 0.0, 0 );
+            gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.N ), 0.0, 0 );
 
         // Trace transparent stuff
         TraceTransparentDesc desc = ( TraceTransparentDesc )0;
@@ -227,6 +195,8 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         desc.isReflection = false;
         float3 refraction = TraceTransparent( desc );
         Lsum += refraction;
+
+        Lsum *= psrThroughput;
     }
     else
     {

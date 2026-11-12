@@ -17,6 +17,7 @@
 #define USE_IS_FOR_ALL_BOUNCES              1 // slower, but better lighting for 2nd+ bounces
 #define USE_BLUE_NOISE_FOR_SHADOWS          ( 1 && !gRR && gDenoiserType != DENOISER_REFERENCE ) // a must have for SIGMA
 #define USE_SHARC_THIN_NORMAL_MERGING       1 // do not split SHARC voxels based on normals, merging works better on foliage and hair
+#define USE_GLASS_IN_OPAQUE_TRACING         1 // glass contibutes to opaque lighting ( affects surrounding objects )
 
 // Default = 0
 #define USE_SANITIZATION                    0 // NRD sample is NAN/INF free
@@ -28,7 +29,6 @@
 #define USE_PUDDLES                         0 // add puddles
 #define USE_RANDOMIZED_ROUGHNESS            0 // randomize roughness ( a common case in games )
 #define USE_STOCHASTIC_SAMPLING             0 // needed?
-#define USE_LOAD                            0 // Load vs SampleLevel
 #define USE_TAA_DEBUG                       0 // 1 - show weight
 #define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
 #define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
@@ -79,9 +79,11 @@
 #define PT_SHADOW_RAY_OFFSET                0.25 // pixels
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels
 #define PT_GLASS_RAY_OFFSET                 0.05 // pixels
+#define PT_GLASS_EXTINCTION                 1.0 // 1 / meters
+#define PT_GLASS_DIRECT_BOUNCES_NUM         16
+#define PT_GLASS_INDIRECT_BOUNCES_NUM       8
+#define PT_PSR_BOUNCES_NUM                  ( USE_WHITE_FURNACE ? 0 : 2 )
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
-#define PT_DELTA_BOUNCES_NUM                16
-#define PT_PSR_BOUNCES_NUM                  2
 #define PT_RAY_FLAGS                        0
 
 // Spatial HAsh-based Radiance Cache ( SHARC )
@@ -132,7 +134,6 @@
 #define FLAG_HAIR                           0x10 // hair
 #define FLAG_LEAF                           0x20 // leaf
 #define FLAG_SKIN                           0x40 // skin
-#define FLAG_MORPH                          0x80 // morph
 
 #define GEOMETRY_ALL                        ( FLAG_NON_TRANSPARENT | FLAG_TRANSPARENT )
 
@@ -261,126 +262,11 @@ NRI_RESOURCE( SamplerState, gNearestClamp, s, 4, SET_ROOT );
 // MISC
 //=============================================================================================
 
-// For SHARC
-float3 GetGlobalPos( float3 X )
-{
-    return gCameraGlobalPos.xyz * gCameraGlobalPos.w + X;
-}
-
-// Taken out from NRD
-float GetSpecMagicCurve( float roughness )
-{
-    float f = 1.0 - exp2( -200.0 * roughness * roughness );
-    f *= Math::Pow01( roughness, 0.5 );
-
-    return f;
-}
-
-float ApplyThinLensEquation( float hitDist, float curvature )
-{
-    return hitDist / ( 2.0 * curvature * hitDist + 1.0 );
-}
-
-float3 GetMotion( float3 X, float3 Xprev )
-{
-    float3 motion = Xprev - X;
-
-    float viewZ = Geometry::AffineTransform( gWorldToView, X ).z;
-    float2 sampleUv = Geometry::GetScreenUv( gWorldToClip, X );
-
-    float viewZprev = Geometry::AffineTransform( gWorldToViewPrev, Xprev ).z;
-
-    // Reject projections on or behind the previous camera plane
-    float2 sampleUvPrev = 2.0; // outside the previous frame, so history is rejected
-    float w = Geometry::ProjectiveTransform( gWorldToClipPrev, Xprev ).w;
-    if( w > 0.0 )
-        sampleUvPrev = Geometry::GetScreenUv( gWorldToClipPrev, Xprev );
-
-    // IMPORTANT: scaling to "pixel" unit significantly improves utilization of FP16
-    motion.xy = ( sampleUvPrev - sampleUv ) * gRectSize;
-
-    // IMPORTANT: 2.5D motion is preferred over 3D motion due to imprecision issues caused by FP16 rounding negative effects
-    motion.z = viewZprev - viewZ;
-
-    return clamp( motion, -FP16_MAX, FP16_MAX );
-}
-
 float3 ApplyTonemap( float3 Lsum )
 {
     Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
 
     return Lsum;
-}
-
-float4 BicubicFilterNoCorners( Texture2D<float4> tex, SamplerState samp, float2 samplePos, float2 invResourceSize, float sharpness )
-{
-    float2 centerPos = floor( samplePos - 0.5 ) + 0.5;
-    float2 f = saturate( samplePos - centerPos );
-    float2 f2 = f * f;
-    float2 f3 = f * f2;
-    float2 w0 = -sharpness * f3 + 2.0 * sharpness * f2 - sharpness * f;
-    float2 w1 = ( 2.0 - sharpness ) * f3 - ( 3.0 - sharpness ) * f2 + 1.0;
-    float2 w2 = -( 2.0 - sharpness ) * f3 + ( 3.0 - 2.0 * sharpness ) * f2 + sharpness * f;
-    float2 w3 = sharpness * f3 - sharpness * f2;
-    float2 wl2 = w1 + w2;
-    float2 tc2 = invResourceSize * ( centerPos + w2 * Math::PositiveRcp( wl2 ) );
-    float2 tc0 = invResourceSize * ( centerPos - 1.0 );
-    float2 tc3 = invResourceSize * ( centerPos + 2.0 );
-
-    float w = wl2.x * w0.y;
-    float4 color = tex.SampleLevel( samp, float2( tc2.x, tc0.y ), 0 ) * w;
-    float sum = w;
-
-    w = w0.x  * wl2.y;
-    color += tex.SampleLevel( samp, float2( tc0.x, tc2.y ), 0 ) * w;
-    sum += w;
-
-    w = wl2.x * wl2.y;
-    color += tex.SampleLevel( samp, float2( tc2.x, tc2.y ), 0 ) * w;
-    sum += w;
-
-    w = w3.x * wl2.y;
-    color += tex.SampleLevel( samp, float2( tc3.x, tc2.y ), 0 ) * w;
-    sum += w;
-
-    w = wl2.x * w3.y;
-    color += tex.SampleLevel( samp, float2( tc2.x, tc3.y ), 0 ) * w;
-    sum += w;
-
-    color *= Math::PositiveRcp( sum );
-
-    return color;
-}
-
-void GetCameraRay( out float3 origin, out float3 direction, float2 sampleUv )
-{
-    // https://www.slideshare.net/TiagoAlexSousa/graphics-gems-from-cryengine-3-siggraph-2013 ( slides 23+ )
-
-    // Pinhole ray
-    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, gNearZ, gOrthoMode );
-    direction = normalize( Xv );
-
-    // Distorted ray
-    float2 rnd = Rng::Hash::GetFloat2( );
-    rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
-    Xv.xy += rnd * gAperture;
-
-    float3 Fv = direction * gFocalDistance; // z-plane
-    #if 0
-        Fv /= dot( vForward, direction ); // radius
-    #endif
-
-    origin = Geometry::AffineTransform( gViewToWorld, Xv );
-    direction = gOrthoMode == 0.0 ? normalize( Geometry::RotateVector( gViewToWorld, Fv - Xv ) ) : -gViewDirection.xyz;
-}
-
-float GetCircleOfConfusion( float distance ) // diameter
-{
-    float F = gFocalLength; // focal lenght ( deducted from FOV )
-    float A = gAperture; // aperture diameter
-    float P = gFocalDistance; // focal distance
-
-    return gOrthoMode == 0.0 ? abs( A * ( F * ( P - distance ) ) / ( distance * ( P - F ) ) ) : A;
 }
 
 //=============================================================================================
