@@ -49,7 +49,7 @@ if(NOT GITHUB_CI)
         DOWNLOAD_NO_PROGRESS 1
         SOURCE_SUBDIR "ignore CMakeLists.txt"
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_Data"
-        URL "https://github.com/NVIDIA-RTX/NRD-Sample/releases/download/v4.17.1/_Data.7z"
+        URL "https://github.com/NVIDIA-RTX/NRD-Sample/releases/download/Assets/_Data.7z"
     )
     list(APPEND DEPS assets)
 endif()
