@@ -30,17 +30,18 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
     float2 sampleUv = ( pixelPos + 0.5 + jitter ) * gInvSharcRenderSize;
 
     // Primary ray
-    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, gNearZ, gOrthoMode );
+    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, gZsign, gOrthoMode );
+    float3 Xoffset = float3( Xv.xy * abs( gOrthoMode ), 0.0 );
 
-    float3 Xoffset, ray;
+    float3 ray;
     if( mode == PREV )
     {
-        Xoffset = Geometry::AffineTransform( gViewToWorldPrev, Xv );
+        Xoffset = Geometry::AffineTransform( gViewToWorldPrev, Xoffset );
         ray = gOrthoMode == 0.0 ? normalize( Geometry::RotateVector( gViewToWorldPrev, Xv ) ) : -gViewDirection.xyz; // TODO: add "gViewDirectionPrev"
     }
     else
     {
-        Xoffset = Geometry::AffineTransform( gViewToWorld, Xv );
+        Xoffset = Geometry::AffineTransform( gViewToWorld, Xoffset );
         ray = gOrthoMode == 0.0 ? normalize( Geometry::RotateVector( gViewToWorld, Xv ) ) : -gViewDirection.xyz;
     }
 
@@ -49,7 +50,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
 
     float eta = BRDF::IOR::Air / BRDF::IOR::Glass;
     float2 mip = GetConeAngleFromAngularRadius( 0.0, gTanPixelAngularRadius * SHARC_DOWNSCALE );
-    uint DELTA_BOUNCES_NUM = mode == FULL ? PT_DELTA_BOUNCES_NUM : 1;
+    uint DELTA_BOUNCES_NUM = mode == FULL ? PT_GLASS_DIRECT_BOUNCES_NUM : 1;
 
     [loop]
     for( uint bounce = 1; bounce <= DELTA_BOUNCES_NUM; bounce++ )
@@ -60,16 +61,23 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         MaterialProps materialProps = GetMaterialProps( geometryProps );
 
         bool isGlass = geometryProps.Has( FLAG_TRANSPARENT );
-        bool isDelta = IsDelta( materialProps ); // TODO: verify corner cases
+        bool isDelta = IsDelta( materialProps );
 
         if( !( isGlass || isDelta ) || geometryProps.IsMiss( ) )
             break;
 
-        // Reflection or refraction?
-        float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
-        float F = BRDF::FresnelTerm_Dielectric( eta, NoV );
-        float rnd = Rng::Hash::GetFloat( );
-        bool isReflection = isDelta ? true : rnd < F;
+        // True mirrors always reflect, glass samples reflection or transmission
+        bool isReflection = true;
+        if( isGlass )
+        {
+            float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
+            float F = BRDF::FresnelTerm_Dielectric( eta, NoV );
+            float rnd = Rng::Hash::GetFloat( );
+
+            // Since we don't know the energy of the reflection, both reflection and transmission paths need to get coverage
+            bool isTotalInternalReflection = eta * eta * ( 1.0 - NoV * NoV ) >= 1.0;
+            isReflection = isTotalInternalReflection || rnd < clamp( F, 0.25, 0.75 );
+        }
 
         eta = GetDeltaEventRay( geometryProps, isReflection, eta, Xoffset, ray );
     }
@@ -79,22 +87,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         return float4( 0.0, 0.0, 0.0, FP16_MAX );
 
     // SHARC state
-    HashGridParameters hashGridParameters;
-    hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
-    hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
-    hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-    hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
-
-    HashGridData hashGridData;
-    hashGridData.capacity = SHARC_CAPACITY;
-    hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-    SharcParameters sharcParams;
-    sharcParams.hashGridParameters = hashGridParameters;
-    sharcParams.hashGridData = hashGridData;
-    sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-    sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
-    sharcParams.resolvedBuffer = gInOut_SharcResolved;
+    SharcParameters sharcParams = GetSharcParameters( );
 
     SharcState sharcState;
     SharcInit( sharcState );
@@ -114,11 +107,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
 
     if( mode != PREV )
     {
-        SharcHitData sharcHitData;
-        sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
-        sharcHitData.materialDemodulation = materialDemodulation0;
-        sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
-        sharcHitData.emissive = materialProps.Lemi;
+        SharcHitData sharcHitData = GetSharcHitData( geometryProps, materialProps, materialDemodulation0 );
 
         SharcSetThroughput( sharcState, 1.0 );
         SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, 1.0 ); // 0 bounce => no cache resampling => always returns "true"
@@ -135,27 +124,23 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         //=============================================================================================================================================================
 
         bool isStaticAtOrigin = false;
-        float3 throughput = 1.0;
         {
             // Estimate diffuse probability
-            float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
-
-            // Clamp probability to a sane range ( for all bounces ) to reduce noise and reduce convergence time
-            diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, 0.25, 0.75 );
+            float diffuseProbability = GetClampedDiffuseProbability( geometryProps, materialProps );
 
             // Diffuse or specular?
             bool isDiffuse = Rng::Hash::GetFloat( ) < diffuseProbability;
-            throughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
+            float3 throughput = 1.0 / ( isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability ) );
 
             // Importance sampling
-            uint sampleMaxNum = 0;
-            if( gDisableShadowsAndEnableImportanceSampling && ( USE_IS_FOR_ALL_BOUNCES || bounceNum == BOUNCES_NUM ) )
-                sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
-            sampleMaxNum = max( sampleMaxNum, 1 );
+            uint sampleMaxNum = GetImportanceSampleNum( materialProps.roughness, isDiffuse, bounceNum == BOUNCES_NUM );
 
             float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, throughput, sampleMaxNum, isDiffuse, 0, 0, 0, 0 );
 
             pathThroughput *= Color::Luminance( throughput );
+
+            if( mode != PREV )
+                SharcSetThroughput( sharcState, throughput );
 
             //=========================================================================================================================================================
             // Trace to the next hit
@@ -163,15 +148,14 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
 
             isStaticAtOrigin = geometryProps.Has( FLAG_STATIC );
 
+            // TODO: account for glass transmittance and absorption ( extinction ) during cache propagation when their impact is significant
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
+            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+
             materialProps = GetMaterialProps( geometryProps );
         }
 
         // Update
-        if( mode != PREV )
-            SharcSetThroughput( sharcState, throughput );
-
         if( geometryProps.IsMiss( ) )
         {
             if( mode != PREV )
@@ -200,11 +184,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
 
             if( mode != PREV )
             {
-                SharcHitData sharcHitData;
-                sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
-                sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
-                sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
-                sharcHitData.emissive = materialProps.Lemi;
+                SharcHitData sharcHitData = GetSharcHitData( geometryProps, materialProps );
 
                 // This introduces discrepancies with "PREV" if output radiance includes more than 1 bounce lighting
                 bool continueTracing = SharcUpdateHit( sharcParams, sharcState, sharcHitData, L, Rng::Hash::GetFloat( ) );

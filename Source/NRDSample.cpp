@@ -119,6 +119,7 @@ enum class Buffer : uint32_t {
 enum class Texture : uint32_t {
     ViewZ,
     Mv,
+    UpscalerMv,
     Normal_Roughness,
     PsrThroughput,
     BaseColor_Metalness,
@@ -332,6 +333,30 @@ struct AnimatedInstance {
         return transform;
     }
 };
+
+static inline float GetTriangleCurvature(const utils::UnpackedVertex& v0, const utils::UnpackedVertex& v1, const utils::UnpackedVertex& v2) {
+    float3 p0(v0.pos[0], v0.pos[1], v0.pos[2]);
+    float3 e1 = float3(v1.pos[0], v1.pos[1], v1.pos[2]) - p0;
+    float3 e2 = float3(v2.pos[0], v2.pos[1], v2.pos[2]) - p0;
+    float3 area = cross(e1, e2);
+    float edgeLengthSq = dot(e1, e1);
+    float areaSq = dot(area, area);
+    if (edgeLengthSq == 0.0f || areaSq == 0.0f)
+        return 0.0f;
+
+    float3 n0(v0.N[0], v0.N[1], v0.N[2]);
+    float3 dn1 = float3(v1.N[0], v1.N[1], v1.N[2]) - n0;
+    float3 dn2 = float3(v2.N[0], v2.N[1], v2.N[2]) - n0;
+
+    // Fit normal derivatives in an orthonormal basis of the triangle, independent of its aspect ratio.
+    float edgeLength = sqrt(edgeLengthSq);
+    float3 dndT = dn1 / edgeLength;
+    float3 dndB = (dn2 - dndT * (dot(e1, e2) / edgeLength)) * sqrt(edgeLengthSq / areaSq);
+
+    // Match the existing scale for isotropic normal variation on an equilateral triangle.
+    float normalization = 2.0f / sqrt(3.0f);
+    return sqrt((dot(dndT, dndT) + dot(dndB, dndB)) * normalization);
+}
 
 static inline const char* GetSuperResolutionName(nri::UpscalerType type) {
     if (type == nri::UpscalerType::DLSR)
@@ -2239,6 +2264,9 @@ void Sample::LoadScene() {
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/glass_lens/glass_lens.gltf", m_Scene, !ALLOW_BLAS_MERGING));
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/glass_frame/glass_frame.gltf", m_Scene, !ALLOW_BLAS_MERGING));
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/shirt/shirt.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+    } else if (m_SceneFile.find("transparent-machines") != std::string::npos) {
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/TransparentMachines/transparent-machines-pt0.gltf", m_Scene, !ALLOW_BLAS_MERGING));
+        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/TransparentMachines/transparent-machines-pt1.gltf", m_Scene, !ALLOW_BLAS_MERGING));
     } else {
         sceneFile = utils::GetFullPath(m_SceneFile, utils::DataFolder::SCENES);
         NRI_ABORT_ON_FALSE(utils::LoadScene(sceneFile, m_Scene, !ALLOW_BLAS_MERGING));
@@ -2261,6 +2289,9 @@ void Sample::LoadScene() {
     } else if (m_SceneFile.find("Claire") != std::string::npos) {
         m_Settings.exposure = 1.3f;
         m_Settings.bounceNum = 4;
+        m_Settings.meterToUnitsMultiplier = 100.0f;
+    } else if (m_SceneFile.find("transparent-machines") != std::string::npos) {
+        m_Settings.exposure = 1.0f;
         m_Settings.meterToUnitsMultiplier = 100.0f;
     } else if (m_SceneFile.find("ShaderBalls") != std::string::npos)
         m_Settings.exposure = 1.7f;
@@ -2996,6 +3027,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     // Textures
     CreateTexture(Texture::ViewZ, "ViewZ", nri::Format::R32_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Mv, "Mv", nri::Format::RGBA16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::UpscalerMv, "UpscalerMv", nri::Format::RGBA16_SFLOAT, rrw, rrh, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Normal_Roughness, "Normal_Roughness", normalFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::PsrThroughput, "PsrThroughput", nri::Format::R10_G10_B10_A2_UNORM, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::BaseColor_Metalness, "BaseColor_Metalness", nri::Format::RGBA8_SRGB, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
@@ -3184,6 +3216,7 @@ void Sample::CreateDescriptorSets() {
         GetDescriptor(Texture::Normal_Roughness),
         GetDescriptor(Texture::BaseColor_Metalness),
         GetDescriptor(Texture::Unfiltered_Spec),
+        GetDescriptor(Texture::Mv),
     };
 
     const nri::Descriptor* DlssBefore_StorageTextures[] = {
@@ -3192,6 +3225,7 @@ void Sample::CreateDescriptorSets() {
         GetStorageDescriptor(Texture::RRGuide_SpecAlbedo),
         GetStorageDescriptor(Texture::RRGuide_SpecHitDistance),
         GetStorageDescriptor(Texture::RRGuide_Normal_Roughness),
+        GetStorageDescriptor(Texture::UpscalerMv),
     };
 
     const nri::Descriptor* DlssAfter_StorageTextures[] = {
@@ -3370,7 +3404,7 @@ void Sample::UploadStaticData() {
             data.t0 = float16_t2(float2(t0.x, t0.y));
             data.t1 = float16_t2(float2(t1.x, t1.y));
             data.t2 = float16_t2(float2(t2.x, t2.y));
-            data.bitangentSign = v0.T[3];
+            data.curvatureAndBitangentSign = asuint(GetTriangleCurvature(v0, v1, v2)) | (v0.T[3] < 0.0f ? 0x80000000u : 0u);
         }
     }
 
@@ -3692,7 +3726,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
     float3 cameraGlobalPos = float3(m_Camera.state.globalPosition);
     float3 cameraGlobalPosPrev = float3(m_Camera.statePrev.globalPosition);
 
-    float nearZ = (m_PositiveZ ? 1.0f : -1.0f) * NEAR_Z * m_Settings.meterToUnitsMultiplier;
     float baseMipBias = ((m_Settings.TAA || IsDlssEnabled()) ? -0.5f : 0.0f) + log2f(m_Settings.resolutionScale);
     float mipBias = baseMipBias + log2f(renderSize.x / outputSize.x);
 
@@ -3754,7 +3787,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gJitterPrev = jitterPrev;
         constants.gEmissionIntensityLights = m_Settings.emission ? m_Settings.emissionIntensityLights : 0.0f;
         constants.gEmissionIntensityCubes = m_Settings.emission ? m_Settings.emissionIntensityCubes : 0.0f;
-        constants.gNearZ = nearZ;
+        constants.gZsign = m_PositiveZ ? 1.0f : -1.0f;
         constants.gSeparator = USE_SHARC_DEBUG == 0 ? m_Settings.separator : 1.0f;
         constants.gRoughnessOverride = m_Settings.roughnessOverride;
         constants.gMetalnessOverride = m_Settings.metalnessOverride;
@@ -4264,6 +4297,8 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     const Texture taaHistoryOutput = isEven ? Texture::TaaHistoryPing : Texture::TaaHistoryPong;
 
     if (IsDlssEnabled()) {
+        const Texture upscalerMv = Texture::UpscalerMv; // include filtered glass MV
+
         { // Before upscaling
             helper::Annotation annotation(NRI, commandBuffer, "Before upscaling");
 
@@ -4272,7 +4307,9 @@ void Sample::RenderFrame(uint32_t frameIndex) {
                 {Texture::Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
                 {Texture::BaseColor_Metalness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
                 {Texture::Unfiltered_Spec, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {Texture::Mv, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
                 // Output
+                {upscalerMv, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
                 {Texture::ViewZ, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
                 {Texture::RRGuide_DiffAlbedo, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
                 {Texture::RRGuide_SpecAlbedo, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
@@ -4295,7 +4332,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             const TextureState transitions[] = {
                 // Input
                 {Texture::ViewZ, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
-                {Texture::Mv, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+                {upscalerMv, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
                 {Texture::Normal_Roughness, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
                 {Texture::RRGuide_DiffAlbedo, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
                 {Texture::RRGuide_SpecAlbedo, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
@@ -4319,7 +4356,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             dispatchUpscaleDesc.flags = resetHistory ? nri::DispatchUpscaleBits::RESET_HISTORY : nri::DispatchUpscaleBits::NONE;
 
             if (m_Settings.RR) {
-                dispatchUpscaleDesc.guides.denoiser.mv = {Get(Texture::Mv), GetDescriptor(Texture::Mv)};
+                dispatchUpscaleDesc.guides.denoiser.mv = {Get(upscalerMv), GetDescriptor(upscalerMv)};
                 dispatchUpscaleDesc.guides.denoiser.depth = {Get(Texture::ViewZ), GetDescriptor(Texture::ViewZ)};
                 dispatchUpscaleDesc.guides.denoiser.diffuseAlbedo = {Get(Texture::RRGuide_DiffAlbedo), GetDescriptor(Texture::RRGuide_DiffAlbedo)};
                 dispatchUpscaleDesc.guides.denoiser.specularAlbedo = {Get(Texture::RRGuide_SpecAlbedo), GetDescriptor(Texture::RRGuide_SpecAlbedo)};
@@ -4331,7 +4368,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
 
                 NRI.CmdDispatchUpscale(commandBuffer, *m_DLRR, dispatchUpscaleDesc);
             } else {
-                dispatchUpscaleDesc.guides.upscaler.mv = {Get(Texture::Mv), GetDescriptor(Texture::Mv)};
+                dispatchUpscaleDesc.guides.upscaler.mv = {Get(upscalerMv), GetDescriptor(upscalerMv)};
                 dispatchUpscaleDesc.guides.upscaler.depth = {Get(Texture::ViewZ), GetDescriptor(Texture::ViewZ)};
 
                 if (m_UpscalerType == nri::UpscalerType::FSR) {

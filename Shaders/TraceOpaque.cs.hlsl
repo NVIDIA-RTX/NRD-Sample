@@ -59,32 +59,12 @@ float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
 
 float3 GetSharcDebugColor( GeometryProps geometryProps, MaterialProps materialProps )
 {
-    HashGridParameters hashGridParameters;
-    hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
-    hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
-    hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-    hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
-
-    SharcHitData sharcHitData;
-    sharcHitData.positionWorld = GetGlobalPos( geometryProps.X );
-    sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
-    sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
-    sharcHitData.emissive = materialProps.Lemi;
-
-    HashGridData hashGridData;
-    hashGridData.capacity = SHARC_CAPACITY;
-    hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-    SharcParameters sharcParams;
-    sharcParams.hashGridParameters = hashGridParameters;
-    sharcParams.hashGridData = hashGridData;
-    sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-    sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
-    sharcParams.resolvedBuffer = gInOut_SharcResolved;
+    SharcParameters sharcParams = GetSharcParameters( );
+    SharcHitData sharcHitData = GetSharcHitData( geometryProps, materialProps );
 
     float3 color = 0;
     #if( USE_SHARC_DEBUG == 2 )
-        color = HashGridDebugColoredHash( sharcHitData.positionWorld, sharcHitData.normalWorld, hashGridParameters );
+        color = HashGridDebugColoredHash( sharcHitData.positionWorld, sharcHitData.normalWorld, sharcParams.hashGridParameters );
     #else
         bool isValid = SharcGetCachedRadiance( sharcParams, sharcHitData, color, true );
 
@@ -118,8 +98,8 @@ Derivation:
 
 struct TraceOpaqueResult
 {
-    float3 irradiance;
-    float hitDist;
+    float3 radiance;
+    float accumulatedHitDist;
 
 #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
     float3 direction;
@@ -133,12 +113,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
     if( gBounceNum == 0 || geometryProps.IsMiss( ) )
         isDiffusePath = false;
 
-    float accumulatedHitDist = 0;
-    float accumulatedDiffuseLikeMotion = 0;
-    float accumulatedCurvature = 0;
-
-    float3 Lsum = Lpsr.xyz;
-    float3 pathThroughput = 1.0 - Lpsr.w;
+    TracePayload payload = ( TracePayload )0;
+    payload.radiance = Lpsr.xyz;
+    payload.throughput = 1.0 - Lpsr.w;
+    payload.eta = BRDF::IOR::Air / BRDF::IOR::Glass;
 
     [loop]
     for( uint bounce = 1; bounce <= gBounceNum && !geometryProps.IsMiss( ); bounce++ )
@@ -148,13 +126,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
         //=============================================================================================================================================================
 
         bool isDiffuse = false;
-        float lobeTanHalfAngleAtOrigin = 0.0;
+        float roughnessAtOrigin = 0.0;
         {
             // Diffuse probability
-            float diffuseProbability = EstimateDiffuseProbability( geometryProps, materialProps );
-
-            // Clamp probability to a sane range ( for all bounces ) to reduce noise and convergence time
-            diffuseProbability = float( diffuseProbability != 0.0 ) * clamp( diffuseProbability, gMinProbability, 1.0 - gMinProbability );
+            float diffuseProbability = GetClampedDiffuseProbability( geometryProps, materialProps, gMinProbability );
 
             // Diffuse or specular?
             float rnd = Rng::Hash::GetFloat( );
@@ -171,7 +146,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             isDiffuse = rnd < diffuseProbability;
 
             if( gTracingMode == RESOLUTION_FULL_PROBABILISTIC || bounce > 1 )
-                pathThroughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
+                payload.throughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
             else
                 isDiffuse = isDiffusePath;
 
@@ -185,12 +160,9 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             }
 
             // Importance sampling
-            uint sampleMaxNum = 0;
-            if( gDisableShadowsAndEnableImportanceSampling && ( USE_IS_FOR_ALL_BOUNCES || bounce == 1 ) )
-                sampleMaxNum = PT_IMPORTANCE_SAMPLES_NUM * ( isDiffuse ? 1.0 : GetSpecMagicCurve( materialProps.roughness ) );
-            sampleMaxNum = max( sampleMaxNum, 1 );
+            uint sampleMaxNum = GetImportanceSampleNum( materialProps.roughness, isDiffuse, bounce == 1 );
 
-            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, pathThroughput, sampleMaxNum, isDiffuse, pixelPos, path, bounce, GR_HAIR | GR_ALLOW_BN  );
+            float3 ray = GenerateRayAndUpdateThroughput( geometryProps, materialProps, payload.throughput, sampleMaxNum, isDiffuse, pixelPos, path, bounce, GR_HAIR | GR_ALLOW_BN  );
 
             // Special case for primary surface ( 1st bounce starts here )
             if( bounce == 1 )
@@ -198,7 +170,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 isDiffusePath = isDiffuse;
 
                 if( gTracingMode == RESOLUTION_FULL )
-                    Lsum *= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
+                    payload.radiance *= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
 
                 // ( Optional ) Save sampling direction for the 1st bounce
                 #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
@@ -221,23 +193,23 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             */
 
             // Nevertheless, RR can be used with caution: the code below tuned for good IQ / PERF tradeoff
-            float russianRouletteProbability = Color::Luminance( pathThroughput );
+            float russianRouletteProbability = Color::Luminance( payload.throughput );
             russianRouletteProbability = Math::Pow01( russianRouletteProbability, 0.25 );
             russianRouletteProbability = max( russianRouletteProbability, 0.01 );
 
             if( Rng::Hash::GetFloat( ) > russianRouletteProbability )
                 break;
 
-            pathThroughput /= russianRouletteProbability;
+            payload.throughput /= russianRouletteProbability;
         #else
             /*
             GOOD PRACTICE:
-            - terminate path if "pathThroughput" is smaller than some threshold
+            - terminate path if "payload.throughput" is smaller than some threshold
             - approximate ambient at the end of the path
             - re-use data from the previous frame
             */
 
-            if( PT_THROUGHPUT_THRESHOLD != 0.0 && Color::Luminance( pathThroughput ) < PT_THROUGHPUT_THRESHOLD )
+            if( PT_THROUGHPUT_THRESHOLD != 0.0 && Color::Luminance( payload.throughput ) < PT_THROUGHPUT_THRESHOLD )
                 break;
         #endif
 
@@ -245,11 +217,21 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             // Trace to the next hit
             //=========================================================================================================================================================
 
-            float roughnessTemp = isDiffuse ? 1.0 : materialProps.roughness;
-            lobeTanHalfAngleAtOrigin = roughnessTemp * roughnessTemp / ( 1.0 + roughnessTemp * roughnessTemp );
+            roughnessAtOrigin = isDiffuse ? 1.0 : materialProps.roughness;
 
-            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+            bool traceGlass = USE_GLASS_IN_OPAQUE_TRACING && NRD_MODE < OCCLUSION && ( bounce == 1 || payload.eta > 1.0 );
+            uint flags = traceGlass ? GEOMETRY_ALL : FLAG_NON_TRANSPARENT;
+
+            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, roughnessAtOrigin );
+            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, flags, PT_RAY_FLAGS );
+
+            // Trace through glass ( events do not consume the opaque bounce budget )
+            if( traceGlass )
+            {
+                GlassMotion unused = ( GlassMotion )0;
+                TraceGlass( geometryProps, payload, false, mipAndCone.y, 0.0, false, unused );
+            }
+
             materialProps = GetMaterialProps( geometryProps ); // TODO: try to read metrials only if L1- and L2- lighting caches failed
         }
 
@@ -269,43 +251,11 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 Lcached = GetRadianceFromPreviousFrame( geometryProps, materialProps, pixelPos );
 
                 // L2 cache - SHARC
-                HashGridParameters hashGridParameters;
-                hashGridParameters.cameraPosition = gCameraGlobalPos.xyz;
-                hashGridParameters.sceneScale = SHARC_SCENE_SCALE;
-                hashGridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
-                hashGridParameters.levelBias = SHARC_GRID_LEVEL_BIAS;
-
-                float3 Xglobal = GetGlobalPos( geometryProps.X );
-                uint level = HashGridGetLevel( Xglobal, hashGridParameters );
-                float voxelSize = HashGridGetVoxelSize( level, hashGridParameters );
-
+                SharcParameters sharcParams = GetSharcParameters( );
+                float voxelSize = GetSharcVoxelSize( geometryProps.X, sharcParams.hashGridParameters );
+                float lobeTanHalfAngleAtOrigin = roughnessAtOrigin * roughnessAtOrigin / ( 1.0 + roughnessAtOrigin * roughnessAtOrigin );
                 float footprint = geometryProps.hitT * lobeTanHalfAngleAtOrigin * 2.0;
                 float footprintNorm = saturate( footprint / voxelSize );
-
-                float2 rndScaled = ImportanceSampling::Cosine::GetRay( Rng::Hash::GetFloat2( ) ).xy;
-                rndScaled *= 1.0 - footprintNorm; // reduce dithering if cone is already wide
-                rndScaled *= voxelSize;
-                rndScaled *= 1.5;
-                rndScaled *= USE_SHARC_DITHERING;
-
-                float3x3 mBasis = Geometry::GetBasis( geometryProps.N );
-                float3 jitter = mBasis[ 0 ] * rndScaled.x + mBasis[ 1 ] * rndScaled.y;
-
-                SharcHitData sharcHitData;
-                sharcHitData.materialDemodulation = GetMaterialFactor( geometryProps, materialProps );
-                sharcHitData.normalWorld = GetNormalForSharc( geometryProps );
-                sharcHitData.emissive = materialProps.Lemi;
-
-                HashGridData hashGridData;
-                hashGridData.capacity = SHARC_CAPACITY;
-                hashGridData.hashEntriesBuffer = gInOut_SharcHashEntriesBuffer;
-
-                SharcParameters sharcParams;
-                sharcParams.hashGridParameters = hashGridParameters;
-                sharcParams.hashGridData = hashGridData;
-                sharcParams.radianceScale = SHARC_RADIANCE_SCALE;
-                sharcParams.accumulationBuffer = gInOut_SharcAccumulated;
-                sharcParams.resolvedBuffer = gInOut_SharcResolved;
 
                 bool isSharcAllowed = !geometryProps.Has( FLAG_HAIR ); // ignore if the hit is hair // TODO: if hair don't allow if hitT is too short
                 isSharcAllowed &= Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
@@ -315,27 +265,22 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
 
                 if( isSharcAllowed )
                 {
+                    float jitterAmount = USE_SHARC_DITHERING * ( 1.0 - footprintNorm ); // reduce dithering if cone is already wide
+                    float3 jitter = GetSharcJitter( geometryProps.N, voxelSize, jitterAmount );
+
                     float3 sharcRadiance = 0;
-
-                    // Try jittered position
-                    sharcHitData.positionWorld = Xglobal + jitter;
-                    bool isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
-
-                    if( !isFound )
-                    {
-                        // Slipped out of the surface or mismatched normals, try non-jittered position
-                        sharcHitData.positionWorld = Xglobal;
-                        isFound = SharcGetCachedRadiance( sharcParams, sharcHitData, sharcRadiance, false );
-                    }
-
-                    // Apply occlusion estimation for the last bounce
-                #if( USE_AO_FOR_LAST_BOUNCE == 1 )
-                    if( bounce == gBounceNum )
-                        sharcRadiance *= Math::Sqrt01( geometryProps.hitT / voxelSize );
-                #endif
+                    bool isFound = TryGetSharcRadiance( sharcParams, geometryProps, materialProps, jitter, sharcRadiance );
 
                     if( isFound )
+                    {
+                        // Apply occlusion estimation for the last bounce
+                    #if( USE_AO_FOR_LAST_BOUNCE == 1 )
+                        if( bounce == gBounceNum )
+                            sharcRadiance *= Math::Sqrt01( geometryProps.hitT / voxelSize );
+                    #endif
+
                         Lcached = float4( sharcRadiance, 1.0 );
+                    }
                 }
 
                 // Cache miss - compute lighting, if not found in caches
@@ -351,25 +296,20 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             //=============================================================================================================================================================
 
             // Accumulate lighting
-            float3 L = Lcached.xyz * pathThroughput;
-            Lsum += L;
+            float3 L = Lcached.xyz * payload.throughput;
+            payload.radiance += L;
 
             // ( Biased ) Reduce contribution of next samples if previous frame is sampled, which already has multi-bounce information
-            pathThroughput *= 1.0 - Lcached.w;
+            payload.throughput *= 1.0 - Lcached.w;
 
             // Accumulate path length for NRD ( see "README/NOISY INPUTS" )
-            float a = Color::Luminance( L );
-            float b = Color::Luminance( Lsum ); // already includes L
-            float importance = a / ( b + 1e-6 );
+            payload.accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, payload.accumulatedCurvature );
 
-            importance *= 1.0 - Color::Luminance( materialProps.Lemi ) / ( a + 1e-6 );
-
-            float diffuseLikeMotion = EstimateDiffuseProbability( geometryProps, materialProps, true );
-            diffuseLikeMotion = isDiffuse ? 1.0 : diffuseLikeMotion;
-
-            accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, accumulatedCurvature ) * Math::SmoothStep( 0.2, 0.0, accumulatedDiffuseLikeMotion );
-            accumulatedDiffuseLikeMotion += 1.0 - importance * ( 1.0 - diffuseLikeMotion );
-            accumulatedCurvature += materialProps.curvature; // yes, after hit
+            // Wide lobes and low-value tails act as additional curvature
+            float importance = saturate( Color::Luminance( L ) / ( Color::Luminance( payload.radiance ) + 1e-6 ) );
+            float tailWeight = importance * ( 1.0 - roughnessAtOrigin * roughnessAtOrigin );
+            payload.accumulatedCurvature += 0.5 * ( 1.0 - tailWeight ) / max( geometryProps.hitT * tailWeight, 1e-6 );
+            payload.accumulatedCurvature += materialProps.curvature; // yes, after hit: exclude primary curvature, affect subsequent segments
 
         #if( USE_CAMERA_ATTACHED_REFLECTION_TEST == 1 && NRD_NORMAL_ENCODING == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM )
             // IMPORTANT: lazy ( no checkerboard support ) implementation of reflections masking for objects attached to the camera
@@ -387,11 +327,11 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
     if( gOnScreen == SHOW_MIP_SPECULAR )
     {
         float mipNorm = Math::Sqrt01( geometryProps.mip / MAX_MIP_LEVEL );
-        Lsum = Color::ColorizeZucconi( mipNorm );
+        payload.radiance = Color::ColorizeZucconi( mipNorm );
     }
 
-    result.irradiance = Lsum;
-    result.hitDist = accumulatedHitDist;
+    result.radiance = payload.radiance;
+    result.accumulatedHitDist = payload.accumulatedHitDist;
 
     return result;
 }
@@ -496,7 +436,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         viewZAndTaaMask0 = abs( viewZ0 ) * FP16_VIEWZ_SCALE * ( isTaa5x5 ? -1.0 : 1.0 );
 
         [loop]
-        while( !USE_WHITE_FURNACE && bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) && gPSR )
+        while( bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) && gPSR )
         {
             { // Origin point
                 // Accumulate curvature
@@ -738,9 +678,9 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
             TraceOpaqueResult result = TraceOpaque( geometryProps0, materialProps0, pixelPos, path, mirrorMatrix, Lpsr, isDiffusePath );
 
             // Normalize hit distances for REBLUR before averaging ( use the actual PSR surface, not the virtual guide )
-            float normHitDist = result.hitDist;
+            float normHitDist = result.accumulatedHitDist;
             if( gDenoiserType != DENOISER_RELAX )
-                normHitDist = REBLUR_FrontEnd_GetNormHitDist( result.hitDist, hitDistViewZ, gHitDistSettings.xyz, isDiffusePath ? 1.0 : materialProps0.roughness );
+                normHitDist = REBLUR_FrontEnd_GetNormHitDist( result.accumulatedHitDist, hitDistViewZ, gHitDistSettings.xyz, isDiffusePath ? 1.0 : materialProps0.roughness );
 
         #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
             if( isDiffusePath )
@@ -750,17 +690,17 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         #endif
 
             // Accumulate diffuse and specular separately for denoising
-            if( !USE_SANITIZATION || NRD_IsValidRadiance( result.irradiance ) )
+            if( !USE_SANITIZATION || NRD_IsValidRadiance( result.radiance ) )
             {
                 if( isDiffusePath )
                 {
-                    diffRadiance += result.irradiance;
+                    diffRadiance += result.radiance;
                     diffHitDist += normHitDist;
                     diffPathNum++;
                 }
                 else
                 {
-                    specRadiance += result.irradiance;
+                    specRadiance += result.radiance;
 
                 #if( NRD_MODE < OCCLUSION )
                     NRD_FrontEnd_SpecHitDistAveraging_Add( specHitDist, normHitDist );
