@@ -379,7 +379,7 @@ float GetGgxDirectionalAlbedo( float roughness, float NoV )
 
 float3 GetSpecularEnergyCompensation( float3 baseColor, float metalness, float roughness, float NoV, float VoH )
 {
-    // Turquin's approximation: reuse the single-scattering lobe and its sampling PDF.
+    // Turquin's approximation: reuse the single-scattering lobe and its sampling PDF
     // https://blog.selfshadow.com/publications/turquin/ms_comp_final.pdf
     float E = GetGgxDirectionalAlbedo( roughness, NoV );
 
@@ -483,10 +483,13 @@ void GetCameraRay( out float3 origin, out float3 direction, float2 sampleUv )
     // https://www.slideshare.net/TiagoAlexSousa/graphics-gems-from-cryengine-3-siggraph-2013 ( slides 23+ )
 
     // Pinhole ray
-    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, gNearZ, gOrthoMode );
+    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, 1.0, gOrthoMode );
     direction = normalize( Xv );
 
-    // Distorted ray
+    // Aperture on the camera plane
+    Xv.xy *= abs( gOrthoMode );
+    Xv.z = 0.0;
+
     float2 rnd = Rng::Hash::GetFloat2( );
     rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
     Xv.xy += rnd * gAperture;
@@ -715,11 +718,15 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
         props.N = -N; // TODO: why negated?
 
         // Curvature
+    #if( USE_BETTER_CURVATURE == 1 )
+        props.curvature = asfloat( primitiveData.curvatureAndBitangentSign & 0x7FFFFFFF ) / abs( instanceData.scale );
+    #else
         float dnSq0 = Math::LengthSquared( n0 - n1 );
         float dnSq1 = Math::LengthSquared( n1 - n2 );
         float dnSq2 = Math::LengthSquared( n2 - n0 );
         float dnSq = max( dnSq0, max( dnSq1, dnSq2 ) );
         props.curvature = sqrt( dnSq / worldArea );
+    #endif
 
         // Mip level
         float NoRay = abs( dot( direction, props.N ) );
@@ -743,7 +750,8 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
         float3 T = barycentrics.x * t0 + barycentrics.y * t1 + barycentrics.z * t2;
         T = Geometry::RotateVector( mObjectToWorld, T );
         T = normalize( T );
-        props.T = float4( T, primitiveData.bitangentSign );
+        float bitangentSign = 1.0 - 2.0 * float( primitiveData.curvatureAndBitangentSign >> 31 );
+        props.T = float4( T, bitangentSign );
 
         props.X = origin + direction * props.hitT;
         if( !props.Has( FLAG_STATIC ) )
@@ -779,6 +787,13 @@ float GetDeltaEventRay( GeometryProps geometryProps, bool isReflection, float et
     return eta;
 }
 
+struct GlassMotion
+{
+    float surfaceWeight;
+    float weightedSurfaceDistance;
+    float reflectionWeight;
+};
+
 struct TracePayload
 {
     float3 radiance;
@@ -788,19 +803,19 @@ struct TracePayload
     float eta;
 };
 
-// Traces through glass to the next opaque hit or sky; skips non-glass inputs
-bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, bool isReflection, float coneAngle, float seed, compiletime bool isDirectTracing )
+// Trace glass to the next opaque hit or sky
+bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, bool isReflection, float coneAngle, float seed, compiletime bool isDirectTracing, inout GlassMotion glassMotion )
 {
     uint bounceMaxNum = isDirectTracing ? PT_GLASS_DIRECT_BOUNCES_NUM : PT_GLASS_INDIRECT_BOUNCES_NUM;
+    float entryCurvature = -1.0;
 
     [loop]
     for( uint bounce = 1; bounce <= bounceMaxNum; bounce++ )
     {
-        // Keep outside of "for" for better performance
         if( !geometryProps.Has( FLAG_TRANSPARENT ) )
             break;
 
-        // Reflection or refraction?
+        // Split the primary event, sample later events with Fresnel
         float NoV = abs( dot( geometryProps.N, geometryProps.V ) );
         float F = BRDF::FresnelTerm_Dielectric( payload.eta, NoV );
 
@@ -809,34 +824,89 @@ bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, 
         else
         {
             float rnd;
-            if( isDirectTracing && !gRR && !gSR ) // these prefer white noise
+            if( isDirectTracing && !gRR && !gSR && gDenoiserType != DENOISER_REFERENCE )
                 rnd = frac( seed + Sequence::Halton( bounce, 3 ) ); // Halton base 2 works worse
             else
-                rnd = Rng::Hash::GetFloat( );
+                rnd = Rng::Hash::GetFloat( ); // SR, RR and REF prefer white noise
 
             isReflection = rnd < F;
+        }
+
+        float curvature = geometryProps.curvature;
+        if( isDirectTracing )
+        {
+            // Estimate reflection reliability and refraction focusing
+            float q = curvature * length( geometryProps.X );
+            float surfaceConfidence = 0.0;
+
+            if( isReflection )
+            {
+                float w = bounce == 1 ? 1.0 : F;
+                glassMotion.reflectionWeight = max( glassMotion.reflectionWeight, w );
+                entryCurvature = -1.0;
+            }
+            else
+            {
+                float NoT = Math::Sqrt01( 1.0 - payload.eta * payload.eta * ( 1.0 - NoV * NoV ) );
+                float refractionPower = abs( NoT - payload.eta * NoV ) * rsqrt( max( NoV * NoT, 1e-6 ) );
+                q *= refractionPower / max( abs( 1.0 - payload.eta ), 1e-6 );
+
+                // Estimate surface influence from distance traveled inside glass
+                if( payload.eta > 1.0 )
+                {
+                    float lens = ( 1.0 - 1.0 / payload.eta ) * q * saturate( curvature * geometryProps.hitT );
+                    surfaceConfidence = lens / ( 1.0 + lens );
+                }
+
+                curvature *= 0.5 * refractionPower;
+
+                // Cancel opposing transmission curvature in the thin limit
+                if( payload.eta > 1.0 && entryCurvature >= 0.0 )
+                {
+                    float opticalThickness = 2.0 * max( payload.eta * entryCurvature, curvature ) * geometryProps.hitT;
+                    float pairCurvature = abs( payload.eta * entryCurvature - curvature );
+                    curvature = lerp( pairCurvature - entryCurvature, curvature, saturate( opticalThickness * opticalThickness ) );
+                }
+                entryCurvature = payload.eta < 1.0 ? curvature : -1.0;
+            }
+
+            // Favor surface motion at silhouettes, limit transmission motion's pull away from background motion
+            float grazing = ( 1.0 - NoV ) * ( 1.0 - NoV );
+            float t = q * grazing * grazing;
+            float w = t / max( NoV * NoV * NoV * NoV + ( isReflection ? t : q ), 1e-6 );
+            surfaceConfidence = max( surfaceConfidence, w );
+
+
+            // Accumulate surface influence at its focused depth
+            w = ( 1.0 - glassMotion.surfaceWeight ) * surfaceConfidence;
+            glassMotion.surfaceWeight += w;
+            glassMotion.weightedSurfaceDistance += w * payload.accumulatedHitDist;
         }
 
         float3 Xoffset, ray;
         payload.eta = GetDeltaEventRay( geometryProps, isReflection, payload.eta, Xoffset, ray );
 
-        // Finish the incoming segment traced by the caller or previous glass bounce
-        payload.accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, payload.accumulatedCurvature );
+        // Finish the incoming segment
+        if( !isDirectTracing )
+            payload.accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, payload.accumulatedCurvature );
 
-        // Add this glass surface's curvature for the outgoing ray
-        payload.accumulatedCurvature += geometryProps.curvature;
+        payload.accumulatedCurvature += curvature;
+        if( isDirectTracing )
+            payload.accumulatedCurvature = max( payload.accumulatedCurvature, 0.0 );
 
-        // Move to the next hit
         uint flags = bounce == bounceMaxNum ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
         geometryProps = CastRay( Xoffset, ray, 0.0, INF, float2( geometryProps.mip, coneAngle ), gWorldTlas, flags, PT_RAY_FLAGS );
 
-        // TODO: ideally each medium should have its own IOR and extinction ( tint color? )
-        bool isAir = payload.eta < 1.0;
-        float extinction = isAir ? 0.0 : PT_GLASS_EXTINCTION;
+        // Accumulate the outgoing virtual segment
+        if( isDirectTracing )
+            payload.accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, payload.accumulatedCurvature );
 
+        // TODO: per-medium IOR and extinction
         // TODO: fix for non-convex geometry
-        payload.throughput *= geometryProps.IsMiss( ) ? 1.0 : exp( -extinction * geometryProps.hitT * gUnitToMetersMultiplier );
+        if( payload.eta >= 1.0 && !geometryProps.IsMiss( ) )
+            payload.throughput *= exp( -PT_GLASS_EXTINCTION * geometryProps.hitT * gUnitToMetersMultiplier );
     }
+
 
     return isReflection;
 }
@@ -1223,7 +1293,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, ui
     return GetLighting( geometryProps, materialProps, flags, unused );
 }
 
-float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3> texDiff, Texture2D<float4> texSpecViewZ, GeometryProps geometryProps, uint2 pixelPos, out float3 Ldiff, out float3 Lspec )
+float ReprojectIrradiance( bool isPrevFrame, bool isTransmission, Texture2D<float3> texDiff, Texture2D<float4> texSpecViewZ, GeometryProps geometryProps, uint2 pixelPos, out float3 Ldiff, out float3 Lspec )
 {
     // Get UV and ignore back projection
     float2 uv = Geometry::GetScreenUv( isPrevFrame ? gWorldToClipPrev : gWorldToClip, geometryProps.X, true ) - gJitter;
@@ -1236,11 +1306,11 @@ float ReprojectIrradiance( bool isPrevFrame, bool isRefraction, Texture2D<float3
     float weight = 1.0;
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
 
-    // Relaxed checks for refractions
+    // Relaxed checks for transmission
     float viewZ = abs( Geometry::AffineTransform( isPrevFrame ? gWorldToViewPrev : gWorldToView, geometryProps.X ).z );
     float err = ( viewZ - prevViewZ ) * Math::PositiveRcp( max( viewZ, prevViewZ ) );
 
-    if( isRefraction )
+    if( isTransmission )
     {
         // Confidence - viewZ ( PSR makes prevViewZ further than the original primary surface )
         weight *= Math::LinearStep( 0.01, 0.005, saturate( err ) );

@@ -180,7 +180,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
 
             // Trace through glass ( events do not consume the opaque bounce budget )
             if( traceGlass )
-                TraceGlass( geometryProps, payload, false, mipAndCone.y, 0.0, false );
+            {
+                GlassMotion unused = ( GlassMotion )0;
+                TraceGlass( geometryProps, payload, false, mipAndCone.y, 0.0, false, unused );
+            }
 
             materialProps = GetMaterialProps( geometryProps ); // TODO: try to read metrials only if L1- and L2- lighting caches failed
         }

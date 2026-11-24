@@ -14,43 +14,17 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Result, u, 0, SET_
 #define BUFFER_X        ( GROUP_X + BORDER * 2 )
 #define BUFFER_Y        ( GROUP_Y + BORDER * 2 )
 
-#define PRELOAD_INTO_SMEM \
-    int2 groupBase = pixelPos - threadPos - BORDER; \
-    uint stageNum = ( BUFFER_X * BUFFER_Y + GROUP_X * GROUP_Y - 1 ) / ( GROUP_X * GROUP_Y ); \
-    [unroll] \
-    for( uint stage = 0; stage < stageNum; stage++ ) \
-    { \
-        uint virtualIndex = threadIndex + stage * GROUP_X * GROUP_Y; \
-        uint2 newId = uint2( virtualIndex % BUFFER_X, virtualIndex / BUFFER_X ); \
-        if( stage == 0 || virtualIndex < BUFFER_X * BUFFER_Y ) \
-            Preload( newId, groupBase + newId ); \
-    } \
-    GroupMemoryBarrierWithGroupSync( )
+static const float TAA_WEIGHTS[ 3 ] = { 1.0, exp( -TAA_BLUR_FALLOFF ), exp( -4.0 * TAA_BLUR_FALLOFF ) };
 
 groupshared float3 s_Color[ BUFFER_Y ][ BUFFER_X ];
-groupshared float3 s_Mv[ BUFFER_Y ][ BUFFER_X ];
+groupshared float4 s_Mv[ BUFFER_Y ][ BUFFER_X ];
 
 void Preload( uint2 sharedPos, int2 globalPos )
 {
     globalPos = clamp( globalPos, 0, gRectSize - 1.0 );
 
     s_Color[ sharedPos.y ][ sharedPos.x ] = ApplyTonemap( gIn_Composed[ globalPos ] );
-    s_Mv[ sharedPos.y ][ sharedPos.x ] = gIn_Mv[ globalPos ].xyw; // dZ is not needed
-}
-
-// TODO: move to ml?
-// https://www.cs.rit.edu/~ncs/color/t_convert.html
-// http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
-float3 XyzToLab( float3 x )
-{
-    x /= float3( 95.0489, 100.0, 108.8840 );
-    x = lerp( 7.787 * x + 16.0 / 116.0, pow( x, 0.333333 ), x > 0.008856 );
-
-    float l = lerp( 903.3 * x.y, 116.0 * pow( x.y, 0.333333 ) - 16.0, x.y > 0.008856 );
-    float a = 500.0 * ( x.x - x.y );
-    float b = 200.0 * ( x.y - x.z );
-
-    return float3( l, a, b );
+    s_Mv[ sharedPos.y ][ sharedPos.x ] = gIn_Mv[ globalPos ]; // XY motion, glass mask, viewZ with "want 5x5 mask"
 }
 
 float4 BicubicFilterNoCorners( Texture2D<float4> tex, SamplerState samp, float2 samplePos, float2 invResourceSize, float sharpness )
@@ -109,12 +83,13 @@ void main( int2 threadPos : SV_GroupThreadID, int2 pixelPos : SV_DispatchThreadI
     float3 m1 = 0;
     float3 m2 = 0;
     float3 input = 0;
+    float2 glassMotionSum = 0;
+    float glassMotionWeightSum = 0;
 
-    float3 centerMv = s_Mv[ threadPos.y + BORDER ][threadPos.x + BORDER ];
-    float minViewZ = abs( centerMv.z );
+    float4 centerMv = s_Mv[ threadPos.y + BORDER ][threadPos.x + BORDER ];
+    float minViewZ = abs( centerMv.w );
     int2 offseti = int2( BORDER, BORDER );
-
-    bool want5x5 = centerMv.z < 0.0; // 5x5 is needed for hair ( super thin ) and glass ( noisy ), also it's safe to use it for sky to get better edges
+    bool want5x5 = centerMv.w < 0.0; // 5x5 is needed for hair ( super thin ) and glass ( noisy ), also it's safe to use it for sky to get better edges
 
     [unroll]
     for( int dy = 0; dy <= BORDER * 2; dy++ )
@@ -129,23 +104,29 @@ void main( int2 threadPos : SV_GroupThreadID, int2 pixelPos : SV_DispatchThreadI
             int2 smemPos = threadPos + offset;
 
             float3 c = s_Color[ smemPos.y ][ smemPos.x ];
-            float3 mv = s_Mv[ smemPos.y ][ smemPos.x ].xyz;
-            float viewZ = abs( mv.z );
+            float4 mv = s_Mv[ smemPos.y ][ smemPos.x ];
+            float viewZ = abs( mv.w );
 
+            // Keep candidate MV dilation at 3x3 even when color statistics use 5x5
             if( dx == BORDER && dy == BORDER )
                 input = c;
-            else if( viewZ < minViewZ )
+            else if( viewZ < minViewZ && all( abs( offset - BORDER ) <= 1 ) )
             {
                 minViewZ = viewZ;
                 offseti = offset;
             }
 
-            float r2 = Math::LengthSquared( offset / BORDER - 1.0 );
-            float w = exp( -r2 );
+            float w = TAA_WEIGHTS[ abs( dx - BORDER ) ] * TAA_WEIGHTS[ abs( dy - BORDER ) ];
 
+            // Color moments
             m1 += c * w;
             m2 += c * c * w;
             sum += w;
+
+            // Smooth noisy glass MV
+            w *= mv.z;
+            glassMotionSum += mv.xy * w;
+            glassMotionWeightSum += w;
         }
     }
 
@@ -155,8 +136,11 @@ void main( int2 threadPos : SV_GroupThreadID, int2 pixelPos : SV_DispatchThreadI
     float3 sigma = sqrt( abs( m2 - m1 * m1 ) ) * TAA_SIGMA_SCALE;
 
     // Previous pixel position
-    float3 mv = s_Mv[ threadPos.y + offseti.y ][ threadPos.x + offseti.x ].xyz * float3( gInvRectSize.xy, 1.0 );
-    float2 pixelUvPrev = pixelUv + mv.xy;
+    float2 mv = s_Mv[ threadPos.y + offseti.y ][ threadPos.x + offseti.x ].xy;
+    if( glassMotionWeightSum > 0.0 )
+        mv = glassMotionSum / glassMotionWeightSum;
+
+    float2 pixelUvPrev = pixelUv + mv * gInvRectSize;
 
     // History
     float2 pixelPosPrev = saturate( pixelUvPrev ) * gRectSizePrev;
@@ -174,20 +158,10 @@ void main( int2 threadPos : SV_GroupThreadID, int2 pixelPos : SV_DispatchThreadI
 
     // Disocclusion #2
     float3 clampedHistory = Color::ClampAabb( m1, sigma, history.xyz );
-    #if 0 // good enough?
-        float diff = length( clampedHistory - history.xyz );
-        diff = Math::Pow01( diff, 1.2 );
-    #else
-        float3 a = XyzToLab( Color::RgbToXyz( clampedHistory ) );
-        float3 b = XyzToLab( Color::RgbToXyz( history.xyz ) );
-
-        const float JND = 2.3; // just noticable difference
-        float diff = length( a - b ) / ( JND * 3.0 );
-    #endif
-    mixRate += diff;
-
-    // Clamp mix rate
-    mixRate = saturate( mixRate );
+    float3 delta = Color::RgbToYCoCg( history.xyz - clampedHistory ) / gHdrScale;
+    float error = length( delta * float3( 1.0, 0.5, 0.5 ) );
+    float response = saturate( ( error - 0.01 ) * 4.0 );
+    mixRate = max( mixRate, response );
 
     // TODO: anti-flickering, compatible with "mixRate"?
 

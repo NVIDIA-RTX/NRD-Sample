@@ -24,27 +24,36 @@ struct TraceTransparentDesc
     // Pixel position
     uint2 pixelPos;
 
-    // Is reflection or refraction in first segment?
+    // Initial event is reflection
     bool isReflection;
 };
 
 // TODO: think about adding a specialized delta-event denoiser in NRD:
 //  Inputs:
 //      - Lsum ( delta events gathered across the path )
-//      - reflections or refractions prevail?
+//      - reflections or transmissions prevail?
 //  Principle:
-//      - add missing component (reflection or refraction) from neighboring pixels
-float3 TraceTransparent( TraceTransparentDesc desc )
+//      - add missing component (reflection or transmission) from neighboring pixels
+float4 TraceTransparent( TraceTransparentDesc desc, out GlassMotion glassMotion )
 {
     GeometryProps geometryProps = desc.geometryProps;
 
     TracePayload payload = ( TracePayload )0;
     payload.eta = BRDF::IOR::Air / BRDF::IOR::Glass;
     payload.throughput = 1.0;
+    glassMotion = ( GlassMotion )0;
 
     float coneAngle = GetConeAngleFromRoughness( geometryProps.mip, 0.0 ).y;
-    float bayer = Sequence::Bayer4x4( desc.pixelPos, gFrameIndex );
-    bool isReflection = TraceGlass( geometryProps, payload, desc.isReflection, coneAngle, bayer, true );
+    float seed = Sequence::Bayer4x4( desc.pixelPos, gFrameIndex );
+    bool isReflection = TraceGlass( geometryProps, payload, desc.isReflection, coneAngle, seed, true, glassMotion );
+
+    // Normalize the net turn by a flat reflection; forward transmission favors opaque motion
+    if( !desc.isReflection )
+    {
+        float NoV = abs( dot( desc.geometryProps.N, desc.geometryProps.V ) );
+        glassMotion.reflectionWeight *= saturate( 0.5 * ( 1.0 - dot( desc.geometryProps.V, geometryProps.V ) ) / max( NoV * NoV, 1e-6 ) );
+    }
+
     MaterialProps materialProps = GetMaterialProps( geometryProps );
 
     float4 Lcached = float4( materialProps.Lemi, 0.0 );
@@ -56,7 +65,7 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         Lcached = float4( prevLdiff + prevLspec, reprojectionWeight );
 
         // L2 cache - SHARC
-        bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w; // is needed?
+        bool isSharcAllowed = Rng::Hash::GetFloat( ) > Lcached.w;
 
         if( isSharcAllowed )
         {
@@ -79,8 +88,46 @@ float3 TraceTransparent( TraceTransparentDesc desc )
         }
     }
 
-    // Output
-    return Lcached.xyz * payload.throughput;
+    // Radiance and virtual distance
+    return float4( Lcached.xyz * payload.throughput, payload.accumulatedHitDist );
+}
+
+float2 GetGlassMotion( GlassMotion glassMotion, float virtualDistance, GeometryProps geometryProps, float2 opaqueMotion )
+{
+    float2 motion = opaqueMotion;
+
+    if( glassMotion.reflectionWeight > 0.0 )
+    {
+        float3 Xvirtual = geometryProps.X - geometryProps.V * virtualDistance;
+        float2 virtualMotion = GetMotion( Xvirtual, Xvirtual ).xy;
+
+        motion = lerp( motion, virtualMotion, glassMotion.reflectionWeight );
+    }
+
+    if( glassMotion.surfaceWeight > 0.0 )
+    {
+        // Reproject the weighted glass-layer distance
+        float surfaceDistance = glassMotion.weightedSurfaceDistance / max( glassMotion.surfaceWeight, 1e-6 );
+        float3 Xsurface = geometryProps.X - geometryProps.V * surfaceDistance;
+        float3 XsurfacePrev = geometryProps.Xprev - geometryProps.V * surfaceDistance;
+        float2 surfaceMotion = GetMotion( Xsurface, XsurfacePrev ).xy;
+
+        motion = lerp( motion, surfaceMotion, glassMotion.surfaceWeight );
+    }
+
+    return motion;
+}
+
+// Keep the smaller parallel-edge contrast in each direction to reject isolated path noise
+float GetQuadDetail( float luminance )
+{
+    float dx = luminance - QuadReadAcrossX( luminance );
+    float dy = luminance - QuadReadAcrossY( luminance );
+    float2 gradient = abs( float2( dx, dy ) );
+
+    gradient = min( gradient, QuadReadAcrossDiagonal( gradient ) );
+
+    return gradient.x + gradient.y;
 }
 
 //========================================================================================
@@ -90,53 +137,53 @@ float3 TraceTransparent( TraceTransparentDesc desc )
 [numthreads( 16, 16, 1 )]
 void main( int2 pixelPos : SV_DispatchThreadID )
 {
+    if( any( pixelPos >= int2( gRectSize ) ) )
+        return;
+
     float2 pixelUv = float2( pixelPos + 0.5 ) * gInvRectSize;
     float2 sampleUv = pixelUv + gJitter;
 
-    // Do not generate NANs for unused threads
-    if( pixelUv.x > 1.0 || pixelUv.y > 1.0 )
-        return;
-
-    // Initialize RNG
     Rng::Hash::Initialize( pixelPos, gFrameIndex );
 
-    // Primary ray for glass and, when PSR is active, the first mirror
+    // Trace to the first layer of glass...
     float3 cameraRayOrigin = ( float3 )0;
     float3 cameraRayDirection = ( float3 )0;
     GetCameraRay( cameraRayOrigin, cameraRayDirection, sampleUv );
 
-    float viewZAndTaaMask = gInOut_Mv[ pixelPos ].w;
-    float viewZ = Math::Sign( gNearZ ) * abs( viewZAndTaaMask ) / FP16_VIEWZ_SCALE; // viewZ before PSR
+    float4 motion = gInOut_Mv[ pixelPos ];
+    float viewZAndTaaMask = motion.w;
+    float viewZ = abs( viewZAndTaaMask ) / FP16_VIEWZ_SCALE; // viewZ before PSR
     float viewZafterPsr = abs( gIn_ComposedSpec_ViewZ[ pixelPos ].w ) / FP16_VIEWZ_SCALE;
-    float eps = max( abs( viewZ ) * 1e-3, 1e-6 ); // tolerate FP16 depth rounding
-    bool hasPsr = PT_PSR_BOUNCES_NUM != 0 && !( abs( viewZafterPsr - abs( viewZ ) ) < eps );
-    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, viewZ, gOrthoMode );
-    float tmin0 = gOrthoMode == 0 ? length( Xv ) : abs( Xv.z );
 
-    // PSR needs the first opaque mirror too; reuse this hit instead of tracing the primary ray again
+    float eps = viewZ * 0.001;
+    bool hasPsr = PT_PSR_BOUNCES_NUM != 0 && !( abs( viewZafterPsr - viewZ ) < eps );
     uint flags = hasPsr ? GEOMETRY_ALL : FLAG_TRANSPARENT;
-    float tmax = hasPsr ? INF : tmin0;
+
+    float rayDirectionZ = Geometry::RotateVector( gWorldToView, cameraRayDirection ).z;
+    float tmax = ( viewZ + eps ) / rayDirectionZ; // DoF friendly
+
     GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmax, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, flags, 0 );
 
-    bool hasGlass = geometryPropsT.Has( FLAG_TRANSPARENT );
-    float3 psrThroughput = 1.0;
-    float3x3 mirrorMatrix = Geometry::GetMirrorMatrix( 0 );
-    float3 Xvirtual = geometryPropsT.X;
+    float3 Lsum = 1.0;
 
-    // Search reflected segments only for pixels whose opaque surface was replaced by PSR
+    TraceTransparentDesc desc = ( TraceTransparentDesc )0;
+    desc.geometryProps = geometryPropsT;
+    desc.pixelPos = pixelPos;
+
+    // ...through PSRs
     [branch]
-    if( !hasGlass && hasPsr )
+    if( !geometryPropsT.Has( FLAG_TRANSPARENT ) && hasPsr )
     {
-        GeometryProps geometryProps = geometryPropsT;
-        float3 X0 = geometryProps.X;
-        float3 V0 = geometryProps.V;
+        float3x3 mirrorMatrix = Geometry::GetMirrorMatrix( 0 );
+        float3 X0 = geometryPropsT.X;
+        float3 V0 = geometryPropsT.V;
         float accumulatedHitDist = 0.0;
         float accumulatedCurvature = 0.0;
 
         [loop]
-        for( uint bounce = 0; bounce < PT_PSR_BOUNCES_NUM && !geometryProps.IsMiss( ); bounce++ )
+        for( uint bounce = 0; bounce < PT_PSR_BOUNCES_NUM && !geometryPropsT.IsMiss( ); bounce++ )
         {
-            MaterialProps materialProps = GetMaterialProps( geometryProps );
+            MaterialProps materialProps = GetMaterialProps( geometryPropsT );
             if( !IsDelta( materialProps ) )
                 break;
 
@@ -145,58 +192,62 @@ void main( int2 pixelPos : SV_DispatchThreadID )
 
             float3 albedo, Rf0;
             BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-            float NoV = abs( dot( materialProps.N, geometryProps.V ) );
-            psrThroughput *= BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
+            float NoV = abs( dot( materialProps.N, geometryPropsT.V ) );
+            Lsum *= BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
 
-            float3 ray = reflect( -geometryProps.V, materialProps.N );
-            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, materialProps.roughness );
-            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, PT_RAY_FLAGS );
-            accumulatedHitDist += ApplyThinLensEquation( geometryProps.hitT, accumulatedCurvature );
+            float3 ray = reflect( -geometryPropsT.V, materialProps.N );
+            float2 mipAndCone = GetConeAngleFromRoughness( geometryPropsT.mip, materialProps.roughness );
+            geometryPropsT = CastRay( GetXoffset( geometryPropsT.X, geometryPropsT.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, PT_RAY_FLAGS );
+            accumulatedHitDist += ApplyThinLensEquation( geometryPropsT.hitT, accumulatedCurvature );
 
-            if( geometryProps.Has( FLAG_TRANSPARENT ) )
+            if( geometryPropsT.Has( FLAG_TRANSPARENT ) )
             {
-                geometryPropsT = geometryProps;
-                Xvirtual = X0 - V0 * accumulatedHitDist;
-                hasGlass = true;
+                // Trace from the physical hit
+                desc.geometryProps = geometryPropsT;
+
+                // Patch the working hit for reprojection
+                float3 displacement = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.Xprev - geometryPropsT.X );
+                geometryPropsT.X = X0 - V0 * accumulatedHitDist;
+                geometryPropsT.Xprev = geometryPropsT.X + displacement;
+                geometryPropsT.V = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.V );
+                geometryPropsT.N = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.N );
+
                 break;
             }
         }
     }
 
-    float3 Lsum = 0;
-    if( hasGlass )
+    float glassViewZ = 1e6;
+    float3 reflectionMv = 0;
+    float3 transmissionMv = 0;
+
+    if( geometryPropsT.Has( FLAG_TRANSPARENT ) )
     {
-        // Append "glass" mask to "hair" mask
-        viewZAndTaaMask = -abs( viewZAndTaaMask );
-
-        // Patch motion vectors replacing MV for the background with MV for the closest glass layer.
-        // IMPORTANT: surface-based motion can be used only if the object is curved.
-        // TODO: let's use the simplest heuristic for now, but better switch to some "smart" interpolation between
-        // MVs for the primary opaque surface hit and the primary glass surface hit.
-        float3 XvirtualPrev = Xvirtual + Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.Xprev - geometryPropsT.X );
-        float3 mvT = GetMotion( Xvirtual, XvirtualPrev );
-        gInOut_Mv[ pixelPos ] = float4( mvT, viewZAndTaaMask );
-
         // Patch guides for RR
         [branch]
         if( gRR )
-            gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.N ), 0.0, 0 );
+            gOut_Normal_Roughness[ pixelPos ] = NRD_FrontEnd_PackNormalAndRoughness( geometryPropsT.N, 0.0, 0 );
 
-        // Trace transparent stuff
-        TraceTransparentDesc desc = ( TraceTransparentDesc )0;
-        desc.geometryProps = geometryPropsT;
-        desc.pixelPos = pixelPos;
-
-        // IMPORTANT: use 1 reflection path and 1 refraction path at the primary glass hit to significantly reduce noise
+        // Split primary reflection and transmission to reduce noise
         desc.isReflection = true;
-        float3 reflection = TraceTransparent( desc );
-        Lsum = reflection;
+        GlassMotion reflectionMotion;
+        float4 reflection = TraceTransparent( desc, reflectionMotion );
+        reflectionMv.z = Color::Luminance( reflection.xyz );
+        reflectionMv.xy = GetGlassMotion( reflectionMotion, reflection.w, geometryPropsT, motion.xy );
+        reflectionMv.xy *= reflectionMv.z;
 
         desc.isReflection = false;
-        float3 refraction = TraceTransparent( desc );
-        Lsum += refraction;
+        GlassMotion transmissionMotion;
+        float4 transmission = TraceTransparent( desc, transmissionMotion );
+        transmissionMv.z = Color::Luminance( transmission.xyz );
+        transmissionMv.xy = GetGlassMotion( transmissionMotion, transmission.w, geometryPropsT, motion.xy );
+        transmissionMv.xy *= transmissionMv.z;
 
-        Lsum *= psrThroughput;
+        Lsum *= reflection.xyz + transmission.xyz;
+
+        // TAA needs the nearest visible glass or PSR viewZ, with the negative mask preserved
+        glassViewZ = abs( Geometry::AffineTransform( gWorldToView, geometryPropsT.X ).z );
+        motion.w = -min( abs( viewZAndTaaMask ), glassViewZ * FP16_VIEWZ_SCALE );
     }
     else
     {
@@ -206,6 +257,70 @@ void main( int2 pixelPos : SV_DispatchThreadID )
 
         Lsum = diff + spec;
     }
+
+    // Average compatible motion in 2x2 quad
+    [branch]
+    if( WaveActiveAnyTrue( geometryPropsT.Has( FLAG_TRANSPARENT ) ) && all( ( pixelPos | 1 ) < int2( gRectSize ) ) )
+    {
+        float pixelSize2X = gUnproject * lerp( glassViewZ, 1.0, abs( gOrthoMode ) ) * 2.0; // allow extra viewZ variation for curved or obliquely viewed glass
+        float3 reflectionSum = 0;
+        float3 transmissionSum = 0;
+        float sampleCount = 0;
+
+        [unroll]
+        for( uint lane = 0; lane < 4; lane++ )
+        {
+            float donorViewZ = QuadReadLaneAt( glassViewZ, lane );
+            float3 reflectionDonor = QuadReadLaneAt( reflectionMv, lane );
+            float3 transmissionDonor = QuadReadLaneAt( transmissionMv, lane );
+
+            if( abs( donorViewZ - glassViewZ ) < pixelSize2X )
+            {
+                reflectionSum += reflectionDonor;
+                transmissionSum += transmissionDonor;
+                sampleCount += 1.0;
+            }
+        }
+
+        float2 detail;
+        detail.x = GetQuadDetail( reflectionMv.z );
+        detail.y = GetQuadDetail( transmissionMv.z );
+
+        if( geometryPropsT.Has( FLAG_TRANSPARENT ) && sampleCount > 1.0 )
+        {
+            reflectionMv = reflectionSum;
+            transmissionMv = transmissionSum;
+
+            // Favor reflected features over smooth transmission with full quad support
+            if( sampleCount == 4.0 && reflectionMv.z != 0.0 && transmissionMv.z != 0.0 )
+            {
+                float totalEnergy = reflectionMv.z + transmissionMv.z;
+                float detailWeight = saturate( detail.x / max( detail.y, 1e-6 ) );
+                float reflectionScale = max( reflectionMv.z, detailWeight * totalEnergy ) / reflectionMv.z;
+                float transmissionScale = min( transmissionMv.z, ( 1.0 - detailWeight ) * totalEnergy ) / transmissionMv.z;
+
+                reflectionMv *= reflectionScale;
+                transmissionMv *= transmissionScale;
+            }
+        }
+    }
+
+    float totalEnergy = reflectionMv.z + transmissionMv.z;
+    if( totalEnergy != 0.0 )
+    {
+        // Prefer initial reflection slightly ( +6.25% ) when both motion guides contribute
+        float reflectionFraction = reflectionMv.z / totalEnergy;
+        float transmissionFraction = transmissionMv.z / totalEnergy;
+        reflectionMv *= 1.0 + 0.25 * transmissionFraction;
+        transmissionMv *= 1.0 - 0.25 * reflectionFraction;
+
+        // Final mix
+        motion.xy = ( reflectionMv.xy + transmissionMv.xy ) / totalEnergy;
+    }
+
+    // Opaque denoising has consumed dZ; pass the glass mask to TAA and SR/RR instead.
+    motion.z = geometryPropsT.Has( FLAG_TRANSPARENT ) ? 1.0 : 0.0;
+    gInOut_Mv[ pixelPos ] = motion;
 
     // Output
     gOut_Composed[ pixelPos ] = Lsum * gExposure; // apply exposure

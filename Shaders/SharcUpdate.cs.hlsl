@@ -30,17 +30,18 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
     float2 sampleUv = ( pixelPos + 0.5 + jitter ) * gInvSharcRenderSize;
 
     // Primary ray
-    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, gNearZ, gOrthoMode );
+    float3 Xv = Geometry::ReconstructViewPosition( sampleUv, gCameraFrustum, 1.0, gOrthoMode );
+    float3 Xoffset = float3( Xv.xy * abs( gOrthoMode ), 0.0 );
 
-    float3 Xoffset, ray;
+    float3 ray;
     if( mode == PREV )
     {
-        Xoffset = Geometry::AffineTransform( gViewToWorldPrev, Xv );
+        Xoffset = Geometry::AffineTransform( gViewToWorldPrev, Xoffset );
         ray = gOrthoMode == 0.0 ? normalize( Geometry::RotateVector( gViewToWorldPrev, Xv ) ) : -gViewDirection.xyz; // TODO: add "gViewDirectionPrev"
     }
     else
     {
-        Xoffset = Geometry::AffineTransform( gViewToWorld, Xv );
+        Xoffset = Geometry::AffineTransform( gViewToWorld, Xoffset );
         ray = gOrthoMode == 0.0 ? normalize( Geometry::RotateVector( gViewToWorld, Xv ) ) : -gViewDirection.xyz;
     }
 
@@ -65,7 +66,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
         if( !( isGlass || isDelta ) || geometryProps.IsMiss( ) )
             break;
 
-        // True mirrors always reflect, glass samples reflection or refraction
+        // True mirrors always reflect, glass samples reflection or transmission
         bool isReflection = true;
         if( isGlass )
         {
@@ -73,7 +74,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
             float F = BRDF::FresnelTerm_Dielectric( eta, NoV );
             float rnd = Rng::Hash::GetFloat( );
 
-            // Since we don't know the energy of the reflection, both reflection and refraction paths need to get coverage
+            // Since we don't know the energy of the reflection, both reflection and transmission paths need to get coverage
             bool isTotalInternalReflection = eta * eta * ( 1.0 - NoV * NoV ) >= 1.0;
             isReflection = isTotalInternalReflection || rnd < clamp( F, 0.25, 0.75 );
         }

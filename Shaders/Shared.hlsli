@@ -18,6 +18,7 @@
 #define USE_BLUE_NOISE_FOR_SHADOWS          ( 1 && !gRR && gDenoiserType != DENOISER_REFERENCE ) // a must have for SIGMA
 #define USE_SHARC_THIN_NORMAL_MERGING       1 // do not split SHARC voxels based on normals, merging works better on foliage and hair
 #define USE_GLASS_IN_OPAQUE_TRACING         1 // glass contibutes to opaque lighting ( affects surrounding objects )
+#define USE_BETTER_CURVATURE                1 // edge-metric normal gradient, packed with the bitangent sign
 
 // Default = 0
 #define USE_SANITIZATION                    0 // NRD sample is NAN/INF free
@@ -114,6 +115,7 @@
 #define STRAND_THICKNESS                    80e-6f
 #define TAA_HISTORY_SHARPNESS               0.66 // sharper ( was 0.5 )
 #define TAA_SIGMA_SCALE                     2.0 // allow nano ghosting ( was 1.0 ) // TODO: can negatively affect moving shadows
+#define TAA_BLUR_FALLOFF                    0.2 // Gaussian exponent coefficient for the 5x5 filter
 #define GARBAGE                             sqrt( -1.0 ) // sqrt( -1.0 ) or -log( 0.0 ) or 32768.0
 
 // Camera-attached material grid
@@ -157,7 +159,7 @@ struct PrimitiveData
     float16_t2 t0;
     float16_t2 t1;
     float16_t2 t2;
-    float bitangentSign;
+    uint32_t curvatureAndBitangentSign;
 };
 
 struct InstanceData
@@ -214,7 +216,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float2 gJitterPrev;
     float gEmissionIntensityLights;
     float gEmissionIntensityCubes;
-    float gNearZ;
     float gSeparator;
     float gRoughnessOverride;
     float gMetalnessOverride;
@@ -248,6 +249,21 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
 };
 
 #if( !defined( __cplusplus ) )
+
+// Requires BORDER, GROUP_X/Y, BUFFER_X/Y, pixelPos, threadPos, threadIndex and Preload(uint2, int2).
+// Invoke before any thread returns so the whole group reaches the barrier.
+#define PRELOAD_INTO_SMEM \
+    int2 groupBase = int2( pixelPos ) - int2( threadPos ) - BORDER; \
+    uint stageNum = ( BUFFER_X * BUFFER_Y + GROUP_X * GROUP_Y - 1 ) / ( GROUP_X * GROUP_Y ); \
+    [unroll] \
+    for( uint stage = 0; stage < stageNum; stage++ ) \
+    { \
+        uint virtualIndex = threadIndex + stage * GROUP_X * GROUP_Y; \
+        uint2 newId = uint2( virtualIndex % BUFFER_X, virtualIndex / BUFFER_X ); \
+        if( stage == 0 || virtualIndex < BUFFER_X * BUFFER_Y ) \
+            Preload( newId, groupBase + int2( newId ) ); \
+    } \
+    GroupMemoryBarrierWithGroupSync( )
 
 #include "ml.hlsli"
 #include "NRD.hlsli"
