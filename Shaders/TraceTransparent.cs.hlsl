@@ -160,7 +160,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     uint flags = hasPsr ? GEOMETRY_ALL : FLAG_TRANSPARENT;
 
     float rayDirectionZ = Geometry::RotateVector( gWorldToView, cameraRayDirection ).z;
-    float tmax = ( viewZ + eps ) / rayDirectionZ; // DoF friendly
+    float tmax = ( viewZ + eps ) / abs( rayDirectionZ ); // DoF friendly
 
     GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmax, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, flags, 0 );
 

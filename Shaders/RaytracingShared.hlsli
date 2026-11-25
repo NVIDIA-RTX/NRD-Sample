@@ -876,7 +876,6 @@ bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, 
             float w = t / max( NoV * NoV * NoV * NoV + ( isReflection ? t : q ), 1e-6 );
             surfaceConfidence = max( surfaceConfidence, w );
 
-
             // Accumulate surface influence at its focused depth
             w = ( 1.0 - glassMotion.surfaceWeight ) * surfaceConfidence;
             glassMotion.surfaceWeight += w;
@@ -906,7 +905,6 @@ bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, 
         if( payload.eta >= 1.0 && !geometryProps.IsMiss( ) )
             payload.throughput *= exp( -PT_GLASS_EXTINCTION * geometryProps.hitT * gUnitToMetersMultiplier );
     }
-
 
     return isReflection;
 }
