@@ -1197,7 +1197,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
         static std::array<const char*, 4> nrdModes = {
             "NORMAL",
             "SH",
-            "OCCLUSION"
+            "OCCLUSION",
             "DIRECTIONAL_OCCLUSION",
         };
 
@@ -1361,7 +1361,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                     ImGui::PopID();
                 }
 
-                if (m_Settings.onScreen == 11)
+                if (m_Settings.onScreen == SHOW_WORLD_UNITS)
                     ImGui::SliderFloat("Units in 1 meter", &m_Settings.meterToUnitsMultiplier, 0.001f, 100.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
                 else {
                     // "World" section
@@ -1935,7 +1935,7 @@ void Sample::PrepareFrame(uint32_t frameIndex) {
                                     m_Settings.SR = m_DLSR;
                                     m_Settings.TAA = true;
                                     m_Settings.cameraJitter = true;
-                                    m_Settings.onScreen = clamp(m_Settings.onScreen, 0, (int32_t)helper::GetCountOf(onScreenModes));
+                                    m_Settings.onScreen = clamp(m_Settings.onScreen, 0, (int32_t)helper::GetCountOf(onScreenModes) - 1);
 
                                     m_ForceHistoryReset = true;
                                 }

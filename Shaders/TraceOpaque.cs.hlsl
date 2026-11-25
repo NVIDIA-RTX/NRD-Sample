@@ -110,9 +110,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
 {
     TraceOpaqueResult result = ( TraceOpaqueResult )0;
 
-    if( gBounceNum == 0 || geometryProps.IsMiss( ) )
-        isDiffusePath = false;
-
     TracePayload payload = ( TracePayload )0;
     payload.radiance = Lpsr.xyz;
     payload.throughput = 1.0 - Lpsr.w;
@@ -149,15 +146,6 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
                 payload.throughput /= isDiffuse ? diffuseProbability : ( 1.0 - diffuseProbability );
             else
                 isDiffuse = isDiffusePath;
-
-            // This is not needed in case of "RESOLUTION_FULL_PROBABILISTIC", since hair doesn't have diffuse component
-            if( geometryProps.Has( FLAG_HAIR ) && isDiffuse )
-            {
-                if( bounce == 1 )
-                    isDiffusePath = false;
-
-                break;
-            }
 
             // Importance sampling
             uint sampleMaxNum = GetImportanceSampleNum( materialProps.roughness, isDiffuse, bounce == 1 );
@@ -562,7 +550,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         gOut_DirectLighting[ pixelPos ] = Ldirect; // "psrThroughput" applied in "Composition"
 
         // Lighting at PSR hit, if found
-        if( !geometryProps0.IsMiss( ) && hasPsr )
+        if( hasPsr )
         {
             float3 L = Ldirect * GetLighting( geometryProps0, materialProps0, SHADOW ) + materialProps0.Lemi;
 
@@ -650,9 +638,6 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         float3 specRadiance = 0;
         float diffHitDist = 0;
         float specHitDist = 0;
-    #if( NRD_MODE < OCCLUSION )
-        specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
-    #endif
 
     #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
         float3 diffDirection = 0;
@@ -662,28 +647,32 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     #if( USE_SHARC_DEBUG != 0 )
         diffRadiance = GetSharcDebugColor( geometryProps0, materialProps0 );
     #else
+        #if( NRD_MODE < OCCLUSION )
+            specHitDist = NRD_FrontEnd_SpecHitDistAveraging_Begin( );
+        #endif
+
         uint checkerboard = Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0;
         uint pathNum = gSampleNum << ( gTracingMode == RESOLUTION_FULL ? 1 : 0 );
         uint diffPathNum = 0;
+        uint specPathNum = 0;
         float hitDistViewZ = Geometry::AffineTransform( gWorldToView, geometryProps0.X ).z;
+        bool hasNoDiffuse = geometryProps0.Has( FLAG_HAIR ) || materialProps0.metalness == 1.0;
 
         [loop]
         for( uint path = 0; path < pathNum; path++ )
         {
             bool isDiffusePath = gTracingMode == RESOLUTION_HALF ? checkerboard : ( path & 0x1 );
+
+            // Hair and true metals have no diffuse lobe; skip forced diffuse paths before tracing and averaging
+            if( gTracingMode != RESOLUTION_FULL_PROBABILISTIC && isDiffusePath && hasNoDiffuse )
+                continue;
+
             TraceOpaqueResult result = TraceOpaque( geometryProps0, materialProps0, pixelPos, path, mirrorMatrix, Lpsr, isDiffusePath );
 
             // Normalize hit distances for REBLUR before averaging ( use the actual PSR surface, not the virtual guide )
             float normHitDist = result.accumulatedHitDist;
             if( gDenoiserType != DENOISER_RELAX )
                 normHitDist = REBLUR_FrontEnd_GetNormHitDist( result.accumulatedHitDist, hitDistViewZ, gHitDistSettings.xyz, isDiffusePath ? 1.0 : materialProps0.roughness );
-
-        #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
-            if( isDiffusePath )
-                diffDirection += result.direction;
-            else
-                specDirection += result.direction;
-        #endif
 
             // Accumulate diffuse and specular separately for denoising
             if( !USE_SANITIZATION || NRD_IsValidRadiance( result.radiance ) )
@@ -692,11 +681,21 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
                 {
                     diffRadiance += result.radiance;
                     diffHitDist += normHitDist;
+
+                #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+                    diffDirection += result.direction;
+                #endif
+
                     diffPathNum++;
                 }
                 else
                 {
                     specRadiance += result.radiance;
+                    specPathNum++;
+
+                #if( NRD_MODE == SH || NRD_MODE == DIRECTIONAL_OCCLUSION )
+                    specDirection += result.direction;
+                #endif
 
                 #if( NRD_MODE < OCCLUSION )
                     NRD_FrontEnd_SpecHitDistAveraging_Add( specHitDist, normHitDist );
@@ -709,7 +708,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
 
         // These are not divided by sampling probability, so average across diffuse / specular only paths
         float diffNorm = diffPathNum == 0 ? 0.0 : 1.0 / float( diffPathNum );
-        float specNorm = pathNum == diffPathNum ? 0.0 : 1.0 / float( pathNum - diffPathNum );
+        float specNorm = specPathNum == 0 ? 0.0 : 1.0 / float( specPathNum );
 
         diffHitDist *= diffNorm;
 
