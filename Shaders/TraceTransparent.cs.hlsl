@@ -211,6 +211,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
             }
 
             { // Hit point
+                // Accumulate hit distance representing virtual point position
                 accumulatedHitDist += ApplyThinLensEquation( geometryPropsT.hitT, accumulatedCurvature );
 
                 if( geometryPropsT.Has( FLAG_TRANSPARENT ) )
@@ -233,6 +234,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         }
     }
 
+    // Trace through glass
     float glassViewZ = 1e6;
     float3 reflectionMv = 0;
     float3 transmissionMv = 0;
@@ -321,6 +323,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         }
     }
 
+    // Final motion
     float totalEnergy = reflectionMv.z + transmissionMv.z;
     if( totalEnergy != 0.0 )
     {
@@ -334,7 +337,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         motion.xy = ( reflectionMv.xy + transmissionMv.xy ) / totalEnergy;
     }
 
-    // Opaque denoising has consumed dZ; pass the glass mask to TAA and SR/RR instead.
+    // Opaque denoising has consumed dZ; pass the glass mask to TAA and SR/RR instead
     motion.z = geometryPropsT.Has( FLAG_TRANSPARENT ) ? 1.0 : 0.0;
     gInOut_Mv[ pixelPos ] = motion;
 
