@@ -882,7 +882,6 @@ bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, 
             float w = t / max( NoV * NoV * NoV * NoV + ( isReflection ? t : q ), 1e-6 );
             surfaceConfidence = max( surfaceConfidence, w );
 
-
             // Accumulate surface influence at its focused depth
             w = ( 1.0 - glassMotion.surfaceWeight ) * surfaceConfidence;
             glassMotion.surfaceWeight += w;
@@ -1009,7 +1008,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             candidateRayLocal = ImportanceSampling::Cosine::GetRay( rnd );
         else
         {
-            float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, gTrimLobe ? PT_SPEC_LOBE_ENERGY : 1.0 );
+            float3 Hlocal = ImportanceSampling::VNDF::GetRay( rnd, materialProps.roughness, Vlocal, PT_SPEC_LOBE_ENERGY );
             candidateRayLocal = reflect( -Vlocal, Hlocal );
         }
 
@@ -1126,7 +1125,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         float3 F = BRDF::FresnelTerm( Rf0, VoH );
 
         // GetPDF includes the reflection Jacobian; normalize it for the trimmed sampling domain
-        float pdf = ImportanceSampling::VNDF::GetPDF( Vlocal, NoH, materialProps.roughness ) / ( gTrimLobe ? PT_SPEC_LOBE_ENERGY : 1.0 );
+        float pdf = ImportanceSampling::VNDF::GetPDF( Vlocal, NoH, materialProps.roughness ) / PT_SPEC_LOBE_ENERGY;
         throughput *= F * D * G * NoL * Math::PositiveRcp( pdf );
         throughput *= GetSpecularEnergyCompensation( materialProps.baseColor, materialProps.metalness, materialProps.roughness, NoV, VoH );
     }

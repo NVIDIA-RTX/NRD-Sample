@@ -114,14 +114,14 @@
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001
 #define PT_IMPORTANCE_SAMPLES_NUM           16
-#define PT_SPEC_LOBE_ENERGY                 0.95 // trimmed to 95%
+#define PT_SPEC_LOBE_ENERGY                 ( gTrimLobe ? 0.95 : 1.0 ) // trimmed to 95%
 #define PT_SHADOW_RAY_OFFSET                0.25 // pixels
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels
 #define PT_GLASS_RAY_OFFSET                 0.05 // pixels
 #define PT_GLASS_EXTINCTION                 1.0 // 1 / meters
 #define PT_GLASS_DIRECT_BOUNCES_NUM         16
 #define PT_GLASS_INDIRECT_BOUNCES_NUM       8
-#define PT_PSR_BOUNCES_NUM                  ( USE_WHITE_FURNACE ? 0 : 2 )
+#define PT_PSR_BOUNCES_NUM                  ( ( USE_WHITE_FURNACE || !gPSR ) ? 0 : 2 )
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
 #define PT_RAY_FLAGS                        0
 

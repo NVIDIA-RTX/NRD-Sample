@@ -436,13 +436,11 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         viewZAndTaaMask0 = abs( viewZ0 ) * FP16_VIEWZ_SCALE * ( isTaa5x5 ? -1.0 : 1.0 );
 
         [loop]
-        while( bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) && gPSR )
+        while( bounceNum && !geometryProps0.IsMiss( ) && IsDelta( materialProps0 ) )
         {
             { // Origin point
-                // Accumulate curvature
-                accumulatedCurvature += materialProps0.curvature; // yes, before hit
-
-                // Accumulate mirror matrix
+                // Accumulate curvature and mirror matrix
+                accumulatedCurvature += materialProps0.curvature; // yes, before hit: include the replaced primary mirror
                 mirrorMatrix = mul( Geometry::GetMirrorMatrix( materialProps0.N ), mirrorMatrix );
 
                 // Choose a ray
@@ -508,6 +506,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
             return;
         }
 
+        // PSR throughput
         gOut_PsrThroughput[ pixelPos ] = psrThroughput;
 
         // Normal, roughness and material ID
@@ -588,10 +587,6 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
 
     if( gTracingMode != RESOLUTION_HALF || Sequence::CheckerBoard( pixelPos, gFrameIndex ) != 0 )
     {
-        uint2 shadowPixelPos = pixelPos;
-        if( gTracingMode == RESOLUTION_HALF )
-            shadowPixelPos.x >>= 1;
-
         float2 rnd = Rng::Hash::GetFloat2( );
         if( USE_BLUE_NOISE_FOR_SHADOWS )
         {
@@ -599,10 +594,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
             rnd = GetBlueNoise( pixelPos, gIn_ScramblingRanking4, 4, frameIndex );
         }
 
-        rnd = ImportanceSampling::Cosine::GetRay( rnd ).xy;
-        rnd *= gTanSunAngularRadius;
-
-        float3 sunDirection = normalize( gSunBasisX.xyz * rnd.x + gSunBasisY.xyz * rnd.y + gSunDirection.xyz );
+        float3 sunDirection = SampleSunDirection( rnd );
         float3 Xoffset = GetXoffset( Xshadow, sunDirection, PT_SHADOW_RAY_OFFSET );
         float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps0.mip, gTanSunAngularRadius );
 
@@ -630,6 +622,10 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
 
         float penumbra = SIGMA_FrontEnd_PackPenumbra( shadowHitDist, gTanSunAngularRadius );
         float4 translucency = SIGMA_FrontEnd_PackTranslucency( shadowHitDist, shadowTranslucency );
+
+        uint2 shadowPixelPos = pixelPos;
+        if( gTracingMode == RESOLUTION_HALF )
+            shadowPixelPos.x >>= 1;
 
         gOut_ShadowData[ shadowPixelPos ] = penumbra;
         gOut_Shadow_Translucency[ shadowPixelPos ] = translucency;
