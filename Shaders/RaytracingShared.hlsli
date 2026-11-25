@@ -959,9 +959,19 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     }
 
     // Importance sampling
+    bool useImportanceSampling = gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1;
+    float2 mipAndCone = 0;
+    float3 Xoffset = 0;
+
+    if( useImportanceSampling )
+    {
+        mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
+        Xoffset = isTransmission ? ( geometryProps.X - LEAF_THICKNESS * geometryProps.N ) : GetXoffset( geometryProps.X, geometryProps.N );
+    }
+
     float3 rayLocal = 0;
     float sumIntensity = 0.0;
-    float choosenIntensity = 1.0; // can be 0, but 1 is safer. In any case 1st reached light will get 100% selection probability overriding this with a real value
+    float chosenIntensity = 1.0; // can be 0, but 1 is safer. In any case 1st reached light will get 100% selection probability overriding this with a real value
 
     for( uint sampleIndex = 0; sampleIndex < sampleMaxNum; sampleIndex++ )
     {
@@ -997,18 +1007,13 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 
         // If IS enabled, check the candidate in LightBVH
         float lightIntensity = 0.0;
-        if( gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1 )
+        if( useImportanceSampling )
         {
             float3 candidateRay = Geometry::RotateVectorInverse( mLocalBasis, candidateRayLocal );
-            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-            float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N );
 
             // Ensure correct check for transmission
             if( isTransmission )
-            {
                 candidateRay = -candidateRay;
-                Xoffset = geometryProps.X - LEAF_THICKNESS * geometryProps.N;
-            }
 
             float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
             lightIntensity = lightProps.y;
@@ -1030,10 +1035,10 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         // Weighted Reservoir Sampling: brighter hits have a mathematically higher chance to "overwrite" the choice
         sumIntensity += lightIntensity;
 
-        if( lightIntensity != 0.0 && Rng::Hash::GetFloat( ) < lightIntensity / sumIntensity ) // white noise is fine here
+        if( lightIntensity != 0.0 && Rng::Hash::GetFloat( ) * sumIntensity < lightIntensity ) // white noise is fine here
         {
             rayLocal = candidateRayLocal;
-            choosenIntensity = lightIntensity;
+            chosenIntensity = lightIntensity;
         }
     }
 
@@ -1041,9 +1046,9 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     // IMPORTANT: do not modify throughput if there is no an emissive hit, it's needed for a non-IS ray
     if( sumIntensity != 0.0 )
     {
-        float multiplier = sumIntensity / ( choosenIntensity * sampleMaxNum );
+        float multiplier = sumIntensity / ( chosenIntensity * sampleMaxNum );
 
-        // TODO: suppress ( but not fully ) some rare high energy fireflies ( seem to be unbiased )
+        // Clamp rare high-energy resampling weights ( biased )
         multiplier = min( multiplier, 8.0 );
 
         throughput *= multiplier;
@@ -1091,7 +1096,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         float NoV = abs( dot( Nlocal, Vlocal ) );
 
         float Kdiff = BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH );
-        if( !isTransmission && geometryProps.Has( FLAG_LEAF ) )
+        if( geometryProps.Has( FLAG_LEAF ) )
             Kdiff /= 1.0 - LEAF_TRANSLUCENCY;
 
         // NoL is canceled by "Cosine" distribution
