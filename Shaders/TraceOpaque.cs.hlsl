@@ -19,11 +19,10 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float2>, gOut_ShadowData, u, 7, 
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Shadow_Translucency, u, 8, SET_OTHER );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Diff, u, 9, SET_OTHER );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Spec, u, 10, SET_OTHER );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Debug, u, 11, SET_OTHER );
 
 #if( NRD_MODE == SH )
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 12, SET_OTHER );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 13, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, SET_OTHER );
 #endif
 
 float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos )
@@ -327,7 +326,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
     if( gOnScreen == SHOW_MIP_SPECULAR && !isDiffusePath )
     {
         float mipNorm = Math::Sqrt01( geometryProps.mip / MAX_MIP_LEVEL );
-        gOut_Debug[ pixelPos ] += float4( Color::ColorizeZucconi( mipNorm ), 1.0 );
+        gInOut_Debug[ pixelPos ] += float4( Color::ColorizeZucconi( mipNorm ), 1.0 );
     }
 
     result.radiance = payload.radiance;
@@ -483,7 +482,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     {
         // Debug
         if( gOnScreen != SHOW_FINAL )
-            gOut_Debug[ pixelPos ] = 0;
+            gInOut_Debug[ pixelPos ] = 0;
 
         // Motion
         float3 XvirtualPrev = Xvirtual + geometryProps0.Xprev - geometryProps0.X;
@@ -561,7 +560,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
                 debug = float4( Color::ColorizeZucconi( mipNorm ), 1.0 );
             }
 
-            gOut_Debug[ pixelPos ] = debug;
+            gInOut_Debug[ pixelPos ] = debug;
         }
 
         gOut_DirectLighting[ pixelPos ] = Ldirect; // "psrThroughput" applied in "Composition"

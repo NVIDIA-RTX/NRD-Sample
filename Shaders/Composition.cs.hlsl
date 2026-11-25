@@ -21,7 +21,6 @@ NRI_RESOURCE( Texture2D<float4>, gIn_Spec, t, 8, SET_OTHER );
 // Outputs
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_ComposedDiff, u, 0, SET_OTHER );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_ComposedSpec_ViewZ, u, 1, SET_OTHER );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Debug, u, 2, SET_OTHER );
 
 [numthreads( 16, 16, 1 )]
 void main( int2 pixelPos : SV_DispatchThreadID )
@@ -227,6 +226,6 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         else if( gOnScreen == SHOW_WORLD_UNITS )
             color = frac( Geometry::AffineTransform( gViewToWorld, Xv ) * gUnitToMetersMultiplier );
 
-        gOut_Debug[ pixelPos ] = float4( color, 1.0 );
+        gInOut_Debug[ pixelPos ] = float4( color, 1.0 );
     }
 }

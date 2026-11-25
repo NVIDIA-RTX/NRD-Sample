@@ -217,8 +217,8 @@ enum class DescriptorSet : uint32_t {
     // SET_RAY_TRACING
     RayTracing, // must be first after "SET_OTHER"
 
-    // SET_SHARC
-    Sharc,
+    // SET_GLOBAL
+    Global,
 
     MAX_NUM
 };
@@ -2428,9 +2428,10 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         {4, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
     };
 
-    // SET_SHARC
-    const nri::DescriptorRangeDesc sharcRanges[] = {
+    // SET_GLOBAL
+    const nri::DescriptorRangeDesc globalRanges[] = {
         {0, 3, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
+        {3, 1, nri::DescriptorType::STORAGE_TEXTURE, nri::StageBits::COMPUTE_SHADER},
     };
 
     // SET_ROOT
@@ -2478,7 +2479,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
     const nri::DescriptorSetDesc descriptorSetDescs[] = {
         {SET_OTHER, otherRanges, helper::GetCountOf(otherRanges)},
         {SET_RAY_TRACING, rayTracingRanges, helper::GetCountOf(rayTracingRanges)},
-        {SET_SHARC, sharcRanges, helper::GetCountOf(sharcRanges)},
+        {SET_GLOBAL, globalRanges, helper::GetCountOf(globalRanges)},
     };
 
     { // Pipeline layout
@@ -2512,7 +2513,8 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
 
         setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.storageStructuredBufferMaxNum += sharcRanges[0].descriptorNum * setNum;
+        descriptorPoolDesc.storageStructuredBufferMaxNum += globalRanges[0].descriptorNum * setNum;
+        descriptorPoolDesc.storageTextureMaxNum += globalRanges[1].descriptorNum * setNum;
 
         NRI_ABORT_ON_FAILURE(NRI.CreateDescriptorPool(*m_Device, descriptorPoolDesc, m_DescriptorPool));
     }
@@ -3028,7 +3030,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     // Textures
     CreateTexture(Texture::ViewZ, "ViewZ", nri::Format::R32_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Mv, "Mv", nri::Format::RGBA16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
-    CreateTexture(Texture::Debug, "Debug", nri::Format::RGBA16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::Debug, "Debug", nri::Format::RGBA16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE_STORAGE);
     CreateTexture(Texture::Normal_Roughness, "Normal_Roughness", normalFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::PsrThroughput, "PsrThroughput", nri::Format::R10_G10_B10_A2_UNORM, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::BaseColor_Metalness, "BaseColor_Metalness", nri::Format::RGBA8_SRGB, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
@@ -3165,7 +3167,6 @@ void Sample::CreateDescriptorSets() {
         GetStorageDescriptor(Texture::Unfiltered_Translucency),
         GetStorageDescriptor(Texture::Unfiltered_Diff),
         GetStorageDescriptor(Texture::Unfiltered_Spec),
-        GetStorageDescriptor(Texture::Debug),
 #if (NRD_MODE == SH)
         GetStorageDescriptor(Texture::Unfiltered_DiffSh),
         GetStorageDescriptor(Texture::Unfiltered_SpecSh),
@@ -3191,7 +3192,6 @@ void Sample::CreateDescriptorSets() {
     const nri::Descriptor* Composition_StorageTextures[] = {
         GetStorageDescriptor(Texture::ComposedDiff),
         GetStorageDescriptor(Texture::ComposedSpec_ViewZ),
-        GetStorageDescriptor(Texture::Debug),
     };
 
     const nri::Descriptor* TraceTransparent_Textures[] = {
@@ -3209,7 +3209,6 @@ void Sample::CreateDescriptorSets() {
         GetDescriptor(Texture::PreFinal),
         GetDescriptor(Texture::Composed),
         GetDescriptor(Texture::Validation),
-        GetDescriptor(Texture::Debug),
     };
 
     const nri::Descriptor* Final_StorageTextures[] = {
@@ -3260,6 +3259,10 @@ void Sample::CreateDescriptorSets() {
         GetStorageDescriptor(Buffer::SharcResolved),
     };
 
+    const nri::Descriptor* Global_StorageTextures[] = {
+        GetStorageDescriptor(Texture::Debug),
+    };
+
     // Allocate and update everything in one go
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::SharcUpdatePing), 2, 0));    // and pong
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::ConfidenceBlurPing), 2, 0)); // and pong
@@ -3271,7 +3274,7 @@ void Sample::CreateDescriptorSets() {
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::DlssBefore), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::DlssAfter), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_RAY_TRACING, &Get(DescriptorSet::RayTracing), 1, helper::GetCountOf(RayTracing_BindlessTextures)));
-    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_SHARC, &Get(DescriptorSet::Sharc), 1, 0));
+    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_GLOBAL, &Get(DescriptorSet::Global), 1, 0));
 
     std::vector<nri::UpdateDescriptorRangeDesc> updateDescriptorRangeDescs;
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::SharcUpdatePing), 0, 0, SharcUpdatePing_Textures, helper::GetCountOf(SharcUpdatePing_Textures)});
@@ -3299,7 +3302,8 @@ void Sample::CreateDescriptorSets() {
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::DlssAfter), 1, 0, DlssAfter_StorageTextures, helper::GetCountOf(DlssAfter_StorageTextures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::RayTracing), 0, 0, RayTracing_Textures, helper::GetCountOf(RayTracing_Textures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::RayTracing), 1, 0, RayTracing_BindlessTextures.data(), helper::GetCountOf(RayTracing_BindlessTextures)});
-    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::Sharc), 0, 0, Sharc_StorageBuffers, helper::GetCountOf(Sharc_StorageBuffers)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::Global), 0, 0, Sharc_StorageBuffers, helper::GetCountOf(Sharc_StorageBuffers)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::Global), 1, 0, Global_StorageTextures, helper::GetCountOf(Global_StorageTextures)});
 
     NRI.UpdateDescriptorRanges(updateDescriptorRangeDescs.data(), helper::GetCountOf(updateDescriptorRangeDescs));
 }
@@ -3861,8 +3865,8 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
     nri::SetDescriptorSetDesc rayTracingSet = {SET_RAY_TRACING, Get(DescriptorSet::RayTracing)};
     NRI.CmdSetDescriptorSet(commandBuffer, rayTracingSet);
 
-    nri::SetDescriptorSetDesc sharcSet = {SET_SHARC, Get(DescriptorSet::Sharc)};
-    NRI.CmdSetDescriptorSet(commandBuffer, sharcSet);
+    nri::SetDescriptorSetDesc globalSet = {SET_GLOBAL, Get(DescriptorSet::Global)};
+    NRI.CmdSetDescriptorSet(commandBuffer, globalSet);
 
     nri::SetRootDescriptorDesc root1 = {1, GetDescriptor(Descriptor::TLAS_World)};
     NRI.CmdSetRootDescriptor(commandBuffer, root1);
@@ -4466,7 +4470,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {Texture::PreFinal, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             {Texture::Composed, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             {Texture::Validation, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
-            {Texture::Debug, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Debug, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
             // Output
             {Texture::Final, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };

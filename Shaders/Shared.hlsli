@@ -108,7 +108,7 @@
 // Register spaces ( sets )
 #define SET_OTHER                           0
 #define SET_RAY_TRACING                     1
-#define SET_SHARC                           2
+#define SET_GLOBAL                          2
 #define SET_ROOT                            3
 
 // Path tracing
@@ -319,6 +319,8 @@ NRI_RESOURCE( SamplerState, gLinearMipmapNearestSampler, s, 1, SET_ROOT );
 NRI_RESOURCE( SamplerState, gNearestMipmapNearestSampler, s, 2, SET_ROOT );
 NRI_RESOURCE( SamplerState, gLinearClamp, s, 3, SET_ROOT );
 NRI_RESOURCE( SamplerState, gNearestClamp, s, 4, SET_ROOT );
+
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gInOut_Debug, u, 3, SET_GLOBAL );
 
 //=============================================================================================
 // MISC
