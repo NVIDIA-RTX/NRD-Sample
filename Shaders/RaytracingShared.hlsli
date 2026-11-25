@@ -1353,9 +1353,6 @@ float ReprojectIrradiance( bool isPrevFrame, bool isTransmission, Texture2D<floa
     // Ignore sky
     weight *= float( !geometryProps.IsMiss( ) );
 
-    // Use only if radiance is on the screen
-    weight *= float( gOnScreen < SHOW_AMBIENT_OCCLUSION );
-
     // Add global confidence
     if( isPrevFrame )
         weight *= gPrevFrameConfidence; // see C++ code for details

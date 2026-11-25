@@ -119,7 +119,7 @@ enum class Buffer : uint32_t {
 enum class Texture : uint32_t {
     ViewZ,
     Mv,
-    UpscalerMv,
+    Debug,
     Normal_Roughness,
     PsrThroughput,
     BaseColor_Metalness,
@@ -3000,6 +3000,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     constexpr nri::Format colorFormat = USE_LOW_PRECISION_FP_FORMATS ? nri::Format::R11_G11_B10_UFLOAT : nri::Format::RGBA16_SFLOAT;
     constexpr nri::Format criticalColorFormat = nri::Format::RGBA16_SFLOAT; // TODO: R9_G9_B9_E5_UFLOAT?
     constexpr nri::Format shadowFormat = SIGMA_TRANSLUCENCY ? nri::Format::RGBA8_UNORM : nri::Format::R8_UNORM;
+    const nri::Format noisyDiffFormat = m_DlssQuality != -1 ? nri::Format::RGBA16_SFLOAT : dataFormat; // for filtered MV
 
     nri::Dim_t w = (nri::Dim_t)m_RenderResolution.x;
     nri::Dim_t h = (nri::Dim_t)m_RenderResolution.y;
@@ -3027,7 +3028,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     // Textures
     CreateTexture(Texture::ViewZ, "ViewZ", nri::Format::R32_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Mv, "Mv", nri::Format::RGBA16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
-    CreateTexture(Texture::UpscalerMv, "UpscalerMv", nri::Format::RGBA16_SFLOAT, rrw, rrh, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::Debug, "Debug", nri::Format::RGBA16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Normal_Roughness, "Normal_Roughness", normalFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::PsrThroughput, "PsrThroughput", nri::Format::R10_G10_B10_A2_UNORM, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::BaseColor_Metalness, "BaseColor_Metalness", nri::Format::RGBA8_SRGB, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
@@ -3037,7 +3038,7 @@ void Sample::CreateResourcesAndDescriptors(nri::Format swapChainFormat) {
     CreateTexture(Texture::Diff, "Diff", dataFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Spec, "Spec", dataFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Unfiltered_Penumbra, "Unfiltered_Penumbra", nri::Format::R16_SFLOAT, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
-    CreateTexture(Texture::Unfiltered_Diff, "Unfiltered_Diff", dataFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
+    CreateTexture(Texture::Unfiltered_Diff, "Unfiltered_Diff", noisyDiffFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Unfiltered_Spec, "Unfiltered_Spec", dataFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Unfiltered_Translucency, "Unfiltered_Translucency", shadowFormat, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
     CreateTexture(Texture::Validation, "Validation", nri::Format::RGBA8_UNORM, w, h, 1, 1, false, nri::AccessBits::SHADER_RESOURCE);
@@ -3164,6 +3165,7 @@ void Sample::CreateDescriptorSets() {
         GetStorageDescriptor(Texture::Unfiltered_Translucency),
         GetStorageDescriptor(Texture::Unfiltered_Diff),
         GetStorageDescriptor(Texture::Unfiltered_Spec),
+        GetStorageDescriptor(Texture::Debug),
 #if (NRD_MODE == SH)
         GetStorageDescriptor(Texture::Unfiltered_DiffSh),
         GetStorageDescriptor(Texture::Unfiltered_SpecSh),
@@ -3189,6 +3191,7 @@ void Sample::CreateDescriptorSets() {
     const nri::Descriptor* Composition_StorageTextures[] = {
         GetStorageDescriptor(Texture::ComposedDiff),
         GetStorageDescriptor(Texture::ComposedSpec_ViewZ),
+        GetStorageDescriptor(Texture::Debug),
     };
 
     const nri::Descriptor* TraceTransparent_Textures[] = {
@@ -3206,6 +3209,7 @@ void Sample::CreateDescriptorSets() {
         GetDescriptor(Texture::PreFinal),
         GetDescriptor(Texture::Composed),
         GetDescriptor(Texture::Validation),
+        GetDescriptor(Texture::Debug),
     };
 
     const nri::Descriptor* Final_StorageTextures[] = {
@@ -3225,7 +3229,7 @@ void Sample::CreateDescriptorSets() {
         GetStorageDescriptor(Texture::RRGuide_SpecAlbedo),
         GetStorageDescriptor(Texture::RRGuide_SpecHitDistance),
         GetStorageDescriptor(Texture::RRGuide_Normal_Roughness),
-        GetStorageDescriptor(Texture::UpscalerMv),
+        GetStorageDescriptor(Texture::Unfiltered_Diff), // reuse after denoising for filtered upscaler MVs
     };
 
     const nri::Descriptor* DlssAfter_StorageTextures[] = {
@@ -3787,7 +3791,6 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gJitterPrev = jitterPrev;
         constants.gEmissionIntensityLights = m_Settings.emission ? m_Settings.emissionIntensityLights : 0.0f;
         constants.gEmissionIntensityCubes = m_Settings.emission ? m_Settings.emissionIntensityCubes : 0.0f;
-        constants.gZsign = m_PositiveZ ? 1.0f : -1.0f;
         constants.gSeparator = USE_SHARC_DEBUG == 0 ? m_Settings.separator : 1.0f;
         constants.gRoughnessOverride = m_Settings.roughnessOverride;
         constants.gMetalnessOverride = m_Settings.metalnessOverride;
@@ -3802,7 +3805,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gFocalLength = (0.5f * (35.0f * 0.001f)) / tan(radians(m_Settings.camFov * 0.5f)); // for 35 mm sensor size (aka old-school 35 mm film)
         constants.gTAA = (m_Settings.denoiser != DENOISER_REFERENCE && m_Settings.TAA) ? 1.0f / (1.0f + taaMaxAccumulatedFrameNum) : 1.0f;
         constants.gHdrScale = displayDesc.isHDR ? displayDesc.maxLuminance / 80.0f : 1.0f;
-        constants.gExposure = (onScreen <= SHOW_DENOISED_SPECULAR && NRD_MODE < OCCLUSION) ? m_Settings.exposure : 1.0f;
+        constants.gExposure = m_Settings.exposure;
         constants.gMipBias = mipBias;
         constants.gOrthoMode = orthoMode;
         constants.gMaxAccumulatedFrameNum = maxAccumulatedFrameNum * 2; // looks like SHARC is OK with this
@@ -3825,6 +3828,7 @@ void Sample::UpdateConstantBuffer(uint32_t frameIndex, uint32_t maxAccumulatedFr
         constants.gSHARC = m_Settings.SHARC;
         constants.gTrimLobe = m_Settings.specularLobeTrimming ? 1 : 0;
         constants.gMinProbability = minProbability;
+        constants.gZsign = m_PositiveZ ? 1.0f : -1.0f;
     }
 
     m_GlobalConstantBufferOffset = NRI.StreamConstantData(*m_Streamer, &constants, sizeof(constants));
@@ -4107,6 +4111,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {Texture::Unfiltered_Translucency, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
             {Texture::Unfiltered_Diff, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
             {Texture::Unfiltered_Spec, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Debug, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
 #if (NRD_MODE == SH)
             {Texture::Unfiltered_DiffSh, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
             {Texture::Unfiltered_SpecSh, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
@@ -4239,6 +4244,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             // Output
             {Texture::ComposedDiff, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
             {Texture::ComposedSpec_ViewZ, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
+            {Texture::Debug, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };
         nri::BarrierDesc transitionBarriers = {nullptr, 0, nullptr, 0, optimizedTransitions.data(), BuildOptimizedTransitions(transitions, helper::GetCountOf(transitions), optimizedTransitions)};
         NRI.CmdBarrier(commandBuffer, transitionBarriers);
@@ -4297,7 +4303,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
     const Texture taaHistoryOutput = isEven ? Texture::TaaHistoryPing : Texture::TaaHistoryPong;
 
     if (IsDlssEnabled()) {
-        const Texture upscalerMv = Texture::UpscalerMv; // include filtered glass MV
+        const Texture upscalerMv = Texture::Unfiltered_Diff; // include filtered glass MV
 
         { // Before upscaling
             helper::Annotation annotation(NRI, commandBuffer, "Before upscaling");
@@ -4460,6 +4466,7 @@ void Sample::RenderFrame(uint32_t frameIndex) {
             {Texture::PreFinal, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             {Texture::Composed, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             {Texture::Validation, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
+            {Texture::Debug, {nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE}},
             // Output
             {Texture::Final, {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE}},
         };

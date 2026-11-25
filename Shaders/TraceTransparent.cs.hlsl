@@ -165,12 +165,6 @@ void main( int2 pixelPos : SV_DispatchThreadID )
 
     GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmax, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, flags, 0 );
 
-    if( gOnScreen != SHOW_FINAL )
-    {
-        geometryPropsT = ( GeometryProps )0;
-        hasPsr = false;
-    }
-
     float3 Lsum = 1.0;
 
     TraceTransparentDesc desc = ( TraceTransparentDesc )0;

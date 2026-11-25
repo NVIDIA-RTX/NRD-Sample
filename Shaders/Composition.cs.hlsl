@@ -21,6 +21,7 @@ NRI_RESOURCE( Texture2D<float4>, gIn_Spec, t, 8, SET_OTHER );
 // Outputs
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_ComposedDiff, u, 0, SET_OTHER );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_ComposedSpec_ViewZ, u, 1, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Debug, u, 2, SET_OTHER );
 
 [numthreads( 16, 16, 1 )]
 void main( int2 pixelPos : SV_DispatchThreadID )
@@ -48,7 +49,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     // Early out - sky
     if( abs( viewZ ) >= INF )
     {
-        gOut_ComposedDiff[ pixelPos ] = Lemi * float( gOnScreen == SHOW_FINAL );
+        gOut_ComposedDiff[ pixelPos ] = Lemi;
         gOut_ComposedSpec_ViewZ[ pixelPos ] = float4( 0, 0, 0, z );
 
         return;
@@ -64,8 +65,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     #endif
 
     float3 Ldirect = gIn_DirectLighting[ pixelPos ];
-    if( gOnScreen < SHOW_INSTANCE_INDEX )
-        Ldirect = Ldirect * shadow + Lemi;
+    Ldirect = Ldirect * shadow + Lemi;
 
     // G-buffer
     float3 Xv = Geometry::ReconstructViewPosition( pixelUv + gJitter, gCameraFrustum, viewZ, gOrthoMode );
@@ -196,48 +196,37 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     // IMPORTANT: we store diffuse and specular separately to be able to use the reprojection trick. Let's assume that direct lighting can always be reprojected as diffuse
     Ldiff += Ldirect;
 
-    // Debug
-    if( gOnScreen != SHOW_FINAL )
-    {
-        if( gOnScreen == SHOW_DENOISED_DIFFUSE )
-            Ldiff = diff.xyz;
-        else if( gOnScreen == SHOW_DENOISED_SPECULAR )
-            Ldiff = spec.xyz;
-        else if( gOnScreen == SHOW_AMBIENT_OCCLUSION )
-            Ldiff = diff.w;
-        else if( gOnScreen == SHOW_SPECULAR_OCCLUSION )
-            Ldiff = spec.w;
-        else if( gOnScreen == SHOW_SHADOW )
-            Ldiff = shadow;
-        else if( gOnScreen == SHOW_BASE_COLOR )
-            Ldiff = baseColorMetalness.xyz;
-        else if( gOnScreen == SHOW_NORMAL )
-            Ldiff = N * 0.5 + 0.5;
-        else if( gOnScreen == SHOW_ROUGHNESS )
-            Ldiff = roughness;
-        else if( gOnScreen == SHOW_METALNESS )
-            Ldiff = baseColorMetalness.w;
-        else if( gOnScreen == SHOW_MATERIAL_ID )
-            Ldiff = materialID / 3.0;
-        else if( gOnScreen == SHOW_PSR_THROUGHPUT )
-            Ldiff = psrThroughput;
-        else if( gOnScreen == SHOW_WORLD_UNITS )
-        {
-            float3 X = Geometry::AffineTransform( gViewToWorld, Xv );
-            Ldiff = frac( X * gUnitToMetersMultiplier );
-        }
-        else
-            Ldiff = gOnScreen == SHOW_MIP_SPECULAR ? Lspec : Ldirect.xyz;
-
-        // All non-HDR data is linear, so "transfer" is needed to "de-transfer" later ( and make "pipette" working ).
-        // Keep "base color" with "transfer" applied
-        if( gOnScreen > SHOW_DENOISED_SPECULAR && gOnScreen != SHOW_BASE_COLOR )
-            Ldiff = Color::FromSrgb( Ldiff );
-
-        Lspec = 0.0;
-    }
-
     // Output
     gOut_ComposedDiff[ pixelPos ] = Ldiff;
     gOut_ComposedSpec_ViewZ[ pixelPos ] = float4( Lspec, z );
+
+    // Debug
+    if( gOnScreen > SHOW_FINAL && gOnScreen <= SHOW_WORLD_UNITS && gOnScreen != SHOW_NORMAL )
+    {
+        float3 color = 0;
+        if( gOnScreen == SHOW_DENOISED_DIFFUSE )
+            color = diff.xyz;
+        else if( gOnScreen == SHOW_DENOISED_SPECULAR )
+            color = spec.xyz;
+        else if( gOnScreen == SHOW_AMBIENT_OCCLUSION )
+            color = diff.w;
+        else if( gOnScreen == SHOW_SPECULAR_OCCLUSION )
+            color = spec.w;
+        else if( gOnScreen == SHOW_SHADOW )
+            color = shadow;
+        else if( gOnScreen == SHOW_BASE_COLOR )
+            color = baseColorMetalness.xyz;
+        else if( gOnScreen == SHOW_ROUGHNESS )
+            color = roughness;
+        else if( gOnScreen == SHOW_METALNESS )
+            color = baseColorMetalness.w;
+        else if( gOnScreen == SHOW_MATERIAL_ID )
+            color = materialID / 3.0;
+        else if( gOnScreen == SHOW_PSR_THROUGHPUT )
+            color = psrThroughput;
+        else if( gOnScreen == SHOW_WORLD_UNITS )
+            color = frac( Geometry::AffineTransform( gViewToWorld, Xv ) * gUnitToMetersMultiplier );
+
+        gOut_Debug[ pixelPos ] = float4( color, 1.0 );
+    }
 }

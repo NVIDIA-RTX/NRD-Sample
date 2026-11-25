@@ -5,6 +5,7 @@
 NRI_RESOURCE( Texture2D<float4>, gIn_PostAA, t, 0, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_PreAA, t, 1, SET_OTHER );
 NRI_RESOURCE( Texture2D<float4>, gIn_Validation, t, 2, SET_OTHER );
+NRI_RESOURCE( Texture2D<float4>, gIn_Debug, t, 3, SET_OTHER );
 
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float3>, gOut_Final, u, 0, SET_OTHER );
 
@@ -27,6 +28,18 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
 
     // Split screen - noisy input / denoised output
     float3 result = pixelUv.x < gSeparator ? input : upsampled;
+
+    // Debug
+    if( gOnScreen != SHOW_FINAL )
+    {
+        float4 debug = gIn_Debug.SampleLevel( gNearestClamp, pixelUv * gRectSize * gInvRenderSize, 0 );
+        result = debug.xyz / max( debug.w, 1.0 ); // specular mip views accumulate multiple paths
+
+        if( gOnScreen <= SHOW_DENOISED_SPECULAR )
+            result = ApplyTonemap( result * gExposure );
+        else if( gOnScreen != SHOW_BASE_COLOR )
+            result = Color::FromSrgb( result ); // for LDR stuff
+    }
 
     // Dithering
     Rng::Hash::Initialize( pixelPos, gFrameIndex );

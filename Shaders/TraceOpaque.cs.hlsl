@@ -19,10 +19,11 @@ NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float2>, gOut_ShadowData, u, 7, 
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Shadow_Translucency, u, 8, SET_OTHER );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Diff, u, 9, SET_OTHER );
 NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Spec, u, 10, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_Debug, u, 11, SET_OTHER );
 
 #if( NRD_MODE == SH )
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 11, SET_OTHER );
-NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 12, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_DiffSh, u, 12, SET_OTHER );
+NRI_FORMAT("unknown") NRI_RESOURCE( RWTexture2D<float4>, gOut_SpecSh, u, 13, SET_OTHER );
 #endif
 
 float4 GetRadianceFromPreviousFrame( GeometryProps geometryProps, MaterialProps materialProps, uint2 pixelPos )
@@ -55,6 +56,17 @@ float GetMaterialID( GeometryProps geometryProps, MaterialProps materialProps )
     bool isMetal = materialProps.metalness > 0.5;
 
     return isHair ? MATERIAL_ID_HAIR : ( isMetal ? MATERIAL_ID_METAL : MATERIAL_ID_DEFAULT );
+}
+
+float3 GetInstanceDebugColor( GeometryProps geometryProps, uint2 pixelPos )
+{
+    uint hash = Sequence::Hash( geometryProps.instanceIndex + 1 );
+    float3 color = Packing::UintToRgba( hash, 8, 8, 8 ).xyz;
+
+    uint checkerboard = Sequence::CheckerBoard( pixelPos >> 2, 0 ) != 0;
+    color *= ( checkerboard && !geometryProps.Has( FLAG_STATIC ) ) ? 0.5 : 1.0;
+
+    return color;
 }
 
 float3 GetSharcDebugColor( GeometryProps geometryProps, MaterialProps materialProps )
@@ -312,10 +324,10 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
     }
 
     // Debug visualization: specular mip level at the end of the path
-    if( gOnScreen == SHOW_MIP_SPECULAR )
+    if( gOnScreen == SHOW_MIP_SPECULAR && !isDiffusePath )
     {
         float mipNorm = Math::Sqrt01( geometryProps.mip / MAX_MIP_LEVEL );
-        payload.radiance = Color::ColorizeZucconi( mipNorm );
+        gOut_Debug[ pixelPos ] += float4( Color::ColorizeZucconi( mipNorm ), 1.0 );
     }
 
     result.radiance = payload.radiance;
@@ -469,6 +481,10 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
     float3 Xshadow;
     float3 Ldirect;
     {
+        // Debug
+        if( gOnScreen != SHOW_FINAL )
+            gOut_Debug[ pixelPos ] = 0;
+
         // Motion
         float3 XvirtualPrev = Xvirtual + geometryProps0.Xprev - geometryProps0.X;
         float3 motion = GetMotion( Xvirtual, XvirtualPrev );
@@ -527,24 +543,25 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         // Direct lighting
         Ldirect = GetLighting( geometryProps0, materialProps0, LIGHTING | SSS, Xshadow );
 
-        if( gOnScreen == SHOW_INSTANCE_INDEX )
+        // Debug
+        if( gOnScreen != SHOW_FINAL )
         {
-            Rng::Hash::Initialize( geometryProps0.instanceIndex, 0 );
+            float4 debug = 0;
+            if( gOnScreen == SHOW_INSTANCE_INDEX )
+                debug = float4( GetInstanceDebugColor( geometryProps0, pixelPos ), 1.0 );
+            else if( gOnScreen == SHOW_NORMAL )
+                debug = float4( N * 0.5 + 0.5, 1.0 );
+            else if( gOnScreen == SHOW_UV )
+                debug = float4( frac( geometryProps0.uv ), 0.0, 1.0 );
+            else if( gOnScreen == SHOW_CURVATURE )
+                debug = float4( ( sqrt( abs( materialProps0.curvature ) ) * 0.1 ).xxx, 1.0 );
+            else if( gOnScreen == SHOW_MIP_PRIMARY )
+            {
+                float mipNorm = Math::Sqrt01( geometryProps0.mip / MAX_MIP_LEVEL );
+                debug = float4( Color::ColorizeZucconi( mipNorm ), 1.0 );
+            }
 
-            uint checkerboard = Sequence::CheckerBoard( pixelPos >> 2, 0 ) != 0;
-            float3 color = Rng::Hash::GetFloat4( ).xyz;
-            color *= ( checkerboard && !geometryProps0.Has( FLAG_STATIC ) ) ? 0.5 : 1.0;
-
-            Ldirect = color;
-        }
-        else if( gOnScreen == SHOW_UV )
-            Ldirect = float3( frac( geometryProps0.uv ), 0 );
-        else if( gOnScreen == SHOW_CURVATURE )
-            Ldirect = sqrt( abs( materialProps0.curvature ) ) * 0.1;
-        else if( gOnScreen == SHOW_MIP_PRIMARY )
-        {
-            float mipNorm = Math::Sqrt01( geometryProps0.mip / MAX_MIP_LEVEL );
-            Ldirect = Color::ColorizeZucconi( mipNorm );
+            gOut_Debug[ pixelPos ] = debug;
         }
 
         gOut_DirectLighting[ pixelPos ] = Ldirect; // "psrThroughput" applied in "Composition"

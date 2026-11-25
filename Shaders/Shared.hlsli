@@ -254,7 +254,6 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     float2 gJitterPrev;
     float gEmissionIntensityLights;
     float gEmissionIntensityCubes;
-    float gZsign;
     float gSeparator;
     float gRoughnessOverride;
     float gMetalnessOverride;
@@ -292,6 +291,7 @@ NRI_RESOURCE( cbuffer, GlobalConstants, b, 0, SET_ROOT )
     uint32_t gSHARC;
     uint32_t gTrimLobe;
     float gMinProbability;
+    float gZsign;
 };
 
 #if( !defined( __cplusplus ) )
@@ -326,12 +326,7 @@ NRI_RESOURCE( SamplerState, gNearestClamp, s, 4, SET_ROOT );
 
 float3 ApplyTonemap( float3 Lsum )
 {
-    #if( NRD_MODE < OCCLUSION )
-        if( gOnScreen <= SHOW_DENOISED_SPECULAR )
-            Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
-    #else
-        Lsum = Lsum.xxx;
-    #endif
+    Lsum = gHdrScale * Color::HdrToLinear_Uncharted( Lsum );
 
     return Lsum;
 }
