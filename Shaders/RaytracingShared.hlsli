@@ -1012,8 +1012,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     float sumIntensity = 0.0;
     float chosenIntensity = 1.0; // overwritten by the first weighted candidate
 
-    // For a custom engine, use the largest light weight the query can return, divided by (weightCap - 1).
-    // If the query only checks nearby lights, use the largest weight among those.
+    // Find the maximum intensity among the lights the query can hit ( all lights or just nearby ones )
     float baseIntensity = max( gEmissionIntensityLights, gEmissionIntensityCubes ) / ( PT_RESAMPLING_WEIGHT_MAX - 1.0 ); // keep non-light candidates selectable
 
     for( uint sampleIndex = 0; sampleIndex < sampleMaxNum; sampleIndex++ )
