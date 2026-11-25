@@ -31,7 +31,7 @@
 #define USE_RANDOMIZED_ROUGHNESS            0 // randomize roughness ( a common case in games )
 #define USE_STOCHASTIC_SAMPLING             0 // needed?
 #define USE_TAA_DEBUG                       0 // 1 - show weight
-#define USE_BIAS_FIX                        0 // fixes negligible hair and specular bias
+#define USE_IS_VISIBILITY                   0 // extra visibility rays for specular and hair importance sampling
 #define USE_AO_FOR_LAST_BOUNCE              0 // apply a simple AO estimation to SHARC data for the last bounce
 #define USE_BLUE_NOISE_FOR_RADIANCE         ( 0 && !gRR && gDenoiserType != DENOISER_REFERENCE ) // helps to reduce residual boiling, but worsens IQ due to limited coverage of all possible directions
 
@@ -76,6 +76,7 @@
 // Path tracing
 #define PT_THROUGHPUT_THRESHOLD             0.001
 #define PT_IMPORTANCE_SAMPLES_NUM           16
+#define PT_RESAMPLING_WEIGHT_MAX            8.0
 #define PT_SPEC_LOBE_ENERGY                 0.95 // trimmed to 95%
 #define PT_SHADOW_RAY_OFFSET                0.25 // pixels
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels

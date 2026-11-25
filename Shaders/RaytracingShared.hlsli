@@ -936,6 +936,42 @@ uint GetImportanceSampleNum( float roughness, bool isDiffuse, bool isFirstBounce
     return max( sampleMaxNum, 1 );
 }
 
+// Cancel D using the bounded VNDF v3 reflection PDF
+float GetGgxVndfDOverPdf( float3 Vlocal, float roughness )
+{
+    float alpha = saturate( roughness * roughness );
+    float alpha2 = alpha * alpha;
+    float2 stretchedV = alpha * Vlocal.xy;
+    float lenSq = dot( stretchedV, stretchedV );
+    float t = sqrt( lenSq + Vlocal.z * Vlocal.z );
+
+    // Avoid cancellation in "t + Vlocal.z" for back-facing views
+    if( Vlocal.z < 0.0 )
+        return 2.0 * lenSq / ( t - Vlocal.z );
+
+    float s = 1.0 + length( Vlocal.xy );
+    float s2 = s * s;
+    float k = ( 1.0 - alpha2 ) * s2 / ( s2 + alpha2 * Vlocal.z * Vlocal.z );
+
+    return 2.0 * ( k * Vlocal.z + t );
+}
+
+float3 GetSpecularSamplingNormal( float3 V, float3 N, float3 Ng )
+{
+    // Adapt the normal before sampling, so the perfect reflection stays above geometry.
+    // https://arxiv.org/html/1705.01263#A1.SS3
+    float3 R = reflect( -V, N );
+    float NoR = dot( Ng, R );
+    if( NoR < 0.0 )
+    {
+        float b = abs( dot( Ng, N ) ) * 0.99;
+        R = normalize( R + Ng * ( -NoR * Math::PositiveRcp( b ) ) );
+        N = normalize( V + R );
+    }
+
+    return N;
+}
+
 // Compile-time flags for "GenerateRayAndUpdateThroughput"
 #define GR_HAIR 0x1
 #define GR_ALLOW_BN 0x2
@@ -944,6 +980,9 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 {
     bool isHair = RTXCR_INTEGRATION && ( flags & GR_HAIR ) != 0 && geometryProps.Has( FLAG_HAIR );
     bool isTransmission = USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse && Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY; // white noise is fine here
+
+    if( !isHair && !isDiffuse )
+        materialProps.N = GetSpecularSamplingNormal( geometryProps.V, materialProps.N, geometryProps.N );
 
     float3x3 mLocalBasis = isHair ? GetHairBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
     float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
@@ -971,7 +1010,11 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 
     float3 rayLocal = 0;
     float sumIntensity = 0.0;
-    float chosenIntensity = 1.0; // can be 0, but 1 is safer. In any case 1st reached light will get 100% selection probability overriding this with a real value
+    float chosenIntensity = 1.0; // overwritten by the first weighted candidate
+
+    // For a custom engine, use the largest light weight the query can return, divided by (weightCap - 1).
+    // If the query only checks nearby lights, use the largest weight among those.
+    float baseIntensity = max( gEmissionIntensityLights, gEmissionIntensityCubes ) / ( PT_RESAMPLING_WEIGHT_MAX - 1.0 ); // keep non-light candidates selectable
 
     for( uint sampleIndex = 0; sampleIndex < sampleMaxNum; sampleIndex++ )
     {
@@ -1018,14 +1061,16 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
             lightIntensity = lightProps.y;
 
-        #if( USE_BIAS_FIX == 1 )
-            // Checking the candidate ray in "gWorldTlas" to get occlusion information eliminates negligible specular and hair bias
+        #if( USE_IS_VISIBILITY == 1 )
+            // Refine specular and hair weights using visibility
             if( lightIntensity != 0.0 && !isDiffuse )
             {
                 float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, lightProps.x, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
                 lightIntensity *= distanceToOccluder >= lightProps.x;
             }
         #endif
+
+            lightIntensity += baseIntensity;
         }
 
         // Potentially fall back to non-IS ray
@@ -1042,14 +1087,13 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         }
     }
 
-    // Adjust throughput by percentage of rays hitting any emissive surface
-    // IMPORTANT: do not modify throughput if there is no an emissive hit, it's needed for a non-IS ray
+    // Normalize the reservoir selection, including the base weight for indirect lighting. With no weighted candidates, keep the original lobe sample and throughput
     if( sumIntensity != 0.0 )
     {
         float multiplier = sumIntensity / ( chosenIntensity * sampleMaxNum );
 
-        // Clamp rare high-energy resampling weights ( biased )
-        multiplier = min( multiplier, 8.0 );
+        // Guard rounding at the weight limit
+        multiplier = min( multiplier, PT_RESAMPLING_WEIGHT_MAX );
 
         throughput *= multiplier;
     }
@@ -1107,37 +1151,20 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     {
         float NoV = abs( Vlocal.z );
         float NoH = saturate( Hlocal.z );
-        float D = BRDF::DistributionTerm( materialProps.roughness, NoH );
         float G = BRDF::GeometryTermMod( materialProps.roughness, NoL, NoV, VoH, NoH );
         float3 F = BRDF::FresnelTerm( Rf0, VoH );
+        float DOverPdf = GetGgxVndfDOverPdf( Vlocal, materialProps.roughness );
 
-        // GetPDF includes the reflection Jacobian; normalize it for the trimmed sampling domain
-        float pdf = ImportanceSampling::VNDF::GetPDF( Vlocal, NoH, materialProps.roughness ) / PT_SPEC_LOBE_ENERGY;
-        throughput *= F * D * G * NoL * Math::PositiveRcp( pdf );
+        throughput *= F * G * NoL * DOverPdf * PT_SPEC_LOBE_ENERGY;
         throughput *= GetSpecularEnergyCompensation( materialProps.baseColor, materialProps.metalness, materialProps.roughness, NoV, VoH );
     }
 
     // Transform to world space
     float3 ray = Geometry::RotateVectorInverse( mLocalBasis, rayLocal );
 
-    // Fixes
-    float NoLgeom = dot( geometryProps.N, ray );
-    float roughnessThreshold = saturate( materialProps.roughness / 0.15 );
-
-    if( !isTransmission && !isHair && NoLgeom < 0.0 )
-    {
-        if( isDiffuse || Rng::Hash::GetFloat( ) < roughnessThreshold )
-            throughput = 0.0; // terminate ray pointing inside the surface
-        else
-        {
-            // If roughness is low, patch ray direction and shading normal to avoid self-intersections
-            // ( https://arxiv.org/pdf/1705.01263.pdf, Appendix 3 )
-            float b = abs( dot( geometryProps.N, materialProps.N ) ) * 0.99;
-
-            ray = normalize( ray + geometryProps.N * abs( NoLgeom ) * Math::PositiveRcp( b ) );
-            materialProps.N = normalize( geometryProps.V + ray );
-        }
-    }
+    // Reject remaining below-geometry samples without changing the sampled direction
+    if( !isTransmission && !isHair && dot( geometryProps.N, ray ) < 0.0 )
+        throughput = 0.0;
 
     return ray;
 }
