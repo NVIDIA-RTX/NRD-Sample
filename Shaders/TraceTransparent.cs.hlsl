@@ -179,41 +179,57 @@ void main( int2 pixelPos : SV_DispatchThreadID )
         float3 V0 = geometryPropsT.V;
         float accumulatedHitDist = 0.0;
         float accumulatedCurvature = 0.0;
+        uint bounceNum = PT_PSR_BOUNCES_NUM;
 
         [loop]
-        for( uint bounce = 0; bounce < PT_PSR_BOUNCES_NUM && !geometryPropsT.IsMiss( ); bounce++ )
+        while( bounceNum && !geometryPropsT.IsMiss( ) )
         {
-            MaterialProps materialProps = GetMaterialProps( geometryPropsT );
-            if( !IsDelta( materialProps ) )
-                break;
+            { // Origin point
+                MaterialProps materialProps = GetMaterialProps( geometryPropsT );
+                if( !IsDelta( materialProps ) )
+                    break;
 
-            accumulatedCurvature += materialProps.curvature;
-            mirrorMatrix = mul( Geometry::GetMirrorMatrix( materialProps.N ), mirrorMatrix );
+                // Accumulate curvature and mirror matrix
+                accumulatedCurvature += materialProps.curvature;
+                mirrorMatrix = mul( Geometry::GetMirrorMatrix( materialProps.N ), mirrorMatrix );
 
-            float3 albedo, Rf0;
-            BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
-            float NoV = abs( dot( materialProps.N, geometryPropsT.V ) );
-            Lsum *= BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
+                // Choose a ray
+                float3 ray = reflect( -geometryPropsT.V, materialProps.N );
 
-            float3 ray = reflect( -geometryPropsT.V, materialProps.N );
-            float2 mipAndCone = GetConeAngleFromRoughness( geometryPropsT.mip, materialProps.roughness );
-            geometryPropsT = CastRay( GetXoffset( geometryPropsT.X, geometryPropsT.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, PT_RAY_FLAGS );
-            accumulatedHitDist += ApplyThinLensEquation( geometryPropsT.hitT, accumulatedCurvature );
+                // Update throughput
+                float3 albedo, Rf0;
+                BRDF::ConvertBaseColorMetalnessToAlbedoRf0( materialProps.baseColor, materialProps.metalness, albedo, Rf0 );
 
-            if( geometryPropsT.Has( FLAG_TRANSPARENT ) )
-            {
-                // Trace from the physical hit
-                desc.geometryProps = geometryPropsT;
+                float NoV = abs( dot( materialProps.N, geometryPropsT.V ) );
+                float3 Fenv = BRDF::EnvironmentTerm_Rtg( Rf0, NoV, materialProps.roughness );
 
-                // Patch the working hit for reprojection
-                float3 displacement = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.Xprev - geometryPropsT.X );
-                geometryPropsT.X = X0 - V0 * accumulatedHitDist;
-                geometryPropsT.Xprev = geometryPropsT.X + displacement;
-                geometryPropsT.V = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.V );
-                geometryPropsT.N = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.N );
+                Lsum *= Fenv;
 
-                break;
+                // Trace to the next hit
+                float2 mipAndCone = GetConeAngleFromRoughness( geometryPropsT.mip, materialProps.roughness );
+                geometryPropsT = CastRay( GetXoffset( geometryPropsT.X, geometryPropsT.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, PT_RAY_FLAGS );
             }
+
+            { // Hit point
+                accumulatedHitDist += ApplyThinLensEquation( geometryPropsT.hitT, accumulatedCurvature );
+
+                if( geometryPropsT.Has( FLAG_TRANSPARENT ) )
+                {
+                    // Trace from the physical hit
+                    desc.geometryProps = geometryPropsT;
+
+                    // Patch the working hit for reprojection
+                    float3 displacement = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.Xprev - geometryPropsT.X );
+                    geometryPropsT.X = X0 - V0 * accumulatedHitDist;
+                    geometryPropsT.Xprev = geometryPropsT.X + displacement;
+                    geometryPropsT.V = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.V );
+                    geometryPropsT.N = Geometry::RotateVectorInverse( mirrorMatrix, geometryPropsT.N );
+
+                    break;
+                }
+            }
+
+            bounceNum--;
         }
     }
 
