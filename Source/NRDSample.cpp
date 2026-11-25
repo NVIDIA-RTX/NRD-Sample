@@ -206,8 +206,8 @@ enum class DescriptorSet : uint32_t {
     // SET_RAY_TRACING
     RayTracing, // must be first after "SET_OTHER"
 
-    // SET_SHARC
-    Sharc,
+    // SET_GLOBAL
+    Global,
 
     MAX_NUM
 };
@@ -1999,8 +1999,8 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
         {4, textureNum, nri::DescriptorType::TEXTURE, nri::StageBits::COMPUTE_SHADER, nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY},
     };
 
-    // SET_SHARC
-    const nri::DescriptorRangeDesc sharcRanges[] = {
+    // SET_GLOBAL
+    const nri::DescriptorRangeDesc globalRanges[] = {
         {0, 3, nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, nri::StageBits::COMPUTE_SHADER},
     };
 
@@ -2049,7 +2049,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
     const nri::DescriptorSetDesc descriptorSetDescs[] = {
         {SET_OTHER, otherRanges, helper::GetCountOf(otherRanges)},
         {SET_RAY_TRACING, rayTracingRanges, helper::GetCountOf(rayTracingRanges)},
-        {SET_SHARC, sharcRanges, helper::GetCountOf(sharcRanges)},
+        {SET_GLOBAL, globalRanges, helper::GetCountOf(globalRanges)},
     };
 
     { // Pipeline layout
@@ -2083,7 +2083,7 @@ void Sample::CreatePipelineLayoutAndDescriptorPool() {
 
         setNum = 1;
         descriptorPoolDesc.descriptorSetMaxNum += setNum;
-        descriptorPoolDesc.storageStructuredBufferMaxNum += sharcRanges[0].descriptorNum * setNum;
+        descriptorPoolDesc.storageStructuredBufferMaxNum += globalRanges[0].descriptorNum * setNum;
 
         NRI_ABORT_ON_FAILURE(NRI.CreateDescriptorPool(*m_Device, descriptorPoolDesc, m_DescriptorPool));
     }
@@ -2830,7 +2830,7 @@ void Sample::CreateDescriptorSets() {
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::DlssBefore), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_OTHER, &Get(DescriptorSet::DlssAfter), 1, 0));
     NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_RAY_TRACING, &Get(DescriptorSet::RayTracing), 1, helper::GetCountOf(RayTracing_BindlessTextures)));
-    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_SHARC, &Get(DescriptorSet::Sharc), 1, 0));
+    NRI_ABORT_ON_FAILURE(NRI.AllocateDescriptorSets(*m_DescriptorPool, *m_PipelineLayout, SET_GLOBAL, &Get(DescriptorSet::Global), 1, 0));
 
     std::vector<nri::UpdateDescriptorRangeDesc> updateDescriptorRangeDescs;
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::SharcUpdatePing), 0, 0, SharcUpdatePing_Textures, helper::GetCountOf(SharcUpdatePing_Textures)});
@@ -2858,7 +2858,7 @@ void Sample::CreateDescriptorSets() {
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::DlssAfter), 1, 0, DlssAfter_StorageTextures, helper::GetCountOf(DlssAfter_StorageTextures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::RayTracing), 0, 0, RayTracing_Textures, helper::GetCountOf(RayTracing_Textures)});
     updateDescriptorRangeDescs.push_back({Get(DescriptorSet::RayTracing), 1, 0, RayTracing_BindlessTextures.data(), helper::GetCountOf(RayTracing_BindlessTextures)});
-    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::Sharc), 0, 0, Sharc_StorageBuffers, helper::GetCountOf(Sharc_StorageBuffers)});
+    updateDescriptorRangeDescs.push_back({Get(DescriptorSet::Global), 0, 0, Sharc_StorageBuffers, helper::GetCountOf(Sharc_StorageBuffers)});
 
     NRI.UpdateDescriptorRanges(updateDescriptorRangeDescs.data(), helper::GetCountOf(updateDescriptorRangeDescs));
 }
@@ -3402,8 +3402,8 @@ void Sample::RestoreBindings(nri::CommandBuffer& commandBuffer) {
     nri::SetDescriptorSetDesc rayTracingSet = {SET_RAY_TRACING, Get(DescriptorSet::RayTracing)};
     NRI.CmdSetDescriptorSet(commandBuffer, rayTracingSet);
 
-    nri::SetDescriptorSetDesc sharcSet = {SET_SHARC, Get(DescriptorSet::Sharc)};
-    NRI.CmdSetDescriptorSet(commandBuffer, sharcSet);
+    nri::SetDescriptorSetDesc globalSet = {SET_GLOBAL, Get(DescriptorSet::Global)};
+    NRI.CmdSetDescriptorSet(commandBuffer, globalSet);
 
     nri::SetRootDescriptorDesc root1 = {1, GetDescriptor(Descriptor::TLAS_World)};
     NRI.CmdSetRootDescriptor(commandBuffer, root1);

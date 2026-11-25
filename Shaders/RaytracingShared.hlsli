@@ -11,9 +11,9 @@ NRI_RESOURCE( Texture2D<uint3>, gIn_ScramblingRanking32, t, 2, SET_RAY_TRACING )
 NRI_RESOURCE( Texture2D<uint4>, gIn_Sobol, t, 3, SET_RAY_TRACING );
 NRI_RESOURCE( Texture2D<float4>, gIn_Textures[], t, 4, SET_RAY_TRACING );
 
-NRI_RESOURCE( RWStructuredBuffer<uint64_t>, gInOut_SharcHashEntriesBuffer, u, 0, SET_SHARC );
-NRI_RESOURCE( RWStructuredBuffer<SharcAccumulationData>, gInOut_SharcAccumulated, u, 1, SET_SHARC );
-NRI_RESOURCE( RWStructuredBuffer<SharcPackedData>, gInOut_SharcResolved, u, 2, SET_SHARC );
+NRI_RESOURCE( RWStructuredBuffer<uint64_t>, gInOut_SharcHashEntriesBuffer, u, 0, SET_GLOBAL );
+NRI_RESOURCE( RWStructuredBuffer<SharcAccumulationData>, gInOut_SharcAccumulated, u, 1, SET_GLOBAL );
+NRI_RESOURCE( RWStructuredBuffer<SharcPackedData>, gInOut_SharcResolved, u, 2, SET_GLOBAL );
 
 #if( USE_STOCHASTIC_SAMPLING == 1 )
     #define TEX_SAMPLER gNearestMipmapNearestSampler

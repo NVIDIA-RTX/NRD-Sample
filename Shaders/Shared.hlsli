@@ -70,7 +70,7 @@
 // Register spaces ( sets )
 #define SET_OTHER                           0
 #define SET_RAY_TRACING                     1
-#define SET_SHARC                           2
+#define SET_GLOBAL                          2
 #define SET_ROOT                            3
 
 // Path tracing
