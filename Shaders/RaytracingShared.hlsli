@@ -439,7 +439,7 @@ bool IsDelta( MaterialProps materialProps )
         && sqrt( abs( materialProps.curvature ) ) < 2.5;
 }
 
-float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps materialProps, bool useMagicBoost = false )
+float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps materialProps )
 {
     // IMPORTANT: can't be used for hair tracing, but applicable in other hair related calculations
     float3 albedo, Rf0;
@@ -456,10 +456,6 @@ float EstimateDiffuseProbability( GeometryProps geometryProps, MaterialProps mat
     // Should not be there, but no diffuse for hair
     if( geometryProps.Has( FLAG_HAIR ) )
         diffProb = 0.0;
-
-    // Boost diffussiness ( aka diffuse-like behavior ) if roughness is high
-    if( useMagicBoost )
-        diffProb = lerp( diffProb, 1.0, GetSpecMagicCurve( materialProps.roughness ) );
 
     [flatten]
     if( diffProb < PT_EVIL_TWIN_LOBE_TOLERANCE )

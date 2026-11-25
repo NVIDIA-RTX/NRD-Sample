@@ -449,7 +449,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         gOut_DirectLighting[ pixelPos ] = Ldirect; // "psrThroughput" applied in "Composition"
 
         // Lighting at PSR hit, if found
-        if( !geometryProps0.IsMiss( ) && hasPsr )
+        if( hasPsr )
         {
             float3 L = Ldirect * GetLighting( geometryProps0, materialProps0, SHADOW ) + materialProps0.Lemi;
 
