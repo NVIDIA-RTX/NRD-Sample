@@ -1,55 +1,61 @@
-# NRD SAMPLE
+# *NRD* SAMPLE
 
-NRD Sample is a high-performance playground and reference implementation for path tracing in games. It provides a comprehensive environment to see [*NRD (NVIDIA Real-time Denoisers)*](https://github.com/NVIDIA-RTX/NRD) in action across all possible use cases and compare it directly with *DLSS-RR*. While *NRD* and *DLSS-RR* are highly competitive today, effective comparison requires enabling *NRD* "SH" mode (set via the `NRD_MODE` macro in `Shared.hlsli`). The sample is designed to demonstrate production-ready path tracing best practices suitable for real-time gaming that balance visual fidelity with high performance. A core focus of the project is high-performance glass and transparency rendering. Built on the [*NRI (NVIDIA Rendering Interface)*](https://github.com/NVIDIA-RTX/NRI), the sample is natively cross-platform, supporting both *D3D12* and *Vulkan*. The ideas from the sample are already used in several *AAA* games and game mods.
+*NRD* Sample is a real-time path tracer for games, a reference for [*NRD*](https://github.com/NVIDIA-RTX/NRD) integration, and a source of path tracing goodness to borrow. The sample demonstrates production-ready path tracing best practices for real-time games, balancing image quality and high performance, including realistic glass rendering. Its techniques are already used in several *AAA* games and game mods, including Dark Souls 2 & 3 *PT*.
 
-Features:
-- best-in-class performance:
-  - RTX 4080 @ 1440p (native) shows ~150 FPS at day time and ~110 FPS at night time in *Bistro* scene (when the importance sampling comes into play)
-- fast path tracing based on *Trace Ray Inline* supporting:
-  - tracing variants:
-    - full resolution: probabilistic diffuse or specular lobe selection at the primary hit (recommended main use case)
-    - half resolution: 0.5 diffuse ray + 0.5 specular ray (checkerboard rendering)
-    - full resolution: 1 diffuse ray + 1 specular ray
-  - material models:
-    - "base color - metalness"
-    - RTXCR hair and skin
-  - smart levels of radiance caching, allowing to do only 1 bounce:
-    - L1 radiance cache: previously denoised frame (essential for refractions)
-    - L2 radiance cache: [*SHARC*](https://github.com/NVIDIA-RTX/SHARC) (global voxel-based cache)
-  - simple and robust importance sampling scheme designed to work with generic emissive pixels, i.e. not analytical lights (not RESTIR)
-  - realistic fast and robust glass with multi-bounce reflections and refractions not requiring denoising
-  - several rays per pixel and bounces (mostly for comparison)
-  - extremely fast implementation of Ray Cones for mip level calculation
-  - curvature estimation
-- *NRD* denoising:
-  - simple integration based on [*NRD Integration*](https://github.com/NVIDIA-RTX/NRD/tree/master/Integration) layer
-  - *RELAX* and *REBLUR* for radiance
-  - *SIGMA* for sun shadows
-  - Spherical Harmonics (Gaussians) mode essential for upscalers
-  - history confidence bumping IQ of dynamic lighting to a new level
-  - *NRD* debug validation layer
-  - denoising best practices including hair denoising
-  - occlusion-only modes
-  - reference accumulation
-  - NRD unit tests
-  - NRD special tests
-- native integration of *DLSS-SR*, *DLSS-RR*, *FSR* and *XeSS* via *NRIUpscaler* extension (not StreamLine)
- - NOTE: don't forget to modify `NRD_MODE` in `Shared.hlsli` to `SH` to unclock Spherical Harmonics (Gaussians) resolve mode essential for image quality!
+![Bistro](Images/Bistro.jpg)
 
-GitHub branches:
-- "best practices" `simplex` branch
-  - optimized for recommended usage (probabilistic split, `HitDistanceReconstructionMode::AREA_3X3` reconstruction). Recommended for learning NRD integration and borrowing PT code. It offers better performance and has less code
-- "all-in-one" `main` branch
-  - contains every possible option and setting, used primarily for NRD development and maintenance.
+![Kitchen](Images/Kitchen.jpg)
+
+The [tracer](Shaders/RaytracingShared.hlsli) uses:
+
+- *HW ray queries* and optimized per-triangle shading data, without vertex/index gathers at hits
+- separate `GeometryProps` and `MaterialProps` for optimal geometry and material evaluation
+- small live state and tracing payloads
+- efficient and lightweight *Ray Cones* implementation for texture mip selection
+
+Rendering pipeline:
+
+- [*Update radiance cache*](Shaders/SharcUpdate.cs.hlsl)
+  - world-space [*SHARC*](https://github.com/NVIDIA-RTX/SHARC) radiance (*L2*) cache is populated here, including surfaces seen through mirrors and glass
+  - retracing previous samples finds lighting changes for [*NRD* history confidence](https://github.com/NVIDIA-RTX/NRD#history-confidence)
+- [*Trace opaque*](Shaders/TraceOpaque.cs.hlsl)
+  - Primary Surface Replacement (*PSR*) follows mirrors before denoising
+  - *LightBVH*-based importance sampling uses Monte Carlo filtering over rays from any lobe sampler, including hair:
+    - scale the candidate count up or down to fit the hardware
+    - can query analytical lights with regular compute instead of *HW ray queries*
+    - can extend the weights with a phase function to handle light directionality
+  - paths reuse the previous denoised frame (*L1 radiance cache*), falling back to *SHARC (L2)* when screen-space reuse fails
+  - the path tracer never produces high energy fireflies, making the input friendly for denoising
+- [*Denoise*](https://github.com/NVIDIA-RTX/NRD) *and compose*
+  - *REBLUR/RELAX* denoise diffuse and specular
+  - *SIGMA* handles sun shadows
+  - [composition](Shaders/Composition.cs.hlsl) reapplies material factors removed before denoising and optionally performs *SH/SG* resolve and rejittering to recover sub-pixel details
+- [*Trace transparent*](Shaders/TraceTransparent.cs.hlsl)
+  - reflections and transmission reuse current-frame lighting (*L1 radiance cache*), falling back to *SHARC (L2)* to offer less noise in lighting
+  - *TAA/upscaler* handles the remaining noise using estimated motion vectors for transparent media
+  - no separate glass denoiser is in use
+
+Branches:
+
+- [main](https://github.com/NVIDIA-RTX/NRD-Sample/tree/main) - primary use-case based on probabilistic lobe selection, start here to learn or borrow code
+- [sandbox](https://github.com/NVIDIA-RTX/NRD-Sample/tree/sandbox) - all rendering options and *NRD* development tests
+
+Also included:
+
+- *D3D12* and *Vulkan* via [*NRI*](https://github.com/NVIDIA-RTX/NRI)
+- *DLSS-SR/FSR/XeSS* upscaling working in conjunction with [*NRD SG/SH* resolve and re-jittering](https://github.com/NVIDIA-RTX/NRD#interaction-with-upscaling-dlssfsrxesstaau)
+- *DLSS-RR* comparisons
+- *RTXCR* hair and skin subsurface scattering
+- checkerboard tracing and more in `sandbox` branch
 
 ## HOW TO BUILD
 
-- Install [*Cmake*](https://cmake.org/download/) 3.30+
+- Install [*CMake*](https://cmake.org/download/) 3.30+
 - Install [*Git LFS*](https://git-lfs.com/) when using `RTXCR_INTEGRATION` (enabled by default)
 - Build (variant 1) - using *Git* and *CMake* explicitly
     - Clone project and init submodules
     - Generate and build project using *CMake*
-    - To build the binary with static MSVC runtime, add `-DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"` parameter when deploying the project
+    - To build the binary with static *MSVC* runtime, add `-DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"` parameter when deploying the project
 - Build (variant 2) - by running scripts:
     - To deploy the project, run `Scripts/<Platform>/1-Deploy`
     - To build the project, run `Scripts/<Platform>/2-Build`
@@ -59,8 +65,7 @@ GitHub branches:
 
 *CMake* options:
 
-- `USE_MINIMAL_DATA=OFF` - download minimal resource package (90MB)
-- `RTXCR_INTEGRATION` - use RTXCR for hair and skin rendering, download sample scene
+- `RTXCR_INTEGRATION` - use *RTXCR* for hair and skin rendering, download sample scene
 
 ## HOW TO RUN
 
@@ -69,11 +74,11 @@ GitHub branches:
 - The executables can be found in `_Bin`. The executable loads resources from `_Data`, therefore please run the samples with working directory set to the project root folder (needed pieces of the command line can be found in `Scripts/Windows/3-Run.bat` script)
 
 Requirements:
-- any GPU supporting "trace ray inline"
+- any *GPU* supporting *HW ray queries*
 
 ## USAGE
 
-By default, NRD is used in common mode. To switch to "SH" or "occlusion-only" modes, modify the `NRD_MODE` macro in `Shared.hlsli` to one of the following: `NORMAL`, `OCCLUSION`, `SH`, or `DIRECTIONAL_OCCLUSION`. RELAX doesn't support AO / SO denoising. If RELAX is the current denoiser, ambient term will be flat.
+*NRD* defaults to `NORMAL` mode. For spherical harmonics / spherical Gaussian (*SH/SG*) resolve, set `NRD_MODE` to `SH` in [Shaders/Shared.hlsli](Shaders/Shared.hlsli) and rebuild. Use `SH` when comparing *NRD* with *DLSS-RR*, especially with upscaling.
 
 Controls:
 - Right mouse button + W/S/A/D - move camera

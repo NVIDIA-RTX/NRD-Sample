@@ -587,7 +587,7 @@ float2 GetConeAngleFromRoughness( float mip, float roughness )
             rayQuery.CommitNonOpaqueTriangleHit( ); \
     }
 
-float CastVisibilityRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+float CastVisibilityRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask )
 {
     RayDesc rayDesc;
     rayDesc.Origin = origin;
@@ -596,7 +596,7 @@ float CastVisibilityRay_AnyHit( float3 origin, float3 direction, float Tmin, flo
     rayDesc.TMax = Tmax;
 
     RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
-    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+    rayQuery.TraceRayInline( accelerationStructure, 0, instanceInclusionMask, rayDesc );
 
     while( rayQuery.Proceed( ) )
         CheckNonOpaqueTriangle( rayQuery, mipAndCone );
@@ -604,7 +604,7 @@ float CastVisibilityRay_AnyHit( float3 origin, float3 direction, float Tmin, flo
     return rayQuery.CommittedStatus( ) == COMMITTED_NOTHING ? INF : rayQuery.CommittedRayT( );
 }
 
-float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask )
 {
     RayDesc rayDesc;
     rayDesc.Origin = origin;
@@ -613,7 +613,7 @@ float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin,
     rayDesc.TMax = Tmax;
 
     RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES > rayQuery;
-    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+    rayQuery.TraceRayInline( accelerationStructure, 0, instanceInclusionMask, rayDesc );
 
     while( rayQuery.Proceed( ) )
         CheckNonOpaqueTriangle( rayQuery, mipAndCone );
@@ -621,7 +621,7 @@ float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin,
     return rayQuery.CommittedStatus( ) == COMMITTED_NOTHING ? INF : rayQuery.CommittedRayT( );
 }
 
-float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask )
 {
     RayDesc rayDesc;
     rayDesc.Origin = origin;
@@ -629,8 +629,9 @@ float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float T
     rayDesc.TMin = Tmin;
     rayDesc.TMax = Tmax;
 
-    RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
-    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+    // LightBVH treats emitters as one-sided, assuming correct triangle winding
+    RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_CULL_BACK_FACING_TRIANGLES > rayQuery;
+    rayQuery.TraceRayInline( accelerationStructure, 0, instanceInclusionMask, rayDesc );
 
     while( rayQuery.Proceed( ) )
         CheckNonOpaqueTriangle( rayQuery, mipAndCone );
@@ -652,7 +653,7 @@ float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float T
     return float2( lightDistance, lightIntensity );
 }
 
-GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask )
 {
     RayDesc rayDesc;
     rayDesc.Origin = origin;
@@ -661,7 +662,7 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
     rayDesc.TMax = Tmax;
 
     RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES > rayQuery;
-    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+    rayQuery.TraceRayInline( accelerationStructure, 0, instanceInclusionMask, rayDesc );
 
     while( rayQuery.Proceed( ) )
         CheckNonOpaqueTriangle( rayQuery, mipAndCone );
@@ -896,7 +897,7 @@ bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, 
             payload.accumulatedCurvature = max( payload.accumulatedCurvature, 0.0 );
 
         uint flags = bounce == bounceMaxNum ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
-        geometryProps = CastRay( Xoffset, ray, 0.0, INF, float2( geometryProps.mip, coneAngle ), gWorldTlas, flags, PT_RAY_FLAGS );
+        geometryProps = CastRay( Xoffset, ray, 0.0, INF, float2( geometryProps.mip, coneAngle ), gWorldTlas, flags );
 
         // Accumulate the outgoing virtual segment
         if( isDirectTracing )
@@ -942,6 +943,42 @@ uint GetImportanceSampleNum( float roughness, bool isDiffuse, bool isFirstBounce
     return max( sampleMaxNum, 1 );
 }
 
+// Cancel D using the bounded VNDF v3 reflection PDF
+float GetGgxVndfDOverPdf( float3 Vlocal, float roughness )
+{
+    float alpha = saturate( roughness * roughness );
+    float alpha2 = alpha * alpha;
+    float2 stretchedV = alpha * Vlocal.xy;
+    float lenSq = dot( stretchedV, stretchedV );
+    float t = sqrt( lenSq + Vlocal.z * Vlocal.z );
+
+    // Avoid cancellation in "t + Vlocal.z" for back-facing views
+    if( Vlocal.z < 0.0 )
+        return 2.0 * lenSq / ( t - Vlocal.z );
+
+    float s = 1.0 + length( Vlocal.xy );
+    float s2 = s * s;
+    float k = ( 1.0 - alpha2 ) * s2 / ( s2 + alpha2 * Vlocal.z * Vlocal.z );
+
+    return 2.0 * ( k * Vlocal.z + t );
+}
+
+float3 GetSpecularSamplingNormal( float3 V, float3 N, float3 Ng )
+{
+    // Adapt the normal before sampling, so the perfect reflection stays above geometry.
+    // https://arxiv.org/html/1705.01263#A1.SS3
+    float3 R = reflect( -V, N );
+    float NoR = dot( Ng, R );
+    if( NoR < 0.0 )
+    {
+        float b = abs( dot( Ng, N ) ) * 0.99;
+        R = normalize( R + Ng * ( -NoR * Math::PositiveRcp( b ) ) );
+        N = normalize( V + R );
+    }
+
+    return N;
+}
+
 // Compile-time flags for "GenerateRayAndUpdateThroughput"
 #define GR_HAIR 0x1
 #define GR_ALLOW_BN 0x2
@@ -950,6 +987,9 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 {
     bool isHair = RTXCR_INTEGRATION && ( flags & GR_HAIR ) != 0 && geometryProps.Has( FLAG_HAIR );
     bool isTransmission = USE_TRANSLUCENCY && geometryProps.Has( FLAG_LEAF ) && isDiffuse && Rng::Hash::GetFloat( ) < LEAF_TRANSLUCENCY; // white noise is fine here
+
+    if( !isHair && !isDiffuse )
+        materialProps.N = GetSpecularSamplingNormal( geometryProps.V, materialProps.N, geometryProps.N );
 
     float3x3 mLocalBasis = isHair ? GetHairBasis( materialProps.N, materialProps.T ) : Geometry::GetBasis( materialProps.N );
     float3 Vlocal = Geometry::RotateVector( mLocalBasis, geometryProps.V );
@@ -972,9 +1012,22 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     }
 
     // Importance sampling
+    bool useImportanceSampling = gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1;
+    float2 mipAndCone = 0;
+    float3 Xoffset = 0;
+
+    if( useImportanceSampling )
+    {
+        mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
+        Xoffset = isTransmission ? ( geometryProps.X - LEAF_THICKNESS * geometryProps.N ) : GetXoffset( geometryProps.X, geometryProps.N );
+    }
+
     float3 rayLocal = 0;
     float sumIntensity = 0.0;
-    float choosenIntensity = 1.0; // can be 0, but 1 is safer. In any case 1st reached light will get 100% selection probability overriding this with a real value
+    float chosenIntensity = 1.0; // overwritten by the first weighted candidate
+
+    // Find the maximum intensity among the lights the query can hit ( all lights or just nearby ones )
+    float baseIntensity = max( gEmissionIntensityLights, gEmissionIntensityCubes ) / ( PT_RESAMPLING_WEIGHT_MAX - 1.0 ); // keep non-light candidates selectable
 
     for( uint sampleIndex = 0; sampleIndex < sampleMaxNum; sampleIndex++ )
     {
@@ -1010,30 +1063,27 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
 
         // If IS enabled, check the candidate in LightBVH
         float lightIntensity = 0.0;
-        if( gDisableShadowsAndEnableImportanceSampling && sampleMaxNum != 1 )
+        if( useImportanceSampling )
         {
             float3 candidateRay = Geometry::RotateVectorInverse( mLocalBasis, candidateRayLocal );
-            float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-            float3 Xoffset = GetXoffset( geometryProps.X, geometryProps.N );
 
             // Ensure correct check for transmission
             if( isTransmission )
-            {
                 candidateRay = -candidateRay;
-                Xoffset = geometryProps.X - LEAF_THICKNESS * geometryProps.N;
-            }
 
-            float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+            float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT );
             lightIntensity = lightProps.y;
 
-        #if( USE_BIAS_FIX == 1 )
-            // Checking the candidate ray in "gWorldTlas" to get occlusion information eliminates negligible specular and hair bias
+        #if( USE_IS_VISIBILITY == 1 )
+            // Refine specular and hair weights using visibility
             if( lightIntensity != 0.0 && !isDiffuse )
             {
-                float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, lightProps.x, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+                float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, lightProps.x, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT );
                 lightIntensity *= distanceToOccluder >= lightProps.x;
             }
         #endif
+
+            lightIntensity += baseIntensity;
         }
 
         // Potentially fall back to non-IS ray
@@ -1043,21 +1093,20 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         // Weighted Reservoir Sampling: brighter hits have a mathematically higher chance to "overwrite" the choice
         sumIntensity += lightIntensity;
 
-        if( lightIntensity != 0.0 && Rng::Hash::GetFloat( ) < lightIntensity / sumIntensity ) // white noise is fine here
+        if( lightIntensity != 0.0 && Rng::Hash::GetFloat( ) * sumIntensity < lightIntensity ) // white noise is fine here
         {
             rayLocal = candidateRayLocal;
-            choosenIntensity = lightIntensity;
+            chosenIntensity = lightIntensity;
         }
     }
 
-    // Adjust throughput by percentage of rays hitting any emissive surface
-    // IMPORTANT: do not modify throughput if there is no an emissive hit, it's needed for a non-IS ray
+    // Normalize the reservoir selection, including the base weight for indirect lighting. With no weighted candidates, keep the original lobe sample and throughput
     if( sumIntensity != 0.0 )
     {
-        float multiplier = sumIntensity / ( choosenIntensity * sampleMaxNum );
+        float multiplier = sumIntensity / ( chosenIntensity * sampleMaxNum );
 
-        // TODO: suppress ( but not fully ) some rare high energy fireflies ( seem to be unbiased )
-        multiplier = min( multiplier, 8.0 );
+        // Guard rounding at the weight limit
+        multiplier = min( multiplier, PT_RESAMPLING_WEIGHT_MAX );
 
         throughput *= multiplier;
     }
@@ -1105,7 +1154,7 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
         float NoV = abs( dot( Nlocal, Vlocal ) );
 
         float Kdiff = BRDF::DiffuseTerm_Burley( materialProps.roughness, NoL, NoV, VoH );
-        if( !isTransmission && geometryProps.Has( FLAG_LEAF ) )
+        if( geometryProps.Has( FLAG_LEAF ) )
             Kdiff /= 1.0 - LEAF_TRANSLUCENCY;
 
         // NoL is canceled by "Cosine" distribution
@@ -1116,13 +1165,11 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     {
         float NoV = abs( Vlocal.z );
         float NoH = saturate( Hlocal.z );
-        float D = BRDF::DistributionTerm( materialProps.roughness, NoH );
         float G = BRDF::GeometryTermMod( materialProps.roughness, NoL, NoV, VoH, NoH );
         float3 F = BRDF::FresnelTerm( Rf0, VoH );
+        float DOverPdf = GetGgxVndfDOverPdf( Vlocal, materialProps.roughness );
 
-        // GetPDF includes the reflection Jacobian; normalize it for the trimmed sampling domain
-        float pdf = ImportanceSampling::VNDF::GetPDF( Vlocal, NoH, materialProps.roughness ) / PT_SPEC_LOBE_ENERGY;
-        throughput *= F * D * G * NoL * Math::PositiveRcp( pdf );
+        throughput *= F * G * NoL * DOverPdf * PT_SPEC_LOBE_ENERGY;
         throughput *= GetSpecularEnergyCompensation( materialProps.baseColor, materialProps.metalness, materialProps.roughness, NoV, VoH );
     }
 #endif
@@ -1130,24 +1177,9 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
     // Transform to world space
     float3 ray = Geometry::RotateVectorInverse( mLocalBasis, rayLocal );
 
-    // Fixes
-    float NoLgeom = dot( geometryProps.N, ray );
-    float roughnessThreshold = saturate( materialProps.roughness / 0.15 );
-
-    if( !isTransmission && !isHair && NoLgeom < 0.0 )
-    {
-        if( isDiffuse || Rng::Hash::GetFloat( ) < roughnessThreshold )
-            throughput = 0.0; // terminate ray pointing inside the surface
-        else
-        {
-            // If roughness is low, patch ray direction and shading normal to avoid self-intersections
-            // ( https://arxiv.org/pdf/1705.01263.pdf, Appendix 3 )
-            float b = abs( dot( geometryProps.N, materialProps.N ) ) * 0.99;
-
-            ray = normalize( ray + geometryProps.N * abs( NoLgeom ) * Math::PositiveRcp( b ) );
-            materialProps.N = normalize( geometryProps.V + ray );
-        }
-    }
+    // Reject remaining below-geometry samples without changing the sampled direction
+    if( !isTransmission && !isHair && dot( geometryProps.N, ray ) < 0.0 )
+        throughput = 0.0;
 
     return ray;
 }
@@ -1259,7 +1291,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
                 RTXCR_EvalBurleyDiffusionProfile( sssMaterial, sssGeometry, 0.004 / gUnitToMetersMultiplier, TRANSMISSION, Rng::Hash::GetFloat2( ), sssSample ); // TODO: units dependent! m?
 
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, 0.0 );
-                geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS ); // TODO: project to g-buffer?
+                geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT ); // TODO: project to g-buffer?
 
                 if( !geometryProps.IsMiss( ) && geometryProps.Has( FLAG_SKIN ) ) // TODO: another try is needed if this fails, but we can fallback to diffuse without SSS
                 {
@@ -1281,7 +1313,6 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
 
     // Shadow
     const uint instanceInclusionMask = FLAG_NON_TRANSPARENT; // Default shadow rays must ignore transparency // TODO: what about translucency?
-    const uint rayFlags = 0;
 
     if( ( flags & SHADOW ) != 0 && Color::Luminance( lighting ) != 0 && !gDisableShadowsAndEnableImportanceSampling )
     {
@@ -1290,7 +1321,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
         float3 Xoffset = GetXoffset( geometryProps.X, sunDirection, PT_SHADOW_RAY_OFFSET );
         float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps.mip, gTanSunAngularRadius );
 
-        float hitT = CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask, rayFlags );
+        float hitT = CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask );
         lighting *= float( hitT == INF );
     }
 
