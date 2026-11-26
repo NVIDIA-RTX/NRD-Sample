@@ -1,6 +1,6 @@
-# *NRD* SAMPLE
+# NRD SAMPLE
 
-*NRD* Sample is a real-time path tracer for games, a reference for [*NRD*](https://github.com/NVIDIA-RTX/NRD) integration, and a source of path tracing goodness to borrow. The sample demonstrates production-ready path tracing best practices for real-time games, balancing image quality and high performance, including realistic glass rendering. Its techniques are already used in several *AAA* games and game mods, including Dark Souls 2 & 3 *PT*.
+*NRD Sample* is a real-time path tracer for games, a reference for [*NRD*](https://github.com/NVIDIA-RTX/NRD) integration, and a source of path tracing goodness to borrow. The sample demonstrates production-ready path tracing best practices for real-time games, balancing image quality and high performance, including realistic glass rendering. Its techniques are already used in several *AAA* games and game mods, including Dark Souls 2 & 3 *PT*.
 
 ![Bistro](Images/Bistro.jpg)
 

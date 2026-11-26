@@ -91,7 +91,6 @@
 #define SHARC_CAPACITY                      ( 1 << 22 )
 #define SHARC_SCENE_SCALE                   45.0
 #define SHARC_DOWNSCALE                     5
-#define SHARC_RESPONSIVE_FRAME_NUM          32
 #define SHARC_STALE_FRAME_NUM_MIN           8 // default
 #define SHARC_SEPARATE_EMISSIVE             1
 #define SHARC_MATERIAL_DEMODULATION         1
