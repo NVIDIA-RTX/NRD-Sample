@@ -1057,7 +1057,8 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             if( isTransmission )
                 candidateRay = -candidateRay;
 
-            float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+            // Treat emitters as one-sided, assuming correct triangle winding
+            float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS | RAY_FLAG_CULL_BACK_FACING_TRIANGLES );
             lightIntensity = lightProps.y;
 
         #if( USE_IS_VISIBILITY == 1 )
