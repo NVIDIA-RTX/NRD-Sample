@@ -57,7 +57,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
     {
         uint flags = bounce == DELTA_BOUNCES_NUM ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
 
-        geometryProps = CastRay( Xoffset, ray, 0.0, INF, mip, gWorldTlas, flags, 0 );
+        geometryProps = CastRay( Xoffset, ray, 0.0, INF, mip, gWorldTlas, flags );
         MaterialProps materialProps = GetMaterialProps( geometryProps );
 
         bool isGlass = geometryProps.Has( FLAG_TRANSPARENT );
@@ -150,7 +150,7 @@ float4 Trace( uint2 pixelPos, compiletime int mode )
 
             // TODO: account for glass transmittance and absorption ( extinction ) during cache propagation when their impact is significant
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, isDiffuse ? 1.0 : materialProps.roughness );
-            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT );
 
             materialProps = GetMaterialProps( geometryProps );
         }

@@ -176,7 +176,7 @@ TraceOpaqueResult TraceOpaque( GeometryProps geometryProps, MaterialProps materi
             uint flags = traceGlass ? GEOMETRY_ALL : FLAG_NON_TRANSPARENT;
 
             float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, roughnessAtOrigin );
-            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, flags, PT_RAY_FLAGS );
+            geometryProps = CastRay( GetXoffset( geometryProps.X, geometryProps.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, flags );
 
             // Trace through glass ( events do not consume the opaque bounce budget )
             if( traceGlass )
@@ -317,7 +317,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
         float3 cameraRayDirection = 0;
         GetCameraRay( cameraRayOrigin, cameraRayDirection, sampleUv );
 
-        geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_NON_TRANSPARENT, 0 );
+        geometryProps0 = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, INF, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, FLAG_NON_TRANSPARENT );
         materialProps0 = GetMaterialProps( geometryProps0 );
     }
 
@@ -364,7 +364,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
 
                 // Trace to the next hit
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps0.mip, materialProps0.roughness );
-                geometryProps0 = CastRay( GetXoffset( geometryProps0.X, geometryProps0.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+                geometryProps0 = CastRay( GetXoffset( geometryProps0.X, geometryProps0.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT );
                 materialProps0 = GetMaterialProps( geometryProps0 );
             }
 
@@ -482,7 +482,7 @@ void main( uint2 pixelPos : SV_DispatchThreadID )
 
         while( shadowTranslucency > 0.01 )
         {
-            GeometryProps geometryPropsShadow = CastRay( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, 0 );
+            GeometryProps geometryPropsShadow = CastRay( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL );
 
             // Update hit dist
             shadowHitDist += geometryPropsShadow.hitT;

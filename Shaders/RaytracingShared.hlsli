@@ -581,7 +581,7 @@ float2 GetConeAngleFromRoughness( float mip, float roughness )
             rayQuery.CommitNonOpaqueTriangleHit( ); \
     }
 
-float CastVisibilityRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+float CastVisibilityRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask )
 {
     RayDesc rayDesc;
     rayDesc.Origin = origin;
@@ -590,7 +590,7 @@ float CastVisibilityRay_AnyHit( float3 origin, float3 direction, float Tmin, flo
     rayDesc.TMax = Tmax;
 
     RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
-    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+    rayQuery.TraceRayInline( accelerationStructure, 0, instanceInclusionMask, rayDesc );
 
     while( rayQuery.Proceed( ) )
         CheckNonOpaqueTriangle( rayQuery, mipAndCone );
@@ -598,7 +598,7 @@ float CastVisibilityRay_AnyHit( float3 origin, float3 direction, float Tmin, flo
     return rayQuery.CommittedStatus( ) == COMMITTED_NOTHING ? INF : rayQuery.CommittedRayT( );
 }
 
-float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask )
 {
     RayDesc rayDesc;
     rayDesc.Origin = origin;
@@ -607,7 +607,7 @@ float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin,
     rayDesc.TMax = Tmax;
 
     RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES > rayQuery;
-    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+    rayQuery.TraceRayInline( accelerationStructure, 0, instanceInclusionMask, rayDesc );
 
     while( rayQuery.Proceed( ) )
         CheckNonOpaqueTriangle( rayQuery, mipAndCone );
@@ -615,7 +615,7 @@ float CastVisibilityRay_ClosestHit( float3 origin, float3 direction, float Tmin,
     return rayQuery.CommittedStatus( ) == COMMITTED_NOTHING ? INF : rayQuery.CommittedRayT( );
 }
 
-float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask )
 {
     RayDesc rayDesc;
     rayDesc.Origin = origin;
@@ -623,8 +623,9 @@ float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float T
     rayDesc.TMin = Tmin;
     rayDesc.TMax = Tmax;
 
-    RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH > rayQuery;
-    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+    // LightBVH treats emitters as one-sided, assuming correct triangle winding
+    RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_CULL_BACK_FACING_TRIANGLES > rayQuery;
+    rayQuery.TraceRayInline( accelerationStructure, 0, instanceInclusionMask, rayDesc );
 
     while( rayQuery.Proceed( ) )
         CheckNonOpaqueTriangle( rayQuery, mipAndCone );
@@ -646,7 +647,7 @@ float2 CastLightRay_AnyHit( float3 origin, float3 direction, float Tmin, float T
     return float2( lightDistance, lightIntensity );
 }
 
-GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask, uint rayFlags )
+GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, float2 mipAndCone, RaytracingAccelerationStructure accelerationStructure, uint instanceInclusionMask )
 {
     RayDesc rayDesc;
     rayDesc.Origin = origin;
@@ -655,7 +656,7 @@ GeometryProps CastRay( float3 origin, float3 direction, float Tmin, float Tmax, 
     rayDesc.TMax = Tmax;
 
     RayQuery< RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES > rayQuery;
-    rayQuery.TraceRayInline( accelerationStructure, rayFlags, instanceInclusionMask, rayDesc );
+    rayQuery.TraceRayInline( accelerationStructure, 0, instanceInclusionMask, rayDesc );
 
     while( rayQuery.Proceed( ) )
         CheckNonOpaqueTriangle( rayQuery, mipAndCone );
@@ -890,7 +891,7 @@ bool TraceGlass( inout GeometryProps geometryProps, inout TracePayload payload, 
             payload.accumulatedCurvature = max( payload.accumulatedCurvature, 0.0 );
 
         uint flags = bounce == bounceMaxNum ? FLAG_NON_TRANSPARENT : GEOMETRY_ALL;
-        geometryProps = CastRay( Xoffset, ray, 0.0, INF, float2( geometryProps.mip, coneAngle ), gWorldTlas, flags, PT_RAY_FLAGS );
+        geometryProps = CastRay( Xoffset, ray, 0.0, INF, float2( geometryProps.mip, coneAngle ), gWorldTlas, flags );
 
         // Accumulate the outgoing virtual segment
         if( isDirectTracing )
@@ -1057,15 +1058,14 @@ float3 GenerateRayAndUpdateThroughput( inout GeometryProps geometryProps, inout 
             if( isTransmission )
                 candidateRay = -candidateRay;
 
-            // Treat emitters as one-sided, assuming correct triangle winding
-            float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS | RAY_FLAG_CULL_BACK_FACING_TRIANGLES );
+            float2 lightProps = CastLightRay_AnyHit( Xoffset, candidateRay, 0.0, INF, mipAndCone, gLightTlas, FLAG_NON_TRANSPARENT );
             lightIntensity = lightProps.y;
 
         #if( USE_IS_VISIBILITY == 1 )
             // Refine specular and hair weights using visibility
             if( lightIntensity != 0.0 && !isDiffuse )
             {
-                float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, lightProps.x, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS );
+                float distanceToOccluder = CastVisibilityRay_AnyHit( Xoffset, candidateRay, 0.0, lightProps.x, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT );
                 lightIntensity *= distanceToOccluder >= lightProps.x;
             }
         #endif
@@ -1275,7 +1275,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
                 RTXCR_EvalBurleyDiffusionProfile( sssMaterial, sssGeometry, 0.004 / gUnitToMetersMultiplier, TRANSMISSION, Rng::Hash::GetFloat2( ), sssSample ); // TODO: units dependent! m?
 
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryProps.mip, 0.0 );
-                geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT, PT_RAY_FLAGS ); // TODO: project to g-buffer?
+                geometryProps = CastRay( sssSample.samplePosition, -sssGeometry.normal, 0.0, INF, mipAndCone, gWorldTlas, FLAG_NON_TRANSPARENT ); // TODO: project to g-buffer?
 
                 if( !geometryProps.IsMiss( ) && geometryProps.Has( FLAG_SKIN ) ) // TODO: another try is needed if this fails, but we can fallback to diffuse without SSS
                 {
@@ -1297,7 +1297,6 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
 
     // Shadow
     const uint instanceInclusionMask = FLAG_NON_TRANSPARENT; // Default shadow rays must ignore transparency // TODO: what about translucency?
-    const uint rayFlags = 0;
 
     if( ( flags & SHADOW ) != 0 && Color::Luminance( lighting ) != 0 && !gDisableShadowsAndEnableImportanceSampling )
     {
@@ -1306,7 +1305,7 @@ float3 GetLighting( GeometryProps geometryProps, MaterialProps materialProps, co
         float3 Xoffset = GetXoffset( geometryProps.X, sunDirection, PT_SHADOW_RAY_OFFSET );
         float2 mipAndCone = GetConeAngleFromAngularRadius( geometryProps.mip, gTanSunAngularRadius );
 
-        float hitT = CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask, rayFlags );
+        float hitT = CastVisibilityRay_AnyHit( Xoffset, sunDirection, 0.0, INF, mipAndCone, gWorldTlas, instanceInclusionMask );
         lighting *= float( hitT == INF );
     }
 

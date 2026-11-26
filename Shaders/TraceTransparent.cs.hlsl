@@ -162,7 +162,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
     float rayDirectionZ = Geometry::RotateVector( gWorldToView, cameraRayDirection ).z;
     float tmax = ( viewZ + eps ) / abs( rayDirectionZ ); // DoF friendly
 
-    GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmax, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, flags, 0 );
+    GeometryProps geometryPropsT = CastRay( cameraRayOrigin, cameraRayDirection, 0.0, tmax, GetConeAngleFromRoughness( 0.0, 0.0 ), gWorldTlas, flags );
 
     float3 Lsum = 1.0;
 
@@ -207,7 +207,7 @@ void main( int2 pixelPos : SV_DispatchThreadID )
 
                 // Trace to the next hit
                 float2 mipAndCone = GetConeAngleFromRoughness( geometryPropsT.mip, materialProps.roughness );
-                geometryPropsT = CastRay( GetXoffset( geometryPropsT.X, geometryPropsT.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL, PT_RAY_FLAGS );
+                geometryPropsT = CastRay( GetXoffset( geometryPropsT.X, geometryPropsT.N ), ray, 0.0, INF, mipAndCone, gWorldTlas, GEOMETRY_ALL );
             }
 
             { // Hit point

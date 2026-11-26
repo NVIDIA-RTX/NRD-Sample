@@ -86,7 +86,6 @@
 #define PT_GLASS_INDIRECT_BOUNCES_NUM       8
 #define PT_PSR_BOUNCES_NUM                  ( USE_WHITE_FURNACE ? 0 : 2 )
 #define PT_EVIL_TWIN_LOBE_TOLERANCE         0.005 // normalized %
-#define PT_RAY_FLAGS                        0
 
 // Spatial HAsh-based Radiance Cache ( SHARC )
 #define SHARC_CAPACITY                      ( 1 << 22 )

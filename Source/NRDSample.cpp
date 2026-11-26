@@ -3071,7 +3071,7 @@ void Sample::GatherInstanceData() {
         topLevelInstance.instanceId = instanceIndex;
         topLevelInstance.mask = FLAG_NON_TRANSPARENT;
         topLevelInstance.shaderBindingTableRecordOffset = 0;
-        topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+        topLevelInstance.flags = nri::TopLevelInstanceBits::NONE;
         topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*Get(AccelerationStructure::BLAS_MergedEmissive));
 
         instanceIndex += m_EmissiveObjectsNum;
@@ -3202,13 +3202,15 @@ void Sample::GatherInstanceData() {
                     m_MaterialGridInstanceOffset = topLevelInstance.instanceId;
                 topLevelInstance.mask = flags;
                 topLevelInstance.shaderBindingTableRecordOffset = 0;
-                topLevelInstance.flags = nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE | (material.IsAlphaOpaque() ? nri::TopLevelInstanceBits::NONE : nri::TopLevelInstanceBits::FORCE_OPAQUE);
+                topLevelInstance.flags = material.IsAlphaOpaque() ? nri::TopLevelInstanceBits::NONE : nri::TopLevelInstanceBits::FORCE_OPAQUE;
                 topLevelInstance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*m_AccelerationStructures[meshInstance.blasIndex]);
-
-                m_WorldTlasData.push_back(topLevelInstance);
 
                 if (isForcedEmission || material.IsEmissive())
                     m_LightTlasData.push_back(topLevelInstance);
+
+                // Disable back face culling in World TLAS for a bit better performance
+                topLevelInstance.flags = topLevelInstance.flags | nri::TopLevelInstanceBits::TRIANGLE_CULL_DISABLE;
+                m_WorldTlasData.push_back(topLevelInstance);
             }
         }
     }
