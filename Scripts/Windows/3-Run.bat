@@ -108,8 +108,8 @@ echo 6 - aa
 :SCENE
 set SCENE=Bistro\BistroInterior.gltf
 echo.
-echo 1 - Bistro (interior)
-echo 2 - Bistro (exterior)
+echo 1 - Bistro (interior only)
+echo 2 - Bistro
 echo 3 - Shader balls
 echo 4 - Kitchen
 echo 5 - Claire
@@ -120,7 +120,7 @@ echo 5 - Claire
         goto RUN
     )
     if %M%==2 (
-        set SCENE=Bistro\BistroExterior.gltf
+        set SCENE=Bistro\Bistro.gltf
         goto RUN
     )
     if %M%==3 (

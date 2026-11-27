@@ -80,7 +80,7 @@
 #define PT_SPEC_LOBE_ENERGY                 0.95 // trimmed to 95%
 #define PT_SHADOW_RAY_OFFSET                0.25 // pixels
 #define PT_BOUNCE_RAY_OFFSET                0.25 // pixels
-#define PT_GLASS_RAY_OFFSET                 0.05 // pixels
+#define PT_GLASS_RAY_OFFSET                 0.01 // pixels
 #define PT_GLASS_EXTINCTION                 1.0 // 1 / meters
 #define PT_GLASS_DIRECT_BOUNCES_NUM         16
 #define PT_GLASS_INDIRECT_BOUNCES_NUM       8
