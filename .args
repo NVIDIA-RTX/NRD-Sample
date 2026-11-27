@@ -74,7 +74,7 @@
           "Command": "--scene=Bistro/BistroInterior.gltf"
         },
         {
-          "Command": "--scene=Bistro/BistroExterior.gltf"
+          "Command": "--scene=Bistro/Bistro.gltf"
         },
         {
           "Command": "--scene=Claire/Claire.gltf"
@@ -83,13 +83,13 @@
           "Command": "--scene=Kitchen/Kitchen.gltf"
         },
         {
-          "Command": "--scene=LivingRoom/living_room.gltf"
+          "Command": "--scene=LivingRoom/LivingRoom.gltf"
         },
         {
-          "Command": "--scene=TransparentMachines/transparent-machines-pt1.gltf"
+          "Command": "--scene=TransparentMachines/TransparentMachines.gltf"
         },
         {
-          "Command": "--scene=CornellBox/cornellBox.gltf"
+          "Command": "--scene=CornellBox/CornellBox.gltf"
         },
       ]
     },

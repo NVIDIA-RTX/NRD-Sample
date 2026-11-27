@@ -28,7 +28,6 @@ constexpr auto BLAS_RIGID_MESH_BUILD_BITS = nri::AccelerationStructureBits::PREF
 constexpr auto TLAS_BUILD_BITS = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
 constexpr float ACCUMULATION_TIME = 0.5f;      // seconds
 constexpr float NEAR_Z = 0.001f;               // m
-constexpr float GLASS_THICKNESS = 0.002f;      // m
 constexpr float CAMERA_BACKWARD_OFFSET = 0.0f; // m, 3rd person camera offset
 constexpr float NIS_SHARPNESS = 0.2f;
 constexpr bool CAMERA_RELATIVE = true;
@@ -637,7 +636,6 @@ public:
     void RenderFrame(uint32_t frameIndex) override;
 
     void LoadScene();
-    void AddInnerGlassSurfaces();
     void GenerateAnimatedCubes();
     nri::Format CreateSwapChain();
     void CreateCommandBuffers();
@@ -1093,9 +1091,6 @@ bool Sample::Initialize(nri::GraphicsAPI graphicsAPI, bool) {
 #endif
 
     LoadScene();
-
-    if (m_SceneFile.find("BistroInterior") != std::string::npos)
-        AddInnerGlassSurfaces();
 
     GenerateAnimatedCubes();
 
@@ -2264,9 +2259,6 @@ void Sample::LoadScene() {
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/glass_lens/glass_lens.gltf", m_Scene, !ALLOW_BLAS_MERGING));
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/glass_frame/glass_frame.gltf", m_Scene, !ALLOW_BLAS_MERGING));
         NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/Claire/Claire/shirt/shirt.gltf", m_Scene, !ALLOW_BLAS_MERGING));
-    } else if (m_SceneFile.find("transparent-machines") != std::string::npos) {
-        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/TransparentMachines/transparent-machines-pt0.gltf", m_Scene, !ALLOW_BLAS_MERGING));
-        NRI_ABORT_ON_FALSE(utils::LoadScene("_Data/Scenes/TransparentMachines/transparent-machines-pt1.gltf", m_Scene, !ALLOW_BLAS_MERGING));
     } else {
         sceneFile = utils::GetFullPath(m_SceneFile, utils::DataFolder::SCENES);
         NRI_ABORT_ON_FALSE(utils::LoadScene(sceneFile, m_Scene, !ALLOW_BLAS_MERGING));
@@ -2281,57 +2273,21 @@ void Sample::LoadScene() {
         m_Settings.exposure = 80.0f;
         m_Settings.animatedObjectScale = 0.5f;
         m_Settings.sunElevation = 7.0f;
-    } else if (m_SceneFile.find("BistroExterior") != std::string::npos)
-        m_Settings.exposure = 50.0f;
-    else if (m_SceneFile.find("Hair") != std::string::npos) {
+    } else if (m_SceneFile.find("Bistro.gltf") != std::string::npos) {
+        m_Settings.emissionIntensityLights = 100.0f;
+        m_Settings.exposure = 4.0f;
+    } else if (m_SceneFile.find("Hair") != std::string::npos) {
         m_Settings.exposure = 1.3f;
         m_Settings.bounceNum = 4;
     } else if (m_SceneFile.find("Claire") != std::string::npos) {
         m_Settings.exposure = 1.3f;
         m_Settings.bounceNum = 4;
         m_Settings.meterToUnitsMultiplier = 100.0f;
-    } else if (m_SceneFile.find("transparent-machines") != std::string::npos) {
+    } else if (m_SceneFile.find("TransparentMachines") != std::string::npos) {
         m_Settings.exposure = 1.0f;
         m_Settings.meterToUnitsMultiplier = 100.0f;
     } else if (m_SceneFile.find("ShaderBalls") != std::string::npos)
         m_Settings.exposure = 1.7f;
-}
-
-void Sample::AddInnerGlassSurfaces() {
-    // IMPORTANT: this is only valid for non-merged instances, when each instance represents a single object
-    // TODO: try thickness emulation in TraceTransparent shader
-
-    size_t instanceNum = m_Scene.instances.size();
-    for (size_t i = 0; i < instanceNum; i++) {
-        const utils::Instance& instance = m_Scene.instances[i];
-        const utils::Material& material = m_Scene.materials[instance.materialIndex];
-
-        // Skip non-transparent objects
-        if (!material.IsTransparent())
-            continue;
-
-        const utils::MeshInstance& meshInstance = m_Scene.meshInstances[instance.meshInstanceIndex];
-        const utils::Mesh& mesh = m_Scene.meshes[meshInstance.meshIndex];
-        float3 size = mesh.aabb.vMax - mesh.aabb.vMin;
-        size *= instance.rotation.GetScale();
-
-        // Skip too thin objects
-        float minSize = min(size.x, min(size.y, size.z));
-        if (minSize < GLASS_THICKNESS * 2.0f)
-            continue;
-
-        // Skip objects, which look "merged"
-        /*
-        float maxSize = max(size.x, max(size.y, size.z));
-        if (maxSize > 0.5f)
-            continue;
-        */
-
-        utils::Instance innerInstance = instance;
-        innerInstance.scale = (size - GLASS_THICKNESS) / (size + 1e-15f);
-
-        m_Scene.instances.push_back(innerInstance);
-    }
 }
 
 void Sample::GenerateAnimatedCubes() {

@@ -11,7 +11,7 @@ void main( uint threadIndex : SV_DispatchThreadID )
     SharcResolveParameters sharcResolveParameters;
     sharcResolveParameters.cameraPositionPrev = gCameraGlobalPosPrev.xyz;
     sharcResolveParameters.accumulationFrameNum = gMaxAccumulatedFrameNum;
-    sharcResolveParameters.responsiveFrameNum = SHARC_RESPONSIVE_FRAME_NUM;
+    sharcResolveParameters.responsiveFrameNum = gMaxAccumulatedFrameNum;
     sharcResolveParameters.staleFrameNumMax = SHARC_STALE_FRAME_NUM_MIN;
     sharcResolveParameters.frameIndex = gFrameIndex;
 
